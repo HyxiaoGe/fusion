@@ -14,10 +14,9 @@ import authReducer, { logout } from '@/redux/slices/authSlice';
 import conversationReducer, {
   appendMessage,
   updateMessage,
-  selectComposerAgentMode,
-  setComposerAgentMode,
   setReasoningEnabled,
   setHydrationStatus,
+  NEW_CHAT_SETTINGS_KEY,
 } from '@/redux/slices/conversationSlice';
 import modelsReducer, {
   setSelectedModel,
@@ -29,7 +28,6 @@ import streamReducer, {
   EMPTY_STREAM_SLOT,
 } from '@/redux/slices/streamSlice';
 import type { StreamSlot, StreamState } from '@/redux/slices/streamSlice';
-import { NEW_CHAT_AGENT_MODE_KEY } from '@/lib/agent/composerAgentMode';
 
 /** 按会话取流槽位。 */
 function slotOf(state: { stream: StreamState }, conversationId: string): StreamSlot {
@@ -374,7 +372,7 @@ describe('useSendMessage', () => {
     expect(triggerLoginDialog).toHaveBeenCalledTimes(1);
   });
 
-  it('发送知识库范围并沿用所选执行模式，同时把选择保留在本地会话', async () => {
+  it('发送知识库范围，同时把选择保留在本地会话', async () => {
     const store = createStore();
     store.dispatch(upsertConversation({
       id: 'existing-conv',
@@ -384,7 +382,6 @@ describe('useSendMessage', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }));
-    store.dispatch(setComposerAgentMode({ chatId: 'existing-conv', mode: 'plan' }));
     sendMessageStreamMock.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSendMessage(), {
@@ -401,9 +398,6 @@ describe('useSendMessage', () => {
     expect(sendMessageStreamMock).toHaveBeenCalledWith(
       expect.objectContaining({
         knowledge_base_ids: ['kb-1', 'kb-2'],
-        options: expect.objectContaining({
-          plan_mode: 'on',
-        }),
       }),
       expect.any(Object),
       expect.any(AbortSignal),
@@ -725,7 +719,6 @@ describe('useSendMessage', () => {
       createdAt: 100,
       updatedAt: 200,
     }));
-    store.dispatch(setComposerAgentMode({ chatId: 'existing-conv', mode: 'plan' }));
     sendMessageStreamMock.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSendMessage(), {
@@ -741,7 +734,6 @@ describe('useSendMessage', () => {
     expect(sendMessageStreamMock).toHaveBeenCalledWith(
       expect.objectContaining({
         knowledge_base_ids: undefined,
-        options: expect.objectContaining({ plan_mode: 'on' }),
       }),
       expect.any(Object),
       expect.any(AbortSignal),
@@ -1161,9 +1153,8 @@ describe('useSendMessage', () => {
     }));
   });
 
-  it('把用户开启的计划模式作为受控请求选项发送给后端', async () => {
+  it('请求只携带深度思考开关，不再携带执行模式', async () => {
     const store = createStore();
-    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'plan' }));
     sendMessageStreamMock.mockImplementation(
       async (_payload: any, callbacks: StreamCallbacks) => {
         callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
@@ -1182,10 +1173,7 @@ describe('useSendMessage', () => {
 
     expect(sendMessageStreamMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        options: expect.objectContaining({
-          use_reasoning: false,
-          plan_mode: 'on',
-        }),
+        options: { use_reasoning: false },
       }),
       expect.any(Object),
       expect.any(AbortSignal),
@@ -1215,132 +1203,12 @@ describe('useSendMessage', () => {
       expect.any(AbortSignal),
     );
 
-    store.dispatch(setReasoningEnabled({ chatId: NEW_CHAT_AGENT_MODE_KEY, enabled: true }));
+    store.dispatch(setReasoningEnabled({ chatId: NEW_CHAT_SETTINGS_KEY, enabled: true }));
     await act(async () => {
       await result.current.sendMessage('再问一个', { conversationId: null });
     });
     expect(sendMessageStreamMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ options: expect.objectContaining({ use_reasoning: true }) }),
-      expect.any(Object),
-      expect.any(AbortSignal),
-    );
-  });
-
-  it('切换到不支持工具调用的模型后不会发送不可满足的强制计划模式', async () => {
-    const store = createStore({ functionCalling: false });
-    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'plan' }));
-    sendMessageStreamMock.mockImplementation(
-      async (_payload: any, callbacks: StreamCallbacks) => {
-        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
-        callbacks.onAnswering({ block_id: 'blk_c', delta: 'answer' });
-        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
-      }
-    );
-
-    const { result } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('直接回答', { conversationId: null });
-    });
-
-    expect(sendMessageStreamMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({
-          plan_mode: 'auto',
-        }),
-      }),
-      expect.any(Object),
-      expect.any(AbortSignal),
-    );
-  });
-
-  it('新对话页的模式选择随首条消息转给新对话，新对话页回到自动模式', async () => {
-    const store = createStore();
-    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'plan' }));
-    sendMessageStreamMock.mockImplementation(
-      async (_payload: any, callbacks: StreamCallbacks) => {
-        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
-        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
-      }
-    );
-
-    const { result } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('深入调查这个问题', { conversationId: null });
-    });
-
-    const { composerAgentModeByChat } = store.getState().conversation;
-    expect(composerAgentModeByChat).toEqual({ 'server-conv': 'plan' });
-    expect(selectComposerAgentMode(store.getState(), null)).toBe('auto');
-  });
-
-  it('已有对话按自己的模式发送，不受其他对话选择影响', async () => {
-    const store = createStore();
-    store.dispatch(upsertConversation({
-      id: 'existing-conv',
-      title: 'Existing',
-      model_id: 'model-1',
-      messages: [{
-        id: 'assistant-old',
-        role: 'assistant',
-        content: [],
-        timestamp: 1,
-        agent_run: { config: { planMode: 'on' } } as any,
-      }],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }));
-    store.dispatch(setComposerAgentMode({ chatId: 'other-conv', mode: 'plan' }));
-    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'auto' }));
-    sendMessageStreamMock.mockResolvedValue(undefined);
-
-    const { result } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('继续研究', { conversationId: 'existing-conv' });
-    });
-
-    expect(sendMessageStreamMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({ plan_mode: 'on' }),
-      }),
-      expect.any(Object),
-      expect.any(AbortSignal),
-    );
-  });
-
-  it('规划执行在模型不支持工具调用时发送前安全回退自动模式', async () => {
-    const store = createStore({ functionCalling: false });
-    store.dispatch(setComposerAgentMode({ chatId: NEW_CHAT_AGENT_MODE_KEY, mode: 'plan' }));
-    sendMessageStreamMock.mockImplementation(
-      async (_payload: any, callbacks: StreamCallbacks) => {
-        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv' });
-        callbacks.onAnswering({ block_id: 'blk_c', delta: 'answer' });
-        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
-      }
-    );
-
-    const { result } = renderHook(() => useSendMessage(), {
-      wrapper: createWrapper(store),
-    });
-
-    await act(async () => {
-      await result.current.sendMessage('深入调查这个问题', { conversationId: null });
-    });
-
-    expect(sendMessageStreamMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        options: expect.objectContaining({
-          plan_mode: 'auto',
-        }),
-      }),
       expect.any(Object),
       expect.any(AbortSignal),
     );
@@ -4718,7 +4586,6 @@ describe('useSendMessage', () => {
       maxSteps: 5,
       maxToolCalls: 10,
       timeoutS: 60,
-      planMode: 'auto',
     });
 
     await act(async () => { releaseStream?.(); });

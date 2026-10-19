@@ -59,9 +59,6 @@ export type AgentPlanItemKind =
 
 export type AgentPlanMode = 'auto' | 'on' | 'off';
 
-/** 输入框面向用户的任务执行模式。 */
-export type ComposerAgentMode = 'auto' | 'plan';
-
 export type AgentPlanSource = 'model' | 'observed';
 
 export interface AgentProgressState {
@@ -168,8 +165,6 @@ export interface AgentRunConfig {
   maxSteps: number;
   maxToolCalls: number;
   timeoutS: number;
-  /** 旧历史可能缺失；SSE 与新历史会归一化为明确值。 */
-  planMode?: AgentPlanMode;
   /** 本次是否开启深度思考；旧 run 没有记录。 */
   useReasoning?: boolean;
 }

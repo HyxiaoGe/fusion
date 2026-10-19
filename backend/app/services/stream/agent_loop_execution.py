@@ -216,7 +216,6 @@ def build_agent_loop_runtime(
         warning_fn=dependencies.warning_fn,
         clock=dependencies.clock,
         dynamic_tool_handlers=getattr(request.call_config, "dynamic_tool_handlers", {}),
-        plan_mode=getattr(request.call_config, "plan_mode", "auto"),
         control_tool_names=getattr(request.call_config, "control_tool_names", frozenset()),
         output_tool_names=getattr(request.call_config, "output_tool_names", frozenset()),
         skill_tool_names=getattr(request.call_config, "skill_tool_names", frozenset()),

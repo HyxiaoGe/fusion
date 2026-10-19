@@ -807,7 +807,7 @@ describe('useAssistantMessageViewModel', () => {
       runId: 'run-1',
       messageId: 'assistant-1',
       status: 'running',
-      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300, planMode: 'on' },
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
       totalSteps: 1,
       totalToolCalls: 0,
       lastSequence: 1,

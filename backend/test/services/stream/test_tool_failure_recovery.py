@@ -133,7 +133,7 @@ class ToolFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         result = await _run_round(
             messages=[{"role": "user", "content": "查询资料"}],
             state=state,
-            runtime=_runtime(plan_mode="off", run_round_fn=run_round_fn),
+            runtime=_runtime(run_round_fn=run_round_fn),
             step_number=2,
             step_context=_step_context(),
         )

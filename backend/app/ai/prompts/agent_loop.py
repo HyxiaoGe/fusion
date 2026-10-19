@@ -55,8 +55,6 @@ VISIBLE_RESPONSE_LANGUAGE_PROMPT = render_runtime_prompt("agent_loop.visible_res
 
 TOOL_USAGE_CONTRACT_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["tool_usage_contract"]
 
-AGENT_PLAN_CONTROL_ON_PROMPT = render_runtime_prompt("agent_loop.plan_control_on")
-
 NO_TOOL_NETWORK_BOUNDARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["no_tool_network_boundary"]
 
 NO_VISION_FILE_BOUNDARY_PROMPT = CODE_DEFAULT_PROMPT_TEMPLATES["no_vision_file_boundary"]
@@ -90,12 +88,6 @@ def get_tool_usage_contract_prompt() -> str:
 @register_prompt_consumer("no_tool_network_boundary")
 def get_no_tool_network_boundary_prompt() -> str:
     return get_runtime_prompt_template("no_tool_network_boundary", NO_TOOL_NETWORK_BOUNDARY_PROMPT)
-
-
-def get_agent_plan_control_prompt() -> str:
-    """计划控制正文不在 catalog 内，本期继续由代码维护。"""
-
-    return AGENT_PLAN_CONTROL_ON_PROMPT
 
 
 @register_prompt_consumer("no_vision_file_boundary")

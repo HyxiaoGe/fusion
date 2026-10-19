@@ -218,7 +218,6 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 runtime=_runtime(
                     emitter=emitter,
                     handle_tool_calls_round_fn=handle_tool_calls,
-                    plan_mode="on",
                 ),
                 step_number=1,
                 step_context=_step_context("step-plan-tool"),
@@ -1001,7 +1000,6 @@ class AgentLoopRoundOutcomeTests(unittest.IsolatedAsyncioTestCase):
                 runtime=_runtime(
                     emitter=emitter,
                     handle_tool_calls_round_fn=handle_tool_calls_round_fn,
-                    plan_mode="on",
                 ),
                 step_number=2,
                 step_context=_step_context("step-deferred-tool"),
@@ -1107,7 +1105,6 @@ class DocumentDeliveredPendingPlanTests(unittest.IsolatedAsyncioTestCase):
                     complete_step_fn=_complete_step_noop,
                     emitter=emitter,
                     session_cache=AsyncMock(),
-                    plan_mode="on",
                 ),
                 step_number=4,
                 step_context=_step_context(f"{run_id}-step"),

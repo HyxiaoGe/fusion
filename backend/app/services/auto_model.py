@@ -2,9 +2,8 @@
 
 会话绑定 `auto`，或绑定的模型已从目录下线/被禁止调用时，每轮在服务端按管理员配置的
 优先级挑一个当前可调用的具体模型。优先级按「提供商 → 模型 ID」分组配置，目前组与组内
-都按顺序取第一个可用模型；用户本轮选的执行模式（自动/规划执行）可以各配一套
-优先级，没配的模式沿用默认分组。只看目录、调度开关、健康状态、模型熔断、执行模式和
-本轮的硬性需求（带图就要读图，规划执行要工具调用），不根据问题内容猜模型。
+都按顺序取第一个可用模型。只看目录、调度开关、健康状态、模型熔断和本轮的硬性需求
+（带图就要读图），不根据问题内容猜模型。
 候选全部不可用时退到目录里其余可用模型，保证只要目录里还有模型，对话就不会因为模型
 下线而卡死。原模型在回答中途不可用时，也从这里挑能力满足、换一家提供商的备用模型。
 """
@@ -13,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, get_args
+from typing import Any
 
 from app.ai import litellm_catalog, litellm_health
 from app.ai.model_circuit_breaker import model_circuit_breaker
@@ -22,16 +21,6 @@ from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
 from app.services.config_defaults import DEFAULT_AUTO_MODEL_CONFIG
 
 AUTO_MODEL_ID = "auto"
-
-# 与前端执行模式一一对应：auto=自动，plan=规划执行
-AutoModelMode = Literal["auto", "plan"]
-AUTO_MODEL_MODES: tuple[AutoModelMode, ...] = get_args(AutoModelMode)
-
-# 执行模式对模型的硬性能力要求；不满足的候选本轮跳过
-_MODE_REQUIRED_CAPABILITIES: dict[AutoModelMode, tuple[str, ...]] = {
-    "auto": (),
-    "plan": ("functionCalling",),
-}
 
 # 与 /api/models 的排序一致：候选之外的兜底按 cost_tier 从低到高挑
 _COST_TIER_ORDER = {"low": 0, "mid": 1, "high": 2}
@@ -53,28 +42,14 @@ class AutoProviderGroup:
     models: tuple[str, ...]
 
 
-def get_auto_provider_groups(mode: AutoModelMode = "auto") -> list[AutoProviderGroup]:
-    return _mode_provider_groups(DEFAULT_AUTO_MODEL_CONFIG, mode)
+def get_auto_provider_groups() -> list[AutoProviderGroup]:
+    return _parse_provider_groups(DEFAULT_AUTO_MODEL_CONFIG)
 
 
-def get_auto_model_candidates(mode: AutoModelMode = "auto") -> list[str]:
+def get_auto_model_candidates() -> list[str]:
     """把提供商分组按顺序展开成候选列表；组内目前同样按顺序取第一个可用模型。"""
 
-    return [model for group in get_auto_provider_groups(mode) for model in group.models]
-
-
-def get_all_auto_model_candidates() -> list[str]:
-    """所有执行模式的候选并集（保持首次出现的顺序），供自动选择卡片汇总能力。"""
-
-    return list(dict.fromkeys(model for mode in AUTO_MODEL_MODES for model in get_auto_model_candidates(mode)))
-
-
-def _mode_provider_groups(payload: Any, mode: AutoModelMode) -> list[AutoProviderGroup]:
-    """取执行模式自己的分组；该模式没配或配置无效时沿用默认 providers。"""
-
-    modes = payload.get("modes") if isinstance(payload, Mapping) else None
-    mode_payload = modes.get(mode) if isinstance(modes, Mapping) else None
-    return _parse_provider_groups(mode_payload) or _parse_provider_groups(payload)
+    return [model for group in get_auto_provider_groups() for model in group.models]
 
 
 def _parse_provider_groups(payload: Any) -> list[AutoProviderGroup]:
@@ -109,19 +84,17 @@ def pick_auto_model(
     controls: ModelCatalogControlRepository,
     *,
     require_vision: bool = False,
-    mode: AutoModelMode = "auto",
     allowed_model_ids: tuple[str, ...] | None = None,
 ) -> str | None:
-    """按执行模式的优先级挑一个可调用模型。
+    """按自动选择的优先级挑一个可调用模型。
 
-    执行模式要求的能力是硬性的：没有任何候选满足时仍返回第一个可用模型，交给任务策略
-    按原有规则报错或降级，不在这里掩盖。读图同理放宽，由无视觉边界兜底。
-    allowed_model_ids：只在这些模型里挑（游客），排在执行模式候选之后按给定顺序补齐，
+    带图时优先挑能读图的；没有任何候选能读图时仍返回第一个可用模型，由无视觉边界兜底。
+    allowed_model_ids：只在这些模型里挑（游客），排在自动选择候选之后按给定顺序补齐，
     不再退到目录里的其他模型。
     """
 
     catalog = litellm_catalog.list_aliases()
-    candidates = _restrict_to_allowed(get_auto_model_candidates(mode), allowed_model_ids)
+    candidates = _restrict_to_allowed(get_auto_model_candidates(), allowed_model_ids)
     if not catalog:
         # 目录暂时拉不到：无法校验可用性，按配置顺序直接交给 LiteLLM
         return candidates[0] if candidates else None
@@ -131,19 +104,12 @@ def pick_auto_model(
     ordered.sort(key=model_circuit_breaker.is_open)
     controls_by_model = controls.get_by_model_ids(ordered)
     usable = [alias for alias in ordered if _is_usable(alias, controls_by_model.get(alias))]
-    mode_required = _MODE_REQUIRED_CAPABILITIES[mode]
-    if mode_required or require_vision:
+    if require_vision:
         disabled_aliases = get_agent_tools_disabled_aliases()
-        capabilities = {
-            alias: litellm_catalog.get_capabilities(alias, agent_tools_disabled_aliases=disabled_aliases)
-            for alias in usable
-        }
-        # 先找同时满足执行模式与读图的；读图可以放宽，执行模式要求的能力仍优先满足
-        attempts = ((*mode_required, "vision"), mode_required) if require_vision else (mode_required,)
-        for required in attempts:
-            capable = [alias for alias in usable if _has_capabilities(capabilities[alias], required)]
-            if capable:
-                return capable[0]
+        for alias in usable:
+            capabilities = litellm_catalog.get_capabilities(alias, agent_tools_disabled_aliases=disabled_aliases)
+            if _has_capabilities(capabilities, ("vision",)):
+                return alias
     return usable[0] if usable else None
 
 
@@ -166,7 +132,7 @@ def pick_fallback_model(
     catalog = litellm_catalog.list_aliases()
     if not catalog:
         return None
-    candidates = _restrict_to_allowed([preferred_model_id, *get_auto_model_candidates("auto")], allowed_model_ids)
+    candidates = _restrict_to_allowed([preferred_model_id, *get_auto_model_candidates()], allowed_model_ids)
     ordered = _registered_in_priority(catalog, candidates, include_rest=allowed_model_ids is None)
     failed_provider = _serving_provider(catalog.get(failed_model_id))
     controls_by_model = controls.get_by_model_ids(ordered) if controls is not None else {}

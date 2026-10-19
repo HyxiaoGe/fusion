@@ -103,8 +103,8 @@ def _tool_names(call_kwargs: dict) -> list[str]:
 
 
 class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
-    async def test_answer_without_tool_attempt_streams_directly_in_auto_and_off_modes(self):
-        for plan_mode in ("auto", "off"):
+    async def test_answer_without_tool_attempt_streams_directly_with_or_without_plan_tool(self):
+        for plan_mode in ("on", "off"):
             with self.subTest(plan_mode=plan_mode):
                 observed = []
 
@@ -123,7 +123,6 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
                     messages=[{"role": "user", "content": "规划北京到上海的交通"}],
                     state=AgentLoopState(plan_coordinator=PlanCoordinator(run_id="run-no-product", mode=plan_mode)),
                     runtime=_runtime(
-                        plan_mode=plan_mode,
                         capability_resolution=SimpleNamespace(external_tool_names=("route_compare", "search_trains")),
                         call_kwargs={"tools": [_tool_definition("route_compare"), _tool_definition("search_trains")]},
                         run_round_fn=run_round_fn,
@@ -175,7 +174,6 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
             state=state,
             runtime=_runtime(
                 emitter=AsyncMock(),
-                plan_mode="on",
                 output_tool_names=frozenset({"create_document", "edit_document"}),
                 capability_resolution=capability_resolution,
                 call_kwargs={

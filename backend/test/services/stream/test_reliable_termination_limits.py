@@ -101,7 +101,6 @@ async def _run_limit_case(limit, unfinished_plan):
 
     summary = AsyncMock(side_effect=limit_summary)
     runtime = _runtime(
-        plan_mode="on" if unfinished_plan else "off",
         limits=AgentLoopLimits(max_steps=8, max_tool_calls=20, total_timeout_s=30),
         clock=lambda: 31.0 if limit == "timeout" else 1.0,
         start_step_fn=_start_step,

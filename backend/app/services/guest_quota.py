@@ -54,9 +54,9 @@ def is_guest(user: Any) -> bool:
 
 
 def guest_model_ids() -> tuple[str, ...]:
-    """自动选择默认档位里每个提供商的首选模型，即各家的 flash 档。"""
+    """自动选择里每个提供商的首选模型，即各家的 flash 档。"""
 
-    return tuple(dict.fromkeys(group.models[0] for group in get_auto_provider_groups("auto")))
+    return tuple(dict.fromkeys(group.models[0] for group in get_auto_provider_groups()))
 
 
 def login_required(message: str) -> ApiException:

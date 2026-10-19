@@ -5,15 +5,6 @@ import { Textarea } from "@/components/ui/textarea";
 import type { FileAttachment } from "@/lib/utils/fileHelpers";
 import { uploadFiles, deleteFile } from "@/lib/api/files";
 import { startPollingFileStatus, stopPollingFileStatus } from "@/lib/api/FileStatusPoller";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { selectStreamSlot } from '@/redux/slices/streamSlice';
 import type { RootState } from "@/redux/store";
@@ -25,7 +16,7 @@ import {
   selectIsGuest,
 } from "@/redux/selectors";
 import { refreshEntitlements } from "@/redux/slices/guestSlice";
-import { selectComposerAgentMode, selectReasoningEnabled, setComposerAgentMode, setReasoningEnabled } from "@/redux/slices/conversationSlice";
+import { NEW_CHAT_SETTINGS_KEY, selectReasoningEnabled, setReasoningEnabled } from "@/redux/slices/conversationSlice";
 import {
   addFileId,
   clearFiles,
@@ -36,20 +27,14 @@ import {
 } from "@/redux/slices/fileUploadSlice";
 import {
   ArrowUp,
-  Check,
-  ChevronDown,
   Atom,
   Loader2,
-  ListChecks,
   PaperclipIcon,
-  Sparkles,
   Square,
-  type LucideIcon,
 } from "lucide-react";
 import ImageViewer from "./ImageViewer";
 import ModelSelector from "@/components/models/ModelSelector";
 import composerStyles from "./ChatInput.module.css";
-import agentModeStyles from "./ComposerAgentMode.module.css";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "react-redux";
 import { useToast } from "../ui/toast";
@@ -68,12 +53,6 @@ import {
   type ConversationComposerAttachment,
   type UploadComposerAttachment,
 } from "./composerAttachments";
-import {
-  COMPOSER_AGENT_MODE_LABELS,
-  getComposerAgentModeAvailability,
-  NEW_CHAT_AGENT_MODE_KEY,
-} from "@/lib/agent/composerAgentMode";
-import type { ComposerAgentMode } from "@/types/agentRun";
 import { PlanTimeline } from "./agent/PlanTimeline";
 import {
   KnowledgeBaseComposerSelection,
@@ -138,23 +117,6 @@ interface LocalFileWithStatus {
 
 const EMPTY_CONVERSATION_ATTACHMENTS: ConversationComposerAttachment[] = [];
 const IMAGE_UPLOAD_ONLY_MESSAGE = "当前仅支持上传图片，文件对话后续开放";
-const COMPOSER_AGENT_MODES: Array<{
-  value: ComposerAgentMode;
-  description: string;
-  icon: LucideIcon;
-}> = [
-  {
-    value: "auto",
-    description: "根据任务复杂度选择直接回答或规划",
-    icon: Sparkles,
-  },
-  {
-    value: "plan",
-    description: "先生成执行计划，再按步骤完成任务",
-    icon: ListChecks,
-  },
-];
-
 const EMPTY_KNOWLEDGE_BASE_IDS: string[] = [];
 
 function normalizeSelectedKnowledgeBaseIds(ids: string[] | undefined): string[] {
@@ -295,13 +257,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const processingFiles = useAppSelector((state) => state.fileUpload.processingFiles);
   // 深度思考按对话记：在一个对话里开启不影响其他对话和新对话。
   const reasoningEnabled = useAppSelector((state) => selectReasoningEnabled(state, activeChatId));
-  // 执行模式按对话记：新对话默认自动，已有对话保持它自己的模式。
-  const agentModeKey = activeChatId || NEW_CHAT_AGENT_MODE_KEY;
-  const composerAgentMode = useAppSelector((state) => selectComposerAgentMode(state, activeChatId));
-  const activeComposerAgentMode = COMPOSER_AGENT_MODES.find(
-    (mode) => mode.value === composerAgentMode,
-  )!;
-  const ActiveComposerAgentModeIcon = activeComposerAgentMode.icon;
+  const chatSettingsKey = activeChatId || NEW_CHAT_SETTINGS_KEY;
   const modelsLoadStatus = useAppSelector((state) => state.models.loadStatus);
   const currentRun = useAppSelector((state) => selectStreamSlot(state, activeChatId).currentRun);
   const selectContextStatus = useMemo(
@@ -442,27 +398,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     // 游客的额度在开始生成时扣、出错时退，生成开始和结束各同步一次剩余条数。
     if (isGuest) void dispatch(refreshEntitlements());
   }, [dispatch, isGuest, isCurrentConversationStreaming]);
-
-  useEffect(() => {
-    if (!hasHydrated || !selectedModel || composerAgentMode === "auto") {
-      return;
-    }
-
-    const availability = getComposerAgentModeAvailability(
-      composerAgentMode,
-      selectedModel.capabilities,
-    );
-    if (availability.enabled) {
-      return;
-    }
-
-    dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: "auto" }));
-    toast({
-      message: `已切换到自动模式：${availability.unavailableReason ?? "当前模型不支持所选模式"}`,
-      type: "warning",
-      duration: 3000,
-    });
-  }, [agentModeKey, composerAgentMode, dispatch, hasHydrated, selectedModel, toast]);
 
   useLayoutEffect(() => {
     currentChatIdRef.current = chatId;
@@ -1538,7 +1473,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               className={`h-8 px-2 gap-1.5 ${reasoningEnabled && supportsReasoning ? "bg-info-bg text-info hover:bg-info-bg hover:text-info" : "text-muted-foreground hover:text-foreground"} ${!supportsReasoning ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => {
                 if (!supportsReasoning || isComposerBlocked) return;
-                dispatch(setReasoningEnabled({ chatId: agentModeKey, enabled: !reasoningEnabled }));
+                dispatch(setReasoningEnabled({ chatId: chatSettingsKey, enabled: !reasoningEnabled }));
               }}
               disabled={!supportsReasoning || isComposerBlocked}
               aria-label="深度思考"
@@ -1548,98 +1483,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
               <Atom className="h-4 w-4" />
               <span className="hidden text-xs min-[420px]:inline">深度思考</span>
             </Button>
-
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={`h-8 min-w-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground ${agentModeStyles.trigger}`}
-                  disabled={isComposerBlocked}
-                  aria-label={`执行模式：${COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}`}
-                  title={`当前执行模式：${COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}`}
-                >
-                  <ActiveComposerAgentModeIcon
-                    data-testid="composer-agent-mode-icon"
-                    data-mode={composerAgentMode}
-                    className={`h-4 w-4 ${composerAgentMode === "plan" ? "text-primary" : ""}`}
-                  />
-                  {/* 模式名最长四个字，完整展示；窄屏省掉“模式：”前缀让出空间 */}
-                  <span className="whitespace-nowrap text-xs">
-                    <span className="hidden min-[420px]:inline">模式：</span>
-                    {COMPOSER_AGENT_MODE_LABELS[composerAgentMode]}
-                  </span>
-                  <ChevronDown className={`size-3 opacity-60 ${agentModeStyles.chevron}`} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                side="top"
-                sideOffset={8}
-                className={agentModeStyles.panel}
-                aria-label="选择执行模式"
-              >
-                <DropdownMenuLabel className={agentModeStyles.header}>
-                  <span className={agentModeStyles.title}>执行模式</span>
-                  <span className={agentModeStyles.hint}>
-                    控制任务是否先规划再执行；模型思考由“深度思考”开关控制
-                  </span>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className={agentModeStyles.separator} />
-                <DropdownMenuRadioGroup
-                  className={agentModeStyles.options}
-                  value={composerAgentMode}
-                  onValueChange={(value) => {
-                    dispatch(setComposerAgentMode({ chatId: agentModeKey, mode: value as ComposerAgentMode }));
-                  }}
-                >
-                  {COMPOSER_AGENT_MODES.map((mode) => {
-                    const availability = getComposerAgentModeAvailability(
-                      mode.value,
-                      selectedModel?.capabilities,
-                    );
-                    const disabledMode = !hasHydrated || !availability.enabled;
-                    const itemDescription = availability.enabled
-                      ? mode.description
-                      : availability.unavailableReason;
-                    const isSelected = mode.value === composerAgentMode;
-                    const ModeIcon = mode.icon;
-                    return (
-                      <DropdownMenuRadioItem
-                        key={mode.value}
-                        value={mode.value}
-                        disabled={disabledMode}
-                        aria-label={`${COMPOSER_AGENT_MODE_LABELS[mode.value]}：${itemDescription}`}
-                        className={`${agentModeStyles.option} [&>span:first-child]:hidden`}
-                      >
-                        <span
-                          className={agentModeStyles.icon}
-                        >
-                          <ModeIcon className="size-4 text-current" />
-                        </span>
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="truncate text-[13px] font-medium">
-                              {COMPOSER_AGENT_MODE_LABELS[mode.value]}
-                            </span>
-                            <span className="ml-auto flex size-5 shrink-0 items-center justify-center">
-                              {isSelected && (
-                                <span className={agentModeStyles.selectedMark}>
-                                  <Check className="size-3 text-current" strokeWidth={2.5} />
-                                </span>
-                              )}
-                            </span>
-                          </span>
-                          <span className={agentModeStyles.description}>
-                            {itemDescription}
-                          </span>
-                        </span>
-                      </DropdownMenuRadioItem>
-                    );
-                  })}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
 
             <KnowledgeBaseComposerTrigger state={knowledgeBaseComposer} />
           </div>

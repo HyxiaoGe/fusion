@@ -10,7 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-PlanMode = Literal["auto", "on", "off"]
+# on：本次公告了计划工具（有工具可用的 Run 都会公告），是否列计划由模型决定。
+PlanMode = Literal["on", "off"]
 PlanStatus = Literal["pending", "running", "completed", "failed", "skipped", "blocked"]
 
 _PLAN_STATUSES = frozenset({"pending", "running", "completed", "failed", "skipped", "blocked"})
@@ -144,10 +145,6 @@ class PlanCoordinator:
         self.revision += 1
         self.reason = reason
         return self.snapshot()
-
-
-def normalize_plan_mode(value: Any) -> PlanMode:
-    return value if value in {"auto", "on", "off"} else "auto"
 
 
 def _normalize_plan_items(payload: Any, *, previous_items: list[dict[str, Any]]) -> list[dict[str, Any]]:

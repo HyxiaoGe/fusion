@@ -119,7 +119,6 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             previous_session=SimpleNamespace(id="run-old", run_config={"use_reasoning": False}),
             initial_content_blocks=[],
             limits=SimpleNamespace(max_steps=8, max_tool_calls=20, total_timeout_s=300),
-            plan_mode="on",
         )
         service.stream_handler.generate_to_redis = AsyncMock()
         service.conversation_service.claim_assistant_message_generation = MagicMock()
@@ -191,16 +190,13 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             service.stream_handler.generate_to_redis.call_args.kwargs["options"],
-            {
-                "plan_mode": "on",
-                "use_reasoning": False,
-            },
+            {"use_reasoning": False},
         )
         register_task_mock.assert_called_once()
         self.assertIs(register_task_mock.call_args.args[1], task)
         self.assertEqual(response.media_type, "text/event-stream")
 
-    async def test_continue_auto_conversation_picks_model_by_original_execution_mode(self):
+    async def test_continue_auto_conversation_picks_model_by_auto_priority(self):
         service = ChatService(MagicMock())
         service.model_control_repository = MagicMock()
         conversation = SimpleNamespace(
@@ -217,10 +213,6 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             assistant_message=SimpleNamespace(sequence=42),
             previous_session=SimpleNamespace(id="run-old"),
             initial_content_blocks=[],
-            task_policy=SimpleNamespace(
-                apply_to_options=lambda: {"plan_mode": "on"},
-            ),
-            plan_mode="on",
         )
         with (
             patch("app.services.chat_service.build_continuation_context", return_value=continuation_context),
@@ -239,9 +231,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
                 previous_run_id="run-old",
             )
 
-        pick.assert_called_once_with(
-            service.model_control_repository, require_vision=False, mode="plan", allowed_model_ids=None
-        )
+        pick.assert_called_once_with(service.model_control_repository, require_vision=False, allowed_model_ids=None)
         resolve_model.assert_called_once_with("mimo-v2.6-pro")
 
     async def test_continue_agent_run_rejects_missing_conversation(self):
@@ -277,7 +267,6 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             previous_session=SimpleNamespace(id="run-old"),
             initial_content_blocks=[],
             limits=SimpleNamespace(max_steps=8, max_tool_calls=20, total_timeout_s=300),
-            plan_mode="off",
         )
 
         with (
@@ -312,7 +301,6 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             assistant_message=SimpleNamespace(sequence=42),
             initial_content_blocks=[],
             limits=SimpleNamespace(max_steps=8, max_tool_calls=20, total_timeout_s=300),
-            plan_mode="off",
         )
 
         with (
@@ -403,7 +391,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
 
 class StoredReasoningTests(unittest.TestCase):
     def test_old_run_without_record_leaves_reasoning_to_model_default(self):
-        options = {"plan_mode": "auto"}
+        options = {"max_tokens": 1024}
         self.assertEqual(_with_stored_reasoning(options, SimpleNamespace(run_config={})), options)
         self.assertEqual(_with_stored_reasoning(options, SimpleNamespace(run_config=None)), options)
 

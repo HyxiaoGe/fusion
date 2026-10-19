@@ -14,10 +14,8 @@ from app.db.models import Message as MessageModel
 from app.schemas.chat import ContentBlock
 from app.schemas.content_block_registry import deserialize_content_blocks
 from app.schemas.response import ApiException
-from app.services.agent.plan_coordinator import PlanMode
 from app.services.agent.session_cache import InvalidPreviousRunError, validate_previous_run_candidate
 from app.services.stream.agent_loop_policy import AgentLoopLimits
-from app.services.stream.agent_task_policy import AgentTaskPolicy, restore_agent_task_policy
 
 CONTINUATION_SYSTEM_PROMPT = _CONTINUATION_SYSTEM_PROMPT
 
@@ -27,8 +25,6 @@ class AgentContinuationContext:
     assistant_message: MessageModel
     previous_session: AgentSession
     limits: AgentLoopLimits
-    plan_mode: PlanMode
-    task_policy: AgentTaskPolicy
     initial_content_blocks: list[ContentBlock]
 
 
@@ -37,11 +33,6 @@ def resolve_continuation_limits(session: AgentSession, *, default_limits: AgentL
 
     del session
     return default_limits
-
-
-def resolve_continuation_task_policy(session: AgentSession) -> AgentTaskPolicy:
-    config = session.run_config if isinstance(session.run_config, dict) else {}
-    return restore_agent_task_policy(config)
 
 
 def find_latest_limit_reached_session(
@@ -105,12 +96,9 @@ def build_continuation_context(
         previous_run_id=previous_run_id,
     )
 
-    task_policy = resolve_continuation_task_policy(previous_session)
     return AgentContinuationContext(
         assistant_message=assistant_message,
         previous_session=previous_session,
         limits=resolve_continuation_limits(previous_session, default_limits=default_limits),
-        plan_mode=task_policy.plan_mode,
-        task_policy=task_policy,
         initial_content_blocks=deserialize_content_blocks(assistant_message.content),
     )
