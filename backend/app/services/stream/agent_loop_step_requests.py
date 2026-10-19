@@ -112,6 +112,5 @@ def build_limit_summary_step_request(
         llm_round_detail_scheduler=runtime.llm_round_detail_scheduler,
         capability_resolution=runtime.capability_resolution,
         recovery_evidence=state.recovery_evidence,
-        fallback_response_context=runtime.fallback_response_context,
         document_delivered=document_delivered,
     )

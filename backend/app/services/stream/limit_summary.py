@@ -42,7 +42,7 @@ from app.services.stream.provider_content_filter import (
 )
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
 from app.services.stream.run_output import RunOutput
-from app.services.stream.safe_fallback_response import default_safe_fallback, render_safe_fallback
+from app.services.stream.safe_fallback_response import PROTOCOL_FALLBACK_TEXT
 from app.services.stream.tool_ban import forbid_tool_calls, without_tool_definitions
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset
 from app.services.stream_state_service import StreamOwnershipLostError, StreamWriteTerminalError
@@ -50,7 +50,6 @@ from app.utils.prompt_fingerprint import fingerprint_system_messages
 
 if TYPE_CHECKING:
     from app.services.stream.run_capability_router import RunCapabilityResolution
-    from app.services.stream.safe_fallback_response import FallbackResponseContext
 
 LIMIT_SUMMARY_PROMPT = _LIMIT_SUMMARY_PROMPT
 
@@ -107,7 +106,6 @@ class LimitSummaryStepRequest:
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     capability_resolution: RunCapabilityResolution | None = None
     recovery_evidence: RecoveryEvidenceWorkset | None = None
-    fallback_response_context: FallbackResponseContext | None = None
     # 本次 run 已写出文档时，总结只做简短回复，不再复述文档正文。
     document_delivered: bool = False
     # 历史轮次回放的工具调用 id；总结无视工具禁令后的重做不带工具定义，需移除这些事务。
@@ -212,8 +210,6 @@ def _only_recoverable_tool_transactions(messages: list[PromptMessage | dict]) ->
 
 
 SUMMARY_TOOL_PROTOCOL_RETRY_PROMPT = render_runtime_prompt("stream.summary_tool_protocol_retry")
-
-SUMMARY_PROTOCOL_FALLBACK_TEXT = default_safe_fallback("protocol_error")
 
 
 def _create_limit_summary_observation(
@@ -681,7 +677,7 @@ def _build_summary_protocol_fallback(
 ) -> LimitSummaryRoundResult:
     return LimitSummaryRoundResult(
         reasoning_buf=result.reasoning_buf,
-        content_buf=SUMMARY_PROTOCOL_FALLBACK_TEXT,
+        content_buf=PROTOCOL_FALLBACK_TEXT,
         usage_data=result.usage_data if usage_data is None else usage_data,
         context=result.context,
         tool_calls=(),
@@ -799,14 +795,6 @@ async def run_limit_summary_step(
     )
 
 
-async def _safe_summary_fallback(request: LimitSummaryStepRequest, reason: str) -> str:
-    context = request.fallback_response_context
-    remaining = 0.0
-    if context is not None and context.original_message:
-        remaining = request.total_timeout_s - max(0.0, request.clock() - request.run_start)
-    return await render_safe_fallback(reason, context=context, model_id=request.model_id, timeout_s=remaining)
-
-
 async def _guard_protocol_residue(
     request: LimitSummaryStepRequest,
     answer: str,
@@ -825,7 +813,7 @@ async def _guard_protocol_residue(
             f"conv_id={request.conversation_id} run_id={request.run_id} "
             f"finish_reason={request.summary_finish_reason}"
         )
-    return await _safe_summary_fallback(request, "protocol_error"), True
+    return PROTOCOL_FALLBACK_TEXT, True
 
 
 async def _commit_limit_summary_result(
@@ -858,7 +846,7 @@ async def _commit_limit_summary_result(
     answer = round_result.content_buf.strip()
     incomplete = round_result.finish_reason == "protocol_fallback" or not answer
     if not answer or round_result.finish_reason == "protocol_fallback":
-        answer = await _safe_summary_fallback(request, "protocol_error")
+        answer = PROTOCOL_FALLBACK_TEXT
     answer, protocol_residue = await _guard_protocol_residue(request, answer)
     if protocol_residue:
         incomplete = True

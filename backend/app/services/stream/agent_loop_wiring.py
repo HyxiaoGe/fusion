@@ -77,8 +77,6 @@ class AgentLoopRunInput:
             turn_message_id=self.turn_message_id,
             previous_run_id=self.previous_run_id,
             run_attempt_kind=self.run_attempt_kind,
-            original_message=self.original_message,
-            response_language=(self.options or {}).get("response_language"),
             guest=self.guest,
         )
 
