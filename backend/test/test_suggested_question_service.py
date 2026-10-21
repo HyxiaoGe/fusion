@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.database import Base
 from app.db.models import Conversation, Message, User
+from app.db.repositories import ConversationRepository
 from app.schemas.chat import SuggestedQuestionsRequest
 from app.schemas.response import ApiException
 from app.services.suggested_question_service import (
@@ -207,6 +208,43 @@ class SuggestedQuestionServiceTests(unittest.TestCase):
         self.assertEqual(result.questions, ["历史问题"])
         self.assertEqual(result.revision, 0)
         self.assertEqual(self._message().suggested_questions, ["历史问题"])
+
+    def test_regenerate_claim_hides_old_questions_and_voids_inflight_generation(self):
+        # 重新生成期间刷新页面，详情接口曾返回旧回答的推荐（ready 或仍在生成），被挂到正在生成的新回答下。
+        message = self._message()
+        message.suggested_questions = ["旧回答对应的问题"]
+        self.db.commit()
+        # 旧回答的推荐还在生成（pending）时就点了重新生成。
+        inflight = self.service.claim_auto_generation(assistant_message_id="assistant-msg-1", run_id="run-old")
+        self.db.commit()
+        self.assertEqual(self._message().suggested_questions_status, "pending")
+
+        ConversationRepository(self.db).claim_assistant_message_generation(
+            conversation_id="conv-1",
+            message_id="assistant-msg-1",
+            task_id="task-regenerate",
+        )
+        self.db.commit()
+
+        message = self._message()
+        self.assertEqual(message.suggested_questions_status, "idle")
+        # 问题保留：重新生成失败时原回答仍带原推荐。
+        self.assertEqual(message.suggested_questions, ["旧回答对应的问题"])
+
+        response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="1. 迟到的问题"))])
+        with (
+            patch("app.services.utility_model.llm_manager.resolve_model") as resolve_model,
+            patch(
+                "app.services.suggested_question_service.litellm.acompletion",
+                new=AsyncMock(return_value=response),
+            ),
+        ):
+            resolve_model.return_value = ("openai/deepseek-chat", "deepseek", {})
+            result = asyncio.run(self.service.generate_claimed_questions(inflight))
+
+        self.assertFalse(result.applied)
+        self.assertEqual(self._message().suggested_questions, ["旧回答对应的问题"])
+        self.assertEqual(self._message().suggested_questions_status, "idle")
 
     def test_generation_context_is_locked_to_target_assistant_message(self):
         self.db.add_all(

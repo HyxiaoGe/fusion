@@ -535,6 +535,9 @@ class ConversationRepository:
         if db_message is None:
             raise ValueError("待重试的 assistant 消息不存在")
         db_message.generation_task_id = task_id
+        # 旧推荐对应旧回答。标为 idle：生成期间刷新页面不会把它们挂到新回答下，
+        # 仍在进行的旧推荐生成也因 CAS 不再命中 pending 而作废；问题本身保留，重新生成失败时原回答照旧可用。
+        db_message.suggested_questions_status = "idle"
         self.db.flush()
 
     def claim_unanswered_user_generation(
