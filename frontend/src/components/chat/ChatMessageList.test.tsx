@@ -959,6 +959,42 @@ describe('ChatMessageList', () => {
       .toHaveAttribute('data-run-limit-reason', 'max_steps');
   });
 
+  it('同 runId 的 hydrated 终态覆盖停在 running 的本地 run', () => {
+    // 回放流尾部未送达时本地 run 收不到 run_completed，水合回来的服务端终态必须生效。
+    selectorState.streamSlot.currentRun = {
+      runId: 'run-server',
+      messageId: 'assistant-1',
+      status: 'running',
+      config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+      totalSteps: 0,
+      totalToolCalls: 0,
+      steps: [],
+      lastSequence: 3,
+    };
+
+    render(
+      <ChatMessageList
+        conversationId="chat-1"
+        messages={[{
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text' as const, id: 'blk_1', text: '完整回答' }],
+          timestamp: 1,
+          agent_run: {
+            runId: 'run-server',
+            status: 'completed',
+            config: { maxSteps: 8, maxToolCalls: 20, timeoutS: 300 },
+            totalSteps: 1,
+            totalToolCalls: 0,
+          },
+        } as any]}
+      />,
+    );
+
+    expect(screen.getByTestId('chat-message-assistant-1'))
+      .toHaveAttribute('data-run-status', 'completed');
+  });
+
   it('marks the message owning stream.messageId as streaming even when it is not last', () => {
     selectorState.streamSlot.messageId = 'assistant-1';
     render(

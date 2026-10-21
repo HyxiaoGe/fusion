@@ -565,6 +565,102 @@ class TestStreamStateService(unittest.IsolatedAsyncioTestCase):
         entries = await self.fake_redis.xrange("stream:chunks:conv-finalized")
         self.assertEqual([entry[1]["type"] for entry in entries], ["start", "done"])
 
+    async def test_lagging_reader_reads_sealed_stream_through_terminal_entry(self):
+        """从头回放的读取器远落后生产端时，流结束后仍要读完尾部正文和 run 终态。"""
+        from app.services.stream_state_service import append_chunk, finalize_stream, init_stream, read_stream_chunks
+
+        await init_stream("conv-lagging", "user", "model", "msg-lagging", "task-lagging")
+        for index in range(1200):
+            await append_chunk("conv-lagging", "answering", f"t{index}", "blk", task_id="task-lagging")
+        await append_chunk(
+            "conv-lagging",
+            "agent_event",
+            json.dumps({"type": "run_completed"}),
+            "",
+            task_id="task-lagging",
+        )
+        await finalize_stream("conv-lagging", success=True, task_id="task-lagging")
+
+        chunks = [
+            chunk
+            async for chunk in read_stream_chunks(
+                "conv-lagging",
+                expected_message_id="msg-lagging",
+                expected_task_id="task-lagging",
+            )
+        ]
+
+        types = [chunk["type"] for chunk in chunks]
+        self.assertEqual(types.count("answering"), 1200)
+        self.assertEqual(types[-2:], ["agent_event", "done"])
+
+    async def test_reconnect_from_terminal_entry_ends_without_error(self):
+        from app.services.stream_state_service import append_chunk, finalize_stream, init_stream, read_stream_chunks
+
+        await init_stream("conv-sealed", "user", "model", "msg-sealed", "task-sealed")
+        await append_chunk("conv-sealed", "answering", "回答", "blk", task_id="task-sealed")
+        await finalize_stream("conv-sealed", success=True, task_id="task-sealed")
+        entries = await self.fake_redis.xrange("stream:chunks:conv-sealed")
+        done_entry_id = entries[-1][0]
+
+        chunks = [
+            chunk
+            async for chunk in read_stream_chunks(
+                "conv-sealed",
+                done_entry_id,
+                expected_message_id="msg-sealed",
+                expected_task_id="task-sealed",
+            )
+        ]
+
+        self.assertEqual(chunks, [])
+
+    async def test_sealed_stream_without_terminal_entry_reports_interrupted(self):
+        """结束条目已不可读时明确报中断，不能静默结束让前端当作完成。"""
+        from app.services.stream_state_service import append_chunk, finalize_stream, init_stream, read_stream_chunks
+
+        await init_stream("conv-expired", "user", "model", "msg-expired", "task-expired")
+        await append_chunk("conv-expired", "answering", "回答", "blk", task_id="task-expired")
+        await finalize_stream("conv-expired", success=True, task_id="task-expired")
+        await self.fake_redis.delete("stream:chunks:conv-expired")
+
+        chunks = [
+            chunk
+            async for chunk in read_stream_chunks(
+                "conv-expired",
+                expected_message_id="msg-expired",
+                expected_task_id="task-expired",
+            )
+        ]
+
+        self.assertEqual(len(chunks), 1)
+        payload = json.loads(chunks[0]["content"])
+        self.assertEqual(payload["code"], "stream_interrupted")
+        self.assertEqual(payload["data"]["reason"], "terminal_entry_missing")
+
+    async def test_sealed_stream_drain_stops_when_replaced_between_batches(self):
+        from app.services.stream_state_service import append_chunk, finalize_stream, init_stream, read_stream_chunks
+
+        await init_stream("conv-drain-replaced", "user", "model", "msg-old", "task-old")
+        for index in range(4):
+            await append_chunk("conv-drain-replaced", "answering", f"t{index}", "blk", task_id="task-old")
+        await finalize_stream("conv-drain-replaced", success=True, task_id="task-old")
+
+        with patch("app.services.stream_state_service._TERMINAL_DRAIN_BATCH", 2):
+            reader = read_stream_chunks(
+                "conv-drain-replaced",
+                expected_message_id="msg-old",
+                expected_task_id="task-old",
+            )
+            first_batch = [await anext(reader), await anext(reader)]
+            await init_stream("conv-drain-replaced", "user", "model", "msg-new", "task-new")
+            rest = [chunk async for chunk in reader]
+
+        self.assertEqual([chunk["type"] for chunk in first_batch], ["start", "answering"])
+        self.assertEqual(len(rest), 1)
+        payload = json.loads(rest[0]["content"])
+        self.assertEqual(payload["data"]["reason"], "stream_replaced")
+
     async def test_finalize_stream_returns_false_for_replaced_task(self):
         from app.services.stream_state_service import finalize_stream, init_stream
 
