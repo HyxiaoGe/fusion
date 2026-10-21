@@ -182,7 +182,6 @@ async def _commit_deferred_plain_answer(request: AgentRoundOutcomeRequest) -> Ag
     if rejected is not None:
         await _append_committed_answer(request, rejected, output_reason="protocol_residue")
         return _with_replaced_answer(request, rejected)
-    answer = request.runtime.structured_answers.rewrite_answer(answer, request.state)
     if answer:
         await _append_committed_answer(request, answer, model_output_visible=True)
     return _with_replaced_answer(request, answer)

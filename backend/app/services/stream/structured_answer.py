@@ -1,4 +1,4 @@
-"""产品结构化结果的 loop 钩子：工具结果记录、交付前净化与工具轮之后是否继续。
+"""产品结构化结果的 loop 钩子：工具结果记录与工具轮之后是否继续。
 
 loop 核心只在固定位置调用这些钩子。回答始终由模型写：空回答、触顶和等用户补充都走
 通用的模型收尾，服务端不按结构化结果拼回答，也不替模型汇总结果块。基类不提供任何
@@ -23,9 +23,6 @@ class StructuredAnswers:
 
     def record_tool_results(self, state: AgentLoopState, results: list[ToolExecutionRecord]) -> None:
         return None
-
-    def rewrite_answer(self, answer: str, state: AgentLoopState) -> str:
-        return answer
 
     def observe_run_finished(
         self,

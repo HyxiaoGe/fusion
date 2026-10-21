@@ -23,9 +23,7 @@ from app.services.mcp.flyai_travel_tools import (
     build_flyai_travel_binding,
     build_flyai_user_scope,
 )
-from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_wiring import _load_dynamic_tools
-from app.services.stream.product_structured_answers import PRODUCT_STRUCTURED_ANSWERS
 from app.services.stream.tool_executor import ToolExecutionBatchRequest, execute_tool_handler
 from app.services.tool_handlers.itinerary import PRESENT_ITINERARY_TOOL_NAME
 
@@ -572,15 +570,6 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsInstance(event.content_block, FlightResultsBlock)
         self.assertEqual(restored[0].flights[0].flight_no, "CZ1234")
-
-        sanitized = PRODUCT_STRUCTURED_ANSWERS.rewrite_answer(
-            "根据 FlyAI 和飞猪旅行返回的结果，search_flights 返回 CZ1234。",
-            AgentLoopState(content_blocks=restored),
-        )
-        self.assertIn("FlyAI", sanitized)
-        self.assertIn("飞猪旅行", sanitized)
-        self.assertNotIn("search_flights", sanitized)
-        self.assertIn("航班查询", sanitized)
 
     async def test_dynamic_tool_loader_receives_user_id(self):
         captured: dict = {}

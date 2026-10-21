@@ -9,7 +9,6 @@ from app.services.stream.itinerary_observability import build_itinerary_run_payl
 from app.services.stream.place_choice import pending_place_choice
 from app.services.stream.product_tool_round import record_itinerary_tool_observations
 from app.services.stream.structured_answer import StructuredAnswers
-from app.utils.user_visible_content import sanitize_internal_tool_names
 
 if TYPE_CHECKING:
     from app.services.stream.agent_loop_state import AgentLoopState
@@ -23,10 +22,6 @@ class ProductStructuredAnswers(StructuredAnswers):
 
     def record_tool_results(self, state: AgentLoopState, results: list[ToolExecutionRecord]) -> None:
         record_itinerary_tool_observations(state, results)
-
-    def rewrite_answer(self, answer: str, state: AgentLoopState) -> str:
-        # 只去掉漏出的内部工具标识，品牌、实体和来源原文保留。
-        return sanitize_internal_tool_names(answer, final=True)
 
     def observe_run_finished(
         self,

@@ -36,22 +36,6 @@ class RoundCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(content_blocks[1].id, "blk_text")
         self.assertEqual(content_blocks[1].text, "正文内容")
 
-    def test_append_round_content_blocks_sanitizes_user_visible_reasoning(self):
-        module = _subject(self)
-        content_blocks = []
-        raw_reasoning = "调用 route_compare，并检查 _plan_item_id。"
-
-        module.append_round_content_blocks(
-            content_blocks,
-            raw_reasoning,
-            "正文内容",
-            "blk_thinking",
-            "blk_text",
-        )
-
-        self.assertEqual(content_blocks[0].type, "thinking")
-        self.assertEqual(content_blocks[0].thinking, "调用路线比较，并检查对应计划步骤。")
-
     def test_append_round_content_blocks_keeps_reasoning_only_as_thinking(self):
         """模型只返回思考时按思考保存，不改写成正文。"""
         module = _subject(self)

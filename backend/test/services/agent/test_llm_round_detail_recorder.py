@@ -60,18 +60,17 @@ class LlmRoundDetailRecorderTests(unittest.IsolatedAsyncioTestCase):
         values.update(overrides)
         return LlmRoundDetailDraft(**values)
 
-    async def test_persists_only_sanitized_visible_text_and_bounded_previews(self):
+    async def test_persists_raw_reasoning_and_bounded_previews(self):
         task = schedule_llm_round_detail(self._draft(), session_factory=self.Session)
         await task
 
         with self.Session() as db:
             row = db.scalar(select(AgentLlmRoundDetail))
             self.assertIsNotNone(row)
-            self.assertNotIn("web_search", row.reasoning_text)
-            self.assertIn("联网搜索", row.reasoning_text)
+            self.assertIn("web_search", row.reasoning_text)
             self.assertLessEqual(len(row.reasoning_preview), LLM_DETAIL_PREVIEW_MAX_CHARS)
             self.assertLessEqual(len(row.output_preview), LLM_DETAIL_PREVIEW_MAX_CHARS)
-            self.assertEqual(row.redacted_fields, ["reasoning_text"])
+            self.assertEqual(row.redacted_fields, [])
             self.assertEqual(row.truncated_fields, [])
             self.assertIsNone(row.message_id)
 
