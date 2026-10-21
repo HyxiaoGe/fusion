@@ -662,7 +662,7 @@ CREATE TABLE agent_llm_round_details (
 
 - `agent_events` 继续保存 model/provider、状态、finish reason、Token、TTFT 与 duration；详情表只保存净化正文和 preview，不重复维护生命周期字段。
 - `run_trajectory_meta.llm_detail_schema_version` 是每 Run 的能力声明：`NULL` 表示未启用，LLM 节点仍可展示生命周期 Summary/Timing，但不渲染 Thinking/Output，也没有旧数据专属文案；`1` 表示应具备新契约，终态超出 settle grace 仍缺详情时为 degraded。新 Recorder 创建 meta 时写入 `1`，冲突时不覆盖历史 `NULL`。
-- 写入管线固定为：流式层得到用户可见 `reasoning_buf` → `sanitize_user_visible_reasoning(..., final=True)` → 有界 `reasoning_text` → 同事务生成不超过 200 字符的 preview。`raw_reasoning_buf` 不进入数据库、API 或日志；`redacted_fields` 与 `truncated_fields` 分别表示脱敏移除和超长截断。
+- 写入管线固定为：流式层得到用户可见 `reasoning_buf`（只去掉 DSML 工具协议，不改写工具名）→ 有界 `reasoning_text` → 同事务生成不超过 200 字符的 preview。`raw_reasoning_buf` 不进入数据库、API 或日志；`redacted_fields` 与 `truncated_fields` 分别表示脱敏移除和超长截断。
 - 每个 completed/failed/cancelled Round 在生命周期终态事件成功发出后调度一次详情写入，失败/取消也提交已产生的部分正文；`UNIQUE (run_id, llm_round_id)` + `ON CONFLICT DO NOTHING` 保证幂等。后台任务必须受控跟踪、可在 shutdown 观察，不进入 Agent 热路径或 P0 finalize barrier。
 - `TrajectorySnapshot` 增加有界 `llm_round_summaries[]`，只批量返回 `llm_round_id/reasoning_preview/output_preview`；完整正文走 `node-detail/llm/{llm_round_id}`。LLM Detail 状态为：详情存在 `available`；生命周期未结束或终态仍在 grace 内 `pending`；version=1 且终态超 grace 仍缺详情 `degraded`。version 为 `NULL` 时前端不请求正文详情。
 - 实时路径收到 `llm_round_completed/failed/cancelled` 后只请求对应节点详情；异步写入尚未可见时在既有有限 grace 内重试，available 后更新该 Cell 缓存，超期 degraded；不重拉整个快照，不把正文加入 SSE envelope。

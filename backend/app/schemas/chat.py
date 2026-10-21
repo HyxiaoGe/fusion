@@ -8,7 +8,6 @@ from uuid import RFC_4122, UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.utils.time import as_china_time, utc_now
-from app.utils.user_visible_content import sanitize_user_visible_reasoning
 
 # ============================================================
 # Content Blocks（消息内容块）
@@ -29,13 +28,6 @@ class ThinkingBlock(BaseModel):
     type: Literal["thinking"]
     id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}")
     thinking: str
-
-    @field_validator("thinking")
-    @classmethod
-    def sanitize_legacy_user_visible_thinking(cls, value: str) -> str:
-        """历史记录可能保存过内部协议，只在用户可见 schema 边界净化。"""
-
-        return sanitize_user_visible_reasoning(value, final=True)
 
 
 class FileBlock(BaseModel):

@@ -207,7 +207,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result[0], "")
         self.assertIsNone(observation.output_delta_ms("reasoning"))
 
-    async def test_split_update_plan_uses_first_content_fragment_without_crossing_reasoning_kind(self):
+    async def test_split_think_tag_uses_first_content_fragment_without_crossing_reasoning_kind(self):
         from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
 
         now = [70.0]
@@ -249,94 +249,9 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 capture_output_candidate_time=observation.capture_output_candidate_time,
             )
 
-        self.assertEqual(result[:2], ("隐藏推理", "更新计划已完成"))
+        self.assertEqual(result[:2], ("隐藏推理", "update_plan 已完成"))
         self.assertEqual(observation.output_delta_ms("reasoning"), 100)
         self.assertEqual(observation.output_delta_ms("content"), 400)
-
-    async def test_split_mcp_alias_uses_first_content_fragment_time(self):
-        from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
-
-        now = [80.0]
-        observation = LLMRoundObservation(
-            metadata=RoundMetadata("conv", "run", 1, "step", "agent", "model", "provider"),
-            litellm_model="test/model",
-            messages=[],
-            call_kwargs={},
-            clock=lambda: now[0],
-            token_estimator=lambda *_args, **_kwargs: 1,
-            context_window_resolver=lambda _model_id: (4096, "test", "known"),
-            run_context_in_thread=False,
-        )
-
-        async def response():
-            now[0] = 80.1
-            yield make_chunk(delta=SimpleNamespace(content="mcp_"))
-            now[0] = 80.6
-            yield make_chunk(
-                delta=SimpleNamespace(content="a" * 43),
-                finish_reason="stop",
-            )
-
-        observation.start()
-        with (
-            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
-            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
-        ):
-            result = await llm_stream_module.stream_round(
-                observation.wrap_response(response()),
-                ConversationStreamOutput("conv", "task"),
-                "conv",
-                False,
-                "thinking",
-                "text",
-                defer_output=True,
-                on_output_candidate=observation.observe_output_candidate,
-                capture_output_candidate_time=observation.capture_output_candidate_time,
-            )
-
-        self.assertEqual(result[1], "外部工具")
-        self.assertEqual(observation.output_delta_ms("content"), 100)
-
-    async def test_finish_flush_uses_first_buffered_content_fragment_time(self):
-        from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
-
-        now = [90.0]
-        observation = LLMRoundObservation(
-            metadata=RoundMetadata("conv", "run", 1, "step", "agent", "model", "provider"),
-            litellm_model="test/model",
-            messages=[],
-            call_kwargs={},
-            clock=lambda: now[0],
-            token_estimator=lambda *_args, **_kwargs: 1,
-            context_window_resolver=lambda _model_id: (4096, "test", "known"),
-            run_context_in_thread=False,
-        )
-
-        async def response():
-            now[0] = 90.1
-            yield make_chunk(delta=SimpleNamespace(content="upda"))
-            now[0] = 90.7
-            yield make_chunk(delta=SimpleNamespace(content=None), finish_reason="stop")
-
-        observation.start()
-        with (
-            patch("app.services.stream_state_service.append_chunk", new=AsyncMock()),
-            patch("app.services.stream_state_service.check_lock_owner", new=AsyncMock(return_value=True)),
-        ):
-            result = await llm_stream_module.stream_round(
-                observation.wrap_response(response()),
-                ConversationStreamOutput("conv", "task"),
-                "conv",
-                False,
-                "thinking",
-                "text",
-                defer_output=True,
-                on_output_candidate=observation.observe_output_candidate,
-                capture_output_candidate_time=observation.capture_output_candidate_time,
-            )
-
-        self.assertEqual(result[1], "更新计划")
-        self.assertEqual(observation.output_delta_ms("content"), 100)
 
     async def test_fragmented_dsml_discard_does_not_create_content_candidate(self):
         from app.ai.llm_round_observability import LLMRoundObservation, RoundMetadata
@@ -565,13 +480,13 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
 
                 with patch("app.services.stream_state_service.append_chunk", append_chunk):
                     if error is None:
-                        await llm_stream_module.flush_pending_internal_mcp_aliases(
+                        await llm_stream_module.flush_pending_visible_output(
                             request=request,
                             state=state,
                         )
                     else:
                         with self.assertRaises(type(error)) as raised:
-                            await llm_stream_module.flush_pending_internal_mcp_aliases(
+                            await llm_stream_module.flush_pending_visible_output(
                                 request=request,
                                 state=state,
                             )
@@ -822,7 +737,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(str(error), rendered)
         self.assertIn("http_503", rendered)
 
-    async def test_k3_streams_sanitized_reasoning_while_answer_is_deferred(self):
+    async def test_k3_streams_reasoning_while_answer_is_deferred(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-product",
             output=ConversationStreamOutput("conv-product", "task-product"),
@@ -861,7 +776,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 request,
             )
 
-        self.assertEqual(outcome.reasoning_buf, "先调用天气查询，再核对路线事实。")
+        self.assertEqual(outcome.reasoning_buf, "先调用 weather_forecast，再核对路线事实。")
         self.assertEqual(outcome.raw_reasoning_buf, "先调用 weather_forecast，再核对路线事实。")
         self.assertEqual(outcome.content_buf, "方便停车，驾车更合适。")
         self.assertEqual(
@@ -906,7 +821,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 request,
             )
 
-        self.assertEqual(outcome.reasoning_buf, "先调用天气查询，再核对路线事实。")
+        self.assertEqual(outcome.reasoning_buf, "先调用 weather_forecast，再核对路线事实。")
         self.assertEqual(outcome.raw_reasoning_buf, "先调用 weather_forecast，再核对路线事实。")
         self.assertEqual(outcome.content_buf, "方便停车，驾车更合适。")
         self.assertEqual(
@@ -1109,7 +1024,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.raw_reasoning_buf, raw_reasoning)
         self.assertEqual(emitted_reasoning, outcome.reasoning_buf)
 
-    async def test_consume_stream_round_keeps_reasoning_raw_in_protocol_but_redacts_visible_copies(self):
+    async def test_consume_stream_round_passes_mcp_alias_through_unchanged(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-mcp",
             output=ConversationStreamOutput("conv-mcp", "task-mcp"),
@@ -1150,82 +1065,15 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 request,
             )
 
-        self.assertEqual(outcome.reasoning_buf, "调用 外部工具 获取官方资料。")
+        self.assertEqual(outcome.reasoning_buf, reasoning)
         self.assertEqual(outcome.raw_reasoning_buf, reasoning)
-        self.assertEqual(outcome.content_buf, "结果来自 外部工具，下面给出结论。")
+        self.assertEqual(outcome.content_buf, answer)
         emitted_reasoning = "".join(
             call.args[2] for call in append_chunk.await_args_list if call.args[1] == "reasoning"
         )
         emitted_answer = "".join(call.args[2] for call in append_chunk.await_args_list if call.args[1] == "answering")
         self.assertEqual(emitted_reasoning, outcome.reasoning_buf)
         self.assertEqual(emitted_answer, outcome.content_buf)
-        self.assertNotIn(alias, emitted_reasoning)
-        self.assertNotIn(alias, emitted_answer)
-
-    async def test_consume_stream_round_sanitizes_internal_tool_names_in_visible_reasoning(self):
-        request = llm_stream_module.LLMStreamRequest(
-            conversation_id="conv-tools",
-            output=ConversationStreamOutput("conv-tools", "task-tools"),
-            should_use_reasoning=True,
-            thinking_block_id="blk-thinking",
-            text_block_id="blk-text",
-        )
-        append_chunk = AsyncMock()
-
-        with (
-            patch("app.services.stream_state_service.append_chunk", append_chunk),
-            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
-        ):
-            outcome = await llm_stream_module.consume_stream_round(
-                async_response(
-                    [
-                        make_chunk(
-                            delta=SimpleNamespace(content=None, reasoning_content="我会调用 route_"),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(
-                                content=None,
-                                reasoning_content="compare 工具，并用 local_place_",
-                            ),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content=None, reasoning_content="search 查找地点。"),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content="已通过 web_", reasoning_content=None),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content="search 和 url_", reasoning_content=None),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content="read 核对。", reasoning_content=None),
-                            finish_reason="stop",
-                        ),
-                    ]
-                ),
-                request,
-            )
-
-        self.assertEqual(
-            outcome.reasoning_buf,
-            "我会调用路线比较工具，并用地点搜索查找地点。",
-        )
-        self.assertEqual(
-            outcome.raw_reasoning_buf,
-            "我会调用 route_compare 工具，并用 local_place_search 查找地点。",
-        )
-        self.assertEqual(outcome.content_buf, "已通过 web_search 和 url_read 核对。")
-        emitted_reasoning = "".join(
-            call.args[2] for call in append_chunk.await_args_list if call.args[1] == "reasoning"
-        )
-        self.assertEqual(emitted_reasoning, outcome.reasoning_buf)
-        for internal_name in ("route_compare", "local_place_search"):
-            self.assertNotIn(internal_name, emitted_reasoning)
 
     async def test_consume_stream_round_keeps_reasoning_monotonic_for_character_chunks(self):
         request = llm_stream_module.LLMStreamRequest(
@@ -1258,89 +1106,12 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         emitted_reasoning = "".join(
             call.args[2] for call in append_chunk.await_args_list if call.args[1] == "reasoning"
         )
-        self.assertEqual(outcome.reasoning_buf, "我直接调用路线比较工具来获取路线信息。")
+        self.assertEqual(outcome.reasoning_buf, raw_reasoning)
         self.assertEqual(outcome.raw_reasoning_buf, raw_reasoning)
         self.assertEqual(emitted_reasoning, outcome.reasoning_buf)
         self.assertEqual(emitted_reasoning.count("工具来获取路线信息"), 1)
 
-    async def test_answering_rewrites_split_and_repeated_update_plan_monotonically(self):
-        request = llm_stream_module.LLMStreamRequest(
-            conversation_id="conv-update-plan",
-            output=ConversationStreamOutput("conv-update-plan", "task-update-plan"),
-            should_use_reasoning=False,
-            thinking_block_id="blk-thinking",
-            text_block_id="blk-text",
-        )
-        append_chunk = AsyncMock()
-
-        with (
-            patch("app.services.stream_state_service.append_chunk", append_chunk),
-            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
-        ):
-            outcome = await llm_stream_module.consume_stream_round(
-                async_response(
-                    [
-                        make_chunk(delta=SimpleNamespace(content="调用 up"), finish_reason=None),
-                        make_chunk(
-                            delta=SimpleNamespace(content="date_plan 后，再调用 update_plan 完成。"),
-                            finish_reason="stop",
-                        ),
-                    ]
-                ),
-                request,
-            )
-
-        emitted = "".join(call.args[2] for call in append_chunk.await_args_list if call.args[1] == "answering")
-        self.assertEqual(outcome.content_buf, "调用更新计划后，再调用更新计划完成。")
-        self.assertEqual(emitted, outcome.content_buf)
-        self.assertNotIn("update_plan", emitted)
-
-    async def test_answering_buffers_trailing_space_before_character_split_update_plan(self):
-        request = llm_stream_module.LLMStreamRequest(
-            conversation_id="conv-update-plan-characters",
-            output=ConversationStreamOutput("conv-update-plan-characters", "task-update-plan-characters"),
-            should_use_reasoning=False,
-            thinking_block_id="blk-thinking",
-            text_block_id="blk-text",
-        )
-        append_chunk = AsyncMock()
-        raw_chunks = ["调用 ", "u", *"pdate_plan 完成"]
-
-        with (
-            patch("app.services.stream_state_service.append_chunk", append_chunk),
-            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
-        ):
-            outcome = await llm_stream_module.consume_stream_round(
-                async_response(
-                    [
-                        make_chunk(
-                            delta=SimpleNamespace(content=chunk),
-                            finish_reason="stop" if index == len(raw_chunks) - 1 else None,
-                        )
-                        for index, chunk in enumerate(raw_chunks)
-                    ]
-                ),
-                request,
-            )
-
-        emitted = "".join(call.args[2] for call in append_chunk.await_args_list if call.args[1] == "answering")
-        self.assertEqual(outcome.content_buf, "调用更新计划完成")
-        self.assertEqual(emitted, outcome.content_buf)
-        self.assertNotIn("update_plan", emitted)
-
-    def test_final_short_update_plan_prefix_is_preserved_but_unique_long_prefix_is_productized(self):
-        sanitize = llm_stream_module.sanitize_internal_mcp_aliases
-
-        self.assertEqual(sanitize("正常结尾 ", final=True), "正常结尾 ")
-        self.assertEqual(sanitize("调用 up", final=True), "调用 up")
-        self.assertEqual(sanitize("调用 upd", final=True), "调用 upd")
-        self.assertEqual(sanitize("调用 upda", final=True), "调用更新计划")
-        self.assertEqual(
-            sanitize("update_plan 与 update_plan 完成", final=True),
-            "更新计划与更新计划完成",
-        )
-
-    async def test_consume_stream_round_productizes_plan_binding_names_across_answer_chunks(self):
+    async def test_consume_stream_round_keeps_tool_and_plan_identifiers_in_code_unchanged(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-plan-binding-sanitizer",
             output=ConversationStreamOutput("conv-plan-binding-sanitizer", "task-plan-binding-sanitizer"),
@@ -1350,10 +1121,10 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         )
         append_chunk = AsyncMock()
         raw_chunks = [
-            "内部字段 _plan_",
-            "item_id、planned_",
-            "tools 和 plan_item_",
-            "id 不应展示，route_compare 可保留。",
+            '```python\nstate = {"update_',
+            'plan": True, "_plan_',
+            'item_id": 1, "planned_tools": ["web_',
+            'search"]}\n```\n调用 update_plan 前',
         ]
 
         with (
@@ -1374,13 +1145,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             )
 
         emitted = "".join(call.args[2] for call in append_chunk.await_args_list if call.args[1] == "answering")
+        self.assertEqual(outcome.content_buf, "".join(raw_chunks))
         self.assertEqual(emitted, outcome.content_buf)
-        self.assertNotIn("_plan_item_id", emitted)
-        self.assertNotIn("planned_tools", emitted)
-        self.assertNotIn("plan_item_id", emitted)
-        self.assertIn("对应计划步骤", emitted)
-        self.assertIn("预计使用的工具", emitted)
-        self.assertIn("route_compare", emitted)
 
     async def test_consume_stream_round_merges_cumulative_reasoning_snapshots_once(self):
         request = llm_stream_module.LLMStreamRequest(
@@ -1568,9 +1334,8 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         reasoning_calls = [call for call in append_chunk.await_args_list if call.args[1] == "reasoning"]
         emitted_reasoning = "".join(call.args[2] for call in reasoning_calls)
         self.assertEqual(outcome.raw_reasoning_buf, "准备调用 route_compare 工具。")
-        self.assertEqual(outcome.reasoning_buf, "准备调用路线比较工具。")
+        self.assertEqual(outcome.reasoning_buf, "准备调用 route_compare 工具。")
         self.assertEqual(emitted_reasoning, outcome.reasoning_buf)
-        self.assertNotIn("route_compare", emitted_reasoning)
 
     async def test_consume_stream_round_uses_latest_buffered_moonshot_snapshot(self):
         request = llm_stream_module.LLMStreamRequest(
@@ -1614,59 +1379,6 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.reasoning_buf, snapshots[-2])
         self.assertEqual(emitted_reasoning, outcome.reasoning_buf)
         self.assertNotIn("zz", emitted_reasoning)
-
-    async def test_consume_stream_round_sanitizes_split_weather_tool_name_in_reasoning(self):
-        request = llm_stream_module.LLMStreamRequest(
-            conversation_id="conv-weather-tool",
-            output=ConversationStreamOutput("conv-weather-tool", "task-weather-tool"),
-            should_use_reasoning=True,
-            thinking_block_id="blk-thinking",
-            text_block_id="blk-text",
-        )
-        append_chunk = AsyncMock()
-
-        with (
-            patch("app.services.stream_state_service.append_chunk", append_chunk),
-            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
-        ):
-            outcome = await llm_stream_module.consume_stream_round(
-                async_response(
-                    [
-                        make_chunk(
-                            delta=SimpleNamespace(content=None, reasoning_content="需要调用"),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content=None, reasoning_content="weather"),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content=None, reasoning_content="_"),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content=None, reasoning_content="fore"),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content=None, reasoning_content="cast"),
-                            finish_reason=None,
-                        ),
-                        make_chunk(
-                            delta=SimpleNamespace(content=None, reasoning_content="工具查询天气。"),
-                            finish_reason="stop",
-                        ),
-                    ]
-                ),
-                request,
-            )
-
-        emitted_reasoning = "".join(
-            call.args[2] for call in append_chunk.await_args_list if call.args[1] == "reasoning"
-        )
-        self.assertEqual(outcome.reasoning_buf, "需要调用天气查询工具查询天气。")
-        self.assertEqual(emitted_reasoning, outcome.reasoning_buf)
-        self.assertNotIn("weather_forecast", emitted_reasoning)
 
     async def test_non_k3_moonshot_model_never_enters_cumulative_snapshot_probe(self):
         request = llm_stream_module.LLMStreamRequest(
@@ -2182,7 +1894,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             step_id=None,
         )
 
-    async def test_consume_stream_round_sanitizes_reasoning_alias_and_dedupes_mirrored_answer(self):
+    async def test_consume_stream_round_dedupes_answer_mirrored_from_reasoning(self):
         request = llm_stream_module.LLMStreamRequest(
             conversation_id="conv-mcp-mirrored",
             output=ConversationStreamOutput("conv-mcp-mirrored", "task-mcp-mirrored"),
@@ -2204,7 +1916,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 request,
             )
 
-        self.assertEqual(outcome.reasoning_buf, "调用 外部工具 获取资料")
+        self.assertEqual(outcome.reasoning_buf, mirrored)
         self.assertEqual(outcome.raw_reasoning_buf, mirrored)
         self.assertEqual(outcome.content_buf, "")
         append_chunk.assert_awaited_once()
@@ -2517,7 +2229,7 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
                 "blk-text",
             )
 
-        self.assertEqual(result, ("调用路线比较", "答案", [], "stop", None))
+        self.assertEqual(result, ("调用 route_compare", "答案", [], "stop", None))
         self.assertEqual(len(result), 5)
         self.assertEqual(result.protocol_reasoning_buf, "调用 route_compare")
 

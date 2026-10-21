@@ -27,7 +27,6 @@ from app.services.stream.reasoning_transport import (
     initial_reasoning_transport_mode,
 )
 from app.services.stream.run_output import RunOutput
-from app.utils.user_visible_content import sanitize_internal_tool_names, sanitize_user_visible_reasoning
 
 # 每 N 个 chunk 检查一次锁状态
 LOCK_CHECK_INTERVAL = 20
@@ -439,12 +438,6 @@ def strip_pending_dsml_tool_protocol(text: str, *, final: bool = False) -> str:
     return text if not hidden_starts else text[: min(hidden_starts)]
 
 
-def sanitize_internal_mcp_aliases(text: str, *, final: bool = False) -> str:
-    """兼容旧调用名；正文只隐藏运行级 alias，不改写普通技术文本。"""
-
-    return sanitize_internal_tool_names(text, final=final, include_named_tools=False)
-
-
 def _visible_delta(visible_text: str, emitted_text: str, *, channel: str) -> str:
     if visible_text.startswith(emitted_text):
         return visible_text[len(emitted_text) :]
@@ -682,7 +675,6 @@ def filter_reasoning_tag_content_delta(state: LLMStreamState, content_delta: str
         logger.warning("thinking 标签内容出现非单调输出，已忽略不可追加部分")
         tag_reasoning_delta = ""
     visible_content = strip_pending_dsml_tool_protocol(visible_content)
-    visible_content = sanitize_internal_mcp_aliases(visible_content)
     if not state.content_buf and not visible_content.strip():
         visible_content = ""
     return (
@@ -691,7 +683,7 @@ def filter_reasoning_tag_content_delta(state: LLMStreamState, content_delta: str
     )
 
 
-def filter_internal_mcp_reasoning_delta(
+def filter_reasoning_delta(
     state: LLMStreamState,
     reasoning_delta: str,
 ) -> str:
@@ -699,10 +691,10 @@ def filter_internal_mcp_reasoning_delta(
         return ""
     _merge_reasoning_delta(state, reasoning_delta)
     visible_reasoning = strip_pending_dsml_tool_protocol(state.raw_reasoning_buf)
-    visible_reasoning = sanitize_user_visible_reasoning(
-        visible_reasoning,
-        buffer_trailing_paragraph=state.reasoning_transport_mode == "probing",
-    )
+    if state.reasoning_transport_mode == "probing":
+        # probing 期间推理流形态未定，只释放已完整结束的段落。
+        separator = visible_reasoning.rfind("\n\n")
+        visible_reasoning = "" if separator < 0 else visible_reasoning[: separator + 2]
     return _visible_delta(visible_reasoning, state.reasoning_buf, channel="reasoning")
 
 
@@ -712,24 +704,20 @@ def _final_reasoning_candidate(state: LLMStreamState) -> str:
         if state.reasoning_transport_mode == "probing"
         else state.raw_reasoning_buf
     )
-    candidate = strip_pending_dsml_tool_protocol(raw_reasoning, final=True)
-    return sanitize_user_visible_reasoning(candidate, final=True)
+    return strip_pending_dsml_tool_protocol(raw_reasoning, final=True)
 
 
 def _final_content_candidate(state: LLMStreamState) -> str:
     candidate = strip_reasoning_tag_blocks(state.raw_content_buf)
-    candidate = strip_pending_dsml_tool_protocol(candidate, final=True)
-    return sanitize_internal_mcp_aliases(candidate, final=True)
+    return strip_pending_dsml_tool_protocol(candidate, final=True)
 
 
-async def flush_pending_internal_mcp_aliases(*, request: LLMStreamRequest, state: LLMStreamState) -> None:
+async def flush_pending_visible_output(*, request: LLMStreamRequest, state: LLMStreamState) -> None:
     if state.reasoning_transport_mode == "probing":
         _resolve_reasoning_probe(state, final=True)
     final_reasoning = strip_pending_dsml_tool_protocol(state.raw_reasoning_buf, final=True)
-    final_reasoning = sanitize_user_visible_reasoning(final_reasoning, final=True)
     final_content = strip_reasoning_tag_blocks(state.raw_content_buf)
     final_content = strip_pending_dsml_tool_protocol(final_content, final=True)
-    final_content = sanitize_internal_mcp_aliases(final_content, final=True)
     try:
         await append_reasoning_and_content(
             request=request,
@@ -838,7 +826,7 @@ async def process_stream_choice(*, request: LLMStreamRequest, state: LLMStreamSt
     if state.pending_content_candidate_time is None and _final_content_candidate(state) != previous_content_candidate:
         state.pending_content_candidate_time = candidate_time
     previous_reasoning_candidate = _final_reasoning_candidate(state)
-    reasoning_delta = filter_internal_mcp_reasoning_delta(
+    reasoning_delta = filter_reasoning_delta(
         state,
         raw_reasoning_delta + (tag_reasoning_delta if request.should_use_reasoning else ""),
     )
@@ -891,7 +879,7 @@ async def consume_stream_round(response, request: LLMStreamRequest) -> LLMStream
         if not should_continue:
             break
 
-    await flush_pending_internal_mcp_aliases(request=request, state=state)
+    await flush_pending_visible_output(request=request, state=state)
 
     visible_content = strip_reasoning_tag_blocks(state.raw_content_buf)
     dsml_marker_index = visible_content.find(_DSML_TOOL_CALLS_OPEN)

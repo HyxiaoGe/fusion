@@ -163,7 +163,7 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(terminal["output_provenance"]["block_id"], "text-exact")
         self.assertNotIn("完整候选", str(captured))
 
-    async def test_product_brand_preservation_and_tool_sanitization_record_actual_output_source(self):
+    async def test_product_answers_with_brands_or_tool_identifiers_are_emitted_verbatim(self):
         for candidate, expected, disposition, source in (
             (
                 "根据高德返回的结果，可以优先查看高德置地广场。",
@@ -173,9 +173,9 @@ class OutputProvenanceTests(unittest.IsolatedAsyncioTestCase):
             ),
             (
                 "local_place_search 返回的候选地点是高德置地广场。",
-                "地点搜索返回的候选地点是高德置地广场。",
-                "replaced",
-                "server",
+                "local_place_search 返回的候选地点是高德置地广场。",
+                "emitted",
+                "model",
             ),
         ):
             with self.subTest(candidate=candidate):

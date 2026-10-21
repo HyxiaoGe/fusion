@@ -12,7 +12,6 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from app.core.logger import app_logger
 from app.db.database import SessionLocal
 from app.db.models import AgentLlmRoundDetail, Message
-from app.utils.user_visible_content import sanitize_user_visible_reasoning
 
 LLM_DETAIL_PREVIEW_MAX_CHARS = 200
 LLM_DETAIL_TEXT_MAX_CHARS = 100_000
@@ -92,10 +91,8 @@ async def _run_llm_round_detail_worker(
 
 
 def _write_llm_round_detail(draft: LlmRoundDetailDraft, session_factory: SessionFactory) -> None:
-    sanitized_reasoning = sanitize_user_visible_reasoning(draft.reasoning_text, final=True)
-    reasoning_text, reasoning_truncated = _truncate_text(sanitized_reasoning)
+    reasoning_text, reasoning_truncated = _truncate_text(draft.reasoning_text)
     content_text, content_truncated = _truncate_text(draft.content_text)
-    redacted_fields = ["reasoning_text"] if sanitized_reasoning != draft.reasoning_text else []
     truncated_fields = [
         field_name
         for field_name, truncated in (
@@ -113,7 +110,7 @@ def _write_llm_round_detail(draft: LlmRoundDetailDraft, session_factory: Session
         "content_text": content_text or None,
         "reasoning_preview": _preview(reasoning_text),
         "output_preview": _preview(content_text),
-        "redacted_fields": redacted_fields,
+        "redacted_fields": [],
         "truncated_fields": truncated_fields,
     }
 
