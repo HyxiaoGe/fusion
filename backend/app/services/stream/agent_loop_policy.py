@@ -6,7 +6,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
-AgentLoopLimitReason = Literal["timeout", "max_steps", "max_tool_calls"]
+# output_length：单轮输出触达 max_tokens 被截断，不走触顶总结，原样交付截断前的正文。
+AgentLoopLimitReason = Literal["timeout", "max_steps", "max_tool_calls", "output_length"]
 RunCompletedFinishReason = Literal["stop", "limit_reached", "incomplete"]
 AgentSessionStatus = Literal["completed", "limit_reached", "incomplete"]
 

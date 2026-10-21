@@ -8,7 +8,7 @@ from app.ai.prompts.section_ids import RESEARCH_EVIDENCE_WORKSET
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SourceReference, TextBlock, UrlBlock, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.stream.agent_loop_driver import AgentLoopExit, _run_limit_summary, _run_round, run_agent_loop
-from app.services.stream.agent_loop_policy import AgentLoopLimits
+from app.services.stream.agent_loop_policy import AgentLoopLimits, AgentRunTerminalState, map_run_terminal_state
 from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_round import AgentRoundResult
@@ -697,6 +697,52 @@ class AgentLoopDriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.content_blocks[0].thinking, "思考")
         self.assertEqual(state.content_blocks[1].text, "回答")
 
+    async def test_output_length_round_delivers_truncated_text_as_limit_reached_without_summary(self):
+        # 触达 max_tokens 曾被当成正常 stop：截断的代码按已完成交付，用户无从得知。
+        state = AgentLoopState()
+        emitter = DummyEmitter(limit_reasons=[])
+
+        async def start_step_fn(**kwargs):
+            context = AgentStepContext(
+                step_id="step-1",
+                step_number=kwargs["step_number"],
+                started_at=kwargs["clock"](),
+                thinking_block_id="thinking-1",
+                text_block_id="text-1",
+            )
+            kwargs["on_step_started"](context.step_id)
+            return context
+
+        async def run_round_fn(**_kwargs):
+            return AgentRoundResult(
+                reasoning_buf="",
+                content_buf="```html\n<div>未写完",
+                tool_calls=[],
+                finish_reason="length",
+                accumulated_usage=Usage(input_tokens=3, output_tokens=5),
+            )
+
+        outcome = await run_agent_loop(
+            db=object(),
+            messages=[{"role": "user", "content": "写个游戏"}],
+            state=state,
+            runtime=_runtime(
+                start_step_fn=start_step_fn,
+                complete_step_fn=_complete_step_noop,
+                run_round_fn=run_round_fn,
+                emitter=emitter,
+            ),
+        )
+
+        self.assertEqual(outcome.exit, AgentLoopExit.COMPLETED)
+        self.assertEqual(emitter.limit_reasons, ["output_length"])
+        self.assertEqual(state.limit_reason, "output_length")
+        self.assertEqual(state.content_blocks[-1].text, "```html\n<div>未写完")
+        self.assertEqual(
+            map_run_terminal_state(unknown_terminated=state.unknown_terminated, limit_reason=state.limit_reason),
+            AgentRunTerminalState(run_finish_reason="limit_reached", session_status="limit_reached"),
+        )
+
     async def test_immediate_limit_runs_summary_step_and_returns_completed(self):
         state = AgentLoopState()
         state.step = 8
@@ -1375,6 +1421,24 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("reasoning_effort", fallback_kwargs)
         self.assertEqual(fallback_kwargs["extra_body"], {"extra_body": {"thinking": {"type": "disabled"}}})
         self.assertEqual(fallback_kwargs["tool_choice"], "auto")
+
+    async def test_switch_clamps_output_cap_to_fallback_model_limits(self):
+        captured: list[dict] = []
+
+        async def run_round_fn(**kwargs):
+            captured.append(kwargs["call_kwargs"])
+            if len(captured) == 1:
+                raise FirstOutputTimeoutError(kwargs["model_id"], kwargs["first_output_timeout_s"])
+            return _Rounds.answer_round_result()
+
+        with patch(
+            "app.services.stream.agent_loop_request_prep.litellm_catalog.get_model_entry",
+            MagicMock(return_value={"max_input_tokens": 1_000_000, "max_output_tokens": 8192}),
+        ):
+            await self._run_loop(run_round_fn, call_kwargs={"max_tokens": 65536})
+
+        self.assertEqual(captured[0]["max_tokens"], 65536)
+        self.assertEqual(captured[1]["max_tokens"], 8192)
 
     async def test_open_circuit_goes_straight_to_fallback_and_success_resets_it(self):
         from app.ai.model_circuit_breaker import model_circuit_breaker

@@ -234,4 +234,22 @@ describe('TrajectoryStatusLine', () => {
     expect(statusLine).toHaveTextContent('Agent 已中断');
     expect(statusLine).toHaveTextContent('耗时未知');
   });
+
+  it('输出触达长度上限时说明回答已截断，其它上限保持原文案', () => {
+    const view = render(
+      <TrajectoryStatusLine
+        run={run({ status: 'limit_reached', limitReachedReason: 'output_length' })}
+        trajectoryStatus="complete"
+      />,
+    );
+    expect(screen.getByText('回答达到长度上限，已截断')).toBeInTheDocument();
+
+    view.rerender(
+      <TrajectoryStatusLine
+        run={run({ status: 'limit_reached', limitReachedReason: 'max_steps' })}
+        trajectoryStatus="complete"
+      />,
+    );
+    expect(screen.getByText('执行已达到上限')).toBeInTheDocument();
+  });
 });

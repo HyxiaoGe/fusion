@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from app.ai import litellm_catalog
 from app.ai.prompts.agent_loop import (
     get_no_tool_network_boundary_prompt,
     get_no_vision_file_boundary_prompt,
@@ -36,6 +37,7 @@ from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
 from app.db.repositories import FileRepository
 from app.services.agent.plan_coordinator import PlanMode
+from app.services.chat.context_manager import DEFAULT_TRIGGER_RATIO
 from app.services.chat.message_builder import (
     append_current_time,
     build_llm_messages,
@@ -66,8 +68,8 @@ if TYPE_CHECKING:
 
 VOLCENGINE_PROVIDERS = {"volcengine"}
 MAX_CONTROLLED_OUTPUT_TOKENS = 4096
-# 文档正文整篇放在一次工具调用参数里，供应商默认输出上限可能截断 JSON；仅文档交付时显式放宽。
-DOCUMENT_OUTPUT_MAX_TOKENS = 16384
+# 单轮输出上限：整篇文档或长代码要一次写完，供应商默认上限各不相同，统一显式给出。
+AGENT_OUTPUT_MAX_TOKENS = 65536
 
 
 @dataclass(frozen=True)
@@ -184,6 +186,26 @@ def supports_dynamic_agent_tools(capabilities: dict) -> bool:
     )
 
 
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def agent_output_max_tokens(model_id: str | None) -> int:
+    """不超过模型声明的输出上限，也不超过上下文裁剪阈值之上留给输出的空间。"""
+
+    cap = AGENT_OUTPUT_MAX_TOKENS
+    entry = litellm_catalog.get_model_entry(model_id) if model_id else None
+    if not entry:
+        return cap
+    if (max_output := _positive_int(entry.get("max_output_tokens"))) is not None:
+        cap = min(cap, max_output)
+    if (window := _positive_int(entry.get("max_input_tokens"))) is not None:
+        cap = min(cap, max(1, int(window * (1 - DEFAULT_TRIGGER_RATIO))))
+    return cap
+
+
 def normalize_controlled_max_tokens(value: Any) -> int | None:
     """只接受受控的正整数输出上限，拒绝 bool 与隐式类型转换。"""
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -196,6 +218,7 @@ def build_agent_loop_call_config(
     provider: str,
     options: dict | None,
     capabilities: dict | None,
+    model_id: str | None = None,
     volcengine_providers: set[str] | frozenset[str] = frozenset(VOLCENGINE_PROVIDERS),
     build_web_search_tool_fn: Callable[[], dict] = build_web_search_tool,
     build_url_read_tool_fn: Callable[[], dict] = build_url_read_tool,
@@ -222,8 +245,7 @@ def build_agent_loop_call_config(
     supports_dynamic_tools = supports_dynamic_agent_tools(capabilities) and not tools_disabled
     call_kwargs: dict = {}
     max_tokens = normalize_controlled_max_tokens(options.get("max_tokens"))
-    if max_tokens is not None:
-        call_kwargs["max_tokens"] = max_tokens
+    call_kwargs["max_tokens"] = max_tokens if max_tokens is not None else agent_output_max_tokens(model_id)
     available_tools: list[dict] = []
     if supports_function_calling:
         with use_prompt_snapshot(prompt_bundle_snapshot):
@@ -262,7 +284,6 @@ def build_agent_loop_call_config(
             tools.extend(document_tools.definitions_factory())
             document_context = render_current_documents_context(document_tools.existing_documents)
         document_handlers = dict(document_tools.handlers)
-        call_kwargs.setdefault("max_tokens", DOCUMENT_OUTPUT_MAX_TOKENS)
     knowledge_handlers: dict[str, Any] = {}
     if agent_mode and knowledge_tools is not None and supports_dynamic_tools:
         with use_prompt_snapshot(prompt_bundle_snapshot):

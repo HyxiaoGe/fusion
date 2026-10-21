@@ -1078,7 +1078,7 @@ class AgentRunSummary(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     total_steps: int = 0
     total_tool_calls: int = 0
-    limit_reason: Optional[Literal["max_steps", "max_tool_calls", "timeout"]] = None
+    limit_reason: Optional[Literal["max_steps", "max_tool_calls", "timeout", "output_length"]] = None
     progress: Optional[Dict[str, Any]] = None
 
 

@@ -15,6 +15,7 @@ from app.services.auto_model import pick_fallback_model
 from app.services.chat.tool_transcript import without_tool_transactions
 from app.services.stream.agent_loop_outcome import AgentLoopExit, AgentLoopOutcome
 from app.services.stream.agent_loop_policy import check_agent_loop_limit
+from app.services.stream.agent_loop_request_prep import agent_output_max_tokens
 from app.services.stream.agent_loop_round_outcome import (
     AgentRoundOutcomeRequest,
     handle_agent_round_outcome,
@@ -107,7 +108,7 @@ async def run_agent_loop(
             break
         break
 
-    if state.limit_reason is not None:
+    if state.limit_reason is not None and state.limit_reason != "output_length":
         superseded = await _run_limit_summary(db=db, state=state, runtime=runtime, messages=messages)
         if superseded is not None:
             return superseded
@@ -282,6 +283,11 @@ def _switch_to_fallback_model(
         should_use_reasoning=runtime.should_use_reasoning,
         thinking_switchable=capabilities.get("thinkingSwitchable") is True,
     )
+    if isinstance(call_kwargs.get("max_tokens"), int):
+        call_kwargs = {
+            **call_kwargs,
+            "max_tokens": min(call_kwargs["max_tokens"], agent_output_max_tokens(fallback_model_id)),
+        }
     return replace(
         runtime,
         model_id=fallback_model_id,

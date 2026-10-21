@@ -33,7 +33,7 @@ from app.services.stream.llm_round_lifecycle import (
     accumulate_token_usage,
     round_tool_names,
 )
-from app.services.stream.llm_stream import contains_tool_protocol_residue
+from app.services.stream.llm_stream import OUTPUT_LENGTH_FINISH_REASON, contains_tool_protocol_residue
 from app.services.stream.provider_content_filter import (
     CONTENT_FILTER_FINISH_REASON,
     finish_content_filtered_round,
@@ -844,7 +844,8 @@ async def _commit_limit_summary_result(
         )
 
     answer = round_result.content_buf.strip()
-    incomplete = round_result.finish_reason == "protocol_fallback" or not answer
+    # 总结本身被 max_tokens 截断也不算完整交付。
+    incomplete = round_result.finish_reason in {"protocol_fallback", OUTPUT_LENGTH_FINISH_REASON} or not answer
     if not answer or round_result.finish_reason == "protocol_fallback":
         answer = PROTOCOL_FALLBACK_TEXT
     answer, protocol_residue = await _guard_protocol_residue(request, answer)

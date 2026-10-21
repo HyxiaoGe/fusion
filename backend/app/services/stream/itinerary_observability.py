@@ -75,7 +75,7 @@ _SAFE_FINISH_REASONS = frozenset(
         "unknown",
     }
 )
-_SAFE_LIMIT_REASONS = frozenset({"max_steps", "max_tool_calls", "timeout"})
+_SAFE_LIMIT_REASONS = frozenset({"max_steps", "max_tool_calls", "timeout", "output_length"})
 
 
 @dataclass(frozen=True)
