@@ -591,8 +591,65 @@ class TestStreamStateService(unittest.IsolatedAsyncioTestCase):
         ]
 
         types = [chunk["type"] for chunk in chunks]
-        self.assertEqual(types.count("answering"), 1200)
+        answer = "".join(chunk["content"] for chunk in chunks if chunk["type"] == "answering")
+        self.assertEqual(answer, "".join(f"t{index}" for index in range(1200)))
+        self.assertLess(types.count("answering"), 10)
         self.assertEqual(types[-2:], ["agent_event", "done"])
+
+    async def test_live_reader_coalesces_backlog_deltas_and_keeps_cursor(self):
+        """活跃流中一次读到的积压增量合并成一帧，游标指向被合并的最后一条。"""
+        from app.services.stream_state_service import append_chunk, finalize_stream, init_stream, read_stream_chunks
+
+        await init_stream("conv-live", "user", "model", "msg-live", "task-live")
+        entry_ids = [
+            await append_chunk("conv-live", "answering", f"t{index}", "blk", task_id="task-live", run_id="run-1")
+            for index in range(5)
+        ]
+
+        reader = read_stream_chunks("conv-live", expected_message_id="msg-live", expected_task_id="task-live")
+        start = await anext(reader)
+        merged = await anext(reader)
+        await finalize_stream("conv-live", success=True, task_id="task-live")
+        rest = [chunk async for chunk in reader]
+
+        self.assertEqual(start["type"], "start")
+        self.assertEqual(merged["type"], "answering")
+        self.assertEqual(merged["content"], "t0t1t2t3t4")
+        self.assertEqual(merged["run_id"], "run-1")
+        self.assertEqual(merged["entry_id"], entry_ids[-1])
+        self.assertEqual([chunk["type"] for chunk in rest], ["done"])
+
+    def test_coalesce_text_deltas_only_merges_adjacent_same_target(self):
+        from app.services.stream_state_service import _coalesce_text_deltas
+
+        entries = [
+            ("1-0", {"type": "reasoning", "content": "想", "block_id": "t", "run_id": "r"}),
+            ("2-0", {"type": "reasoning", "content": "法", "block_id": "t", "run_id": "r"}),
+            ("3-0", {"type": "agent_event", "content": "{}", "block_id": ""}),
+            ("4-0", {"type": "answering", "content": "a", "block_id": "c", "run_id": "r", "step_id": "s1"}),
+            ("5-0", {"type": "answering", "content": "b", "block_id": "c", "run_id": "r", "step_id": "s2"}),
+            ("6-0", {"type": "answering", "content": "c", "block_id": "d", "run_id": "r", "step_id": "s2"}),
+            ("7-0", {"type": "document_draft", "content": "{}", "block_id": "x"}),
+            ("8-0", {"type": "document_draft", "content": "{}", "block_id": "x"}),
+            ("9-0", {"type": "done", "content": ""}),
+        ]
+
+        merged = _coalesce_text_deltas(entries)
+
+        self.assertEqual(
+            [(entry_id, fields["type"], fields["content"]) for entry_id, fields in merged],
+            [
+                ("2-0", "reasoning", "想法"),
+                ("3-0", "agent_event", "{}"),
+                ("4-0", "answering", "a"),
+                ("5-0", "answering", "b"),
+                ("6-0", "answering", "c"),
+                ("7-0", "document_draft", "{}"),
+                ("8-0", "document_draft", "{}"),
+                ("9-0", "done", ""),
+            ],
+        )
+        self.assertEqual(entries[0][1]["content"], "想")
 
     async def test_reconnect_from_terminal_entry_ends_without_error(self):
         from app.services.stream_state_service import append_chunk, finalize_stream, init_stream, read_stream_chunks
@@ -646,7 +703,7 @@ class TestStreamStateService(unittest.IsolatedAsyncioTestCase):
             await append_chunk("conv-drain-replaced", "answering", f"t{index}", "blk", task_id="task-old")
         await finalize_stream("conv-drain-replaced", success=True, task_id="task-old")
 
-        with patch("app.services.stream_state_service._TERMINAL_DRAIN_BATCH", 2):
+        with patch("app.services.stream_state_service._READ_BATCH_SIZE", 2):
             reader = read_stream_chunks(
                 "conv-drain-replaced",
                 expected_message_id="msg-old",
