@@ -94,15 +94,12 @@ interface ChatMessageRowProps {
 function getMessageRun(message: Message, currentRun: AgentRunState | null): AgentRunState | null {
   if (currentRun?.messageId === message.id || currentRun?.serverMessageId === message.id) {
     const hydratedRun = message.agent_run ?? null;
-    if (
-      currentRun.status === 'running'
-      || !hydratedRun
-      || hydratedRun.runId !== currentRun.runId
-      || hydratedRun.status === 'running'
-    ) {
-      return currentRun;
+    // 同一 run 的终态只会前进：水合拿到终态就以它为准。本地 run 可能因流尾部
+    // 未送达而停在 running，不能盖过服务端终态，否则回答一直显示在等待模型。
+    if (hydratedRun && hydratedRun.runId === currentRun.runId && hydratedRun.status !== 'running') {
+      return hydratedRun;
     }
-    return hydratedRun;
+    return currentRun;
   }
   return message.agent_run ?? null;
 }

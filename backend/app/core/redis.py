@@ -19,7 +19,8 @@ _redis_pool: aioredis.Redis | None = None
 # Redis Stream key 和 TTL 常量
 # 锁和 meta 不随每个 chunk 续期，必须覆盖完整运行时限并留出收尾时间。
 STREAM_CHUNK_TTL = max(600, settings.AGENT_TOTAL_TIMEOUT + 120)
-STREAM_DONE_TTL = 60  # 流结束后 TTL（60 秒，供断线重连最后窗口）
+# 流结束后保留时长：落后很多的回放读取器要在此窗口内读到结束条目，长回答需留足余量。
+STREAM_DONE_TTL = 600
 LOCK_TTL = STREAM_CHUNK_TTL  # 互斥锁 TTL
 STREAM_STOP_GUARD_TTL = 60  # stop 请求异常退出后的兜底释放窗口
 

@@ -448,6 +448,95 @@ async def _inspect_stream_state(
     return str(result[0]), str(result[1])
 
 
+_TERMINAL_DRAIN_BATCH = 500
+
+
+async def _drain_sealed_stream(
+    redis: Any,
+    conversation_id: str,
+    current_id: str,
+    *,
+    expected_message_id: str,
+    expected_task_id: str,
+) -> AsyncIterator[dict]:
+    """流已封口：从游标读到 done/error 结束条目为止，结束条目是唯一的终止依据。
+
+    重新打开页面时回放从 0 开始，读取器可能落后生产端上千条；按固定条数补读会丢掉
+    尾部正文和 run 终态事件，前端只收到 [DONE] 便一直停在生成中。读不到结束条目时
+    明确报中断，不静默结束。
+    """
+    key = stream_chunks_key(conversation_id)
+    while True:
+        try:
+            entries = await redis.xrange(key, min=current_id, count=_TERMINAL_DRAIN_BATCH)
+        except Exception as e:
+            logger.warning(f"补读已结束流失败: conv_id={conversation_id}, error={e}")
+            yield {
+                "entry_id": current_id if current_id != "0" else "0-0",
+                **_terminal_error_fields(
+                    code="redis_read_failed",
+                    message="生成连接暂时中断，请重试",
+                    reason="redis_read_failed",
+                ),
+            }
+            return
+
+        fresh = [(entry_id, fields) for entry_id, fields in entries if entry_id != current_id]
+        if not fresh:
+            # 游标正停在结束条目上：客户端断线前已收到终态，重连只需收尾。
+            if entries and entries[0][1].get("type") in ("done", "error"):
+                return
+            yield {
+                "entry_id": current_id if current_id != "0" else "0-0",
+                **_terminal_error_fields(
+                    code="stream_interrupted",
+                    message="生成连接已中断，请重试",
+                    reason="terminal_entry_missing",
+                ),
+            }
+            return
+
+        for entry_id, fields in fresh:
+            current_id = entry_id
+            yield {"entry_id": entry_id, **fields}
+            if fields.get("type") in ("done", "error"):
+                return
+
+        # 新一轮 init_stream 会删除并重建同一个 key，批次之间确认仍是同一条流。
+        try:
+            state, _ = await _inspect_stream_state(
+                redis,
+                conversation_id,
+                expected_message_id=expected_message_id,
+                expected_task_id=expected_task_id,
+            )
+        except Exception as e:
+            logger.warning(f"检查流状态失败: {e}")
+            state = "read_failed"
+        if state == "terminal":
+            continue
+        if state == "read_failed":
+            error_fields = _terminal_error_fields(
+                code="redis_read_failed",
+                message="生成连接暂时中断，请重试",
+                reason="redis_liveness_check_failed",
+            )
+        elif state == "replaced":
+            error_fields = _terminal_error_fields(
+                code="stream_interrupted",
+                message="当前生成已被新请求取代，请重试",
+                reason="stream_replaced",
+            )
+        else:
+            error_fields = _terminal_error_fields(
+                code="stream_interrupted",
+                message="生成连接已中断，请重试",
+                reason="terminal_entry_missing",
+            )
+        yield {"entry_id": current_id, **error_fields}
+        return
+
+
 async def read_stream_chunks(
     conversation_id: str,
     last_entry_id: str = "0",
@@ -470,8 +559,8 @@ async def read_stream_chunks(
     key = stream_chunks_key(conversation_id)
     current_id = last_entry_id
 
-    # 最多等 30 分钟
-    deadline = time.time() + 1800
+    # 与流的存活上限一致（Agent 总超时加收尾余量），不早于生成本身超时。
+    deadline = time.time() + STREAM_CHUNK_TTL
 
     while time.time() < deadline:
         try:
@@ -524,15 +613,14 @@ async def read_stream_chunks(
             }
             return
         if state == "terminal":
-            try:
-                remaining = await redis.xrange(key, min=current_id, count=100)
-                for entry_id, fields in remaining:
-                    if entry_id == current_id:
-                        continue
-                    current_id = entry_id
-                    yield {"entry_id": entry_id, **fields}
-            except Exception:
-                pass
+            async for entry in _drain_sealed_stream(
+                redis,
+                conversation_id,
+                current_id,
+                expected_message_id=expected_message_id,
+                expected_task_id=expected_task_id,
+            ):
+                yield entry
             return
 
         try:
