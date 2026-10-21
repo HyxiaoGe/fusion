@@ -359,9 +359,12 @@ def extract_content_delta(delta, reasoning_delta: str) -> str:
 
 
 def _pending_open_think_tag_start(text: str) -> int | None:
+    # 最后一个 ">" 之前的 "<" 尾部必含 ">"，不可能是半截开标签；只扫其后，
+    # 否则 HTML/代码回答每个增量都要对全文每个 "<" 复制尾部，长回答会拖到分钟级。
+    search_start = text.rfind(">") + 1
     search_end = len(text)
     while True:
-        index = text.rfind("<", 0, search_end)
+        index = text.rfind("<", search_start, search_end)
         if index < 0:
             return None
         tail = text[index:].lower()
