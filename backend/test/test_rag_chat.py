@@ -319,7 +319,8 @@ class ConversationKnowledgeSelectionTests(unittest.TestCase):
         self.assertEqual(assistant.usage, {"input_tokens": 3, "output_tokens": 5})
         self.assertEqual(assistant.suggested_questions, ["旧推荐"])
         self.assertEqual(assistant.suggested_questions_revision, 4)
-        self.assertEqual(assistant.suggested_questions_status, "ready")
+        # 旧推荐不对应进行中的新回答，生成期间不展示；问题保留到新回答成功写入。
+        self.assertEqual(assistant.suggested_questions_status, "idle")
         self.assertEqual(assistant.generation_task_id, "task-retry")
 
     def test_non_stream_retry_stale_generation_cannot_replace_newer_answer(self):
