@@ -448,7 +448,37 @@ async def _inspect_stream_state(
     return str(result[0]), str(result[1])
 
 
-_TERMINAL_DRAIN_BATCH = 500
+# 每次从 Redis 读取的条目上限：读取器落后时按大批追赶，同批增量才能合并。
+_READ_BATCH_SIZE = 500
+_COALESCIBLE_DELTA_TYPES = frozenset({"answering", "reasoning"})
+
+
+def _is_same_delta_target(previous: dict, fields: dict) -> bool:
+    return (
+        fields.get("type") in _COALESCIBLE_DELTA_TYPES
+        and previous.keys() == fields.keys()
+        and all(previous[key] == fields[key] for key in fields if key != "content")
+    )
+
+
+def _coalesce_text_deltas(entries: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
+    """把同一批里连续、同块同归属的正文/思考增量合并成一条，entry id 取最后一条。
+
+    增量是纯追加，合并前后语义不变；从头回放积压时上千条片段压成几十帧，前端不再
+    逐条处理（#309）。只合并已经读到手的批次，不为凑批等待，实时输出没有额外延迟。
+    """
+    groups: list[tuple[str, dict, list[str]]] = []
+    for entry_id, fields in entries:
+        if groups and _is_same_delta_target(groups[-1][1], fields):
+            _, first_fields, parts = groups[-1]
+            parts.append(fields.get("content", ""))
+            groups[-1] = (entry_id, first_fields, parts)
+        else:
+            groups.append((entry_id, fields, [fields.get("content", "")]))
+    return [
+        (entry_id, {**fields, "content": "".join(parts)}) if len(parts) > 1 else (entry_id, fields)
+        for entry_id, fields, parts in groups
+    ]
 
 
 async def _drain_sealed_stream(
@@ -468,7 +498,7 @@ async def _drain_sealed_stream(
     key = stream_chunks_key(conversation_id)
     while True:
         try:
-            entries = await redis.xrange(key, min=current_id, count=_TERMINAL_DRAIN_BATCH)
+            entries = await redis.xrange(key, min=current_id, count=_READ_BATCH_SIZE)
         except Exception as e:
             logger.warning(f"补读已结束流失败: conv_id={conversation_id}, error={e}")
             yield {
@@ -481,7 +511,7 @@ async def _drain_sealed_stream(
             }
             return
 
-        fresh = [(entry_id, fields) for entry_id, fields in entries if entry_id != current_id]
+        fresh = _coalesce_text_deltas([(entry_id, fields) for entry_id, fields in entries if entry_id != current_id])
         if not fresh:
             # 游标正停在结束条目上：客户端断线前已收到终态，重连只需收尾。
             if entries and entries[0][1].get("type") in ("done", "error"):
@@ -627,7 +657,7 @@ async def read_stream_chunks(
             results = await redis.xread(
                 {key: current_id},
                 block=5000,
-                count=50,
+                count=_READ_BATCH_SIZE,
             )
         except Exception as e:
             logger.warning(f"XREAD 失败: {e}")
@@ -676,7 +706,7 @@ async def read_stream_chunks(
             return
 
         for _stream_key, entries in results:
-            for entry_id, fields in entries:
+            for entry_id, fields in _coalesce_text_deltas(entries):
                 current_id = entry_id
                 yield {"entry_id": entry_id, **fields}
                 if fields.get("type") in ("done", "error"):
