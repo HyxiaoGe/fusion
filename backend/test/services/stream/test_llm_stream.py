@@ -1,4 +1,5 @@
 import asyncio
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -33,6 +34,32 @@ def make_tool_delta(*, index=0, tool_call_id=None, name=None, arguments=None):
 async def async_response(chunks):
     for chunk in chunks:
         yield chunk
+
+
+class PendingThinkTagTests(unittest.TestCase):
+    def test_pending_open_think_tag_detection(self):
+        pending = llm_stream_module._pending_open_think_tag_start
+        for text, expected in (
+            ("正文<", 2),
+            ("正文<thi", 2),
+            ("<div>正文<THINK", 7),
+            ("<p>正文<think a<b", 5),
+            ("正文<think>", None),
+            ("<div>正文</div>", None),
+            ("a <thin", 2),
+            ("a < b >", None),
+            ("", None),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(pending(text), expected)
+
+    def test_long_html_answer_does_not_rescan_every_angle_bracket(self):
+        # 曾对全文每个 "<" 复制并小写尾部：18 万字 HTML 单次约 0.4s，每增量调用三次。
+        text = '<div class="cell">x</div>\n' * 8000 + "if a < b"
+        started = time.perf_counter()
+        for _ in range(20):
+            self.assertIsNone(llm_stream_module._pending_open_think_tag_start(text))
+        self.assertLess(time.perf_counter() - started, 0.05)
 
 
 class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
