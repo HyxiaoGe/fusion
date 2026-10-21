@@ -107,6 +107,7 @@ function AssistantResponseStack({
     reasoning.content.length,
     documentDraft?.content.length ?? 0,
     structuredResults.length,
+    agentRun?.toolCallProgress ?? 0,
   ].join(':');
   // 模型只输出了思考、没写正文时如实说明，不拿思考冒充回答。
   const answerMissing = activity.kind === 'completed'

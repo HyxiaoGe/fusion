@@ -554,6 +554,12 @@ const streamSlice = createSlice({
       if (field && delta) run.documentDraft[field] += delta;
     }),
 
+    noteToolCallProgress: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string }>) => {
+      const run = state.currentRun;
+      if (!run || run.runId !== action.payload.runId) return;
+      run.toolCallProgress = (run.toolCallProgress ?? 0) + 1;
+    }),
+
     pushStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; stepNumber: number; sequence: number }>) => {
       const run = state.currentRun;
       const { runId, stepId, stepNumber, sequence } = action.payload;
@@ -1014,6 +1020,7 @@ export const {
   appendTextDelta,
   appendThinkingDelta,
   applyDocumentDraftDelta,
+  noteToolCallProgress,
   applyPlanSnapshot,
   clearCurrentRun,
   completeThinkingPhase,

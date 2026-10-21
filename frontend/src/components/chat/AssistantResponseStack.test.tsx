@@ -38,16 +38,18 @@ vi.mock('./ReasoningContent', () => ({
 }));
 
 vi.mock('./AssistantActivityStatus', () => ({
-  default: ({ activity, placement, reasoningVisible, stopPending }: {
+  default: ({ activity, placement, reasoningVisible, stopPending, outputMark }: {
     activity: AssistantActivity;
     placement?: 'top' | 'bottom';
     reasoningVisible?: boolean;
     stopPending?: boolean;
+    outputMark?: string;
   }) => (
     <section
       data-testid={placement === 'bottom' ? 'stack-activity-bottom' : 'stack-activity'}
       data-reasoning-visible={String(Boolean(reasoningVisible))}
       data-stop-pending={String(Boolean(stopPending))}
+      data-output-mark={outputMark}
     >
       {activity.kind}
     </section>
@@ -455,6 +457,33 @@ describe('AssistantResponseStack', () => {
       screen.getByTestId('stack-markdown').compareDocumentPosition(bottomStatus) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(stack.querySelectorAll('.max-w-6xl')).toHaveLength(2);
+  });
+
+  it('模型输出工具参数时更新输出标记，状态行不把它当成没有动静', () => {
+    const renderStack = (toolCallProgress?: number) => (
+      <AssistantResponseStack
+        reasoning={{
+          shouldRender: true,
+          content: '先搜索一下',
+          isVisible: true,
+          isStreaming: true,
+          onToggle: vi.fn(),
+        }}
+        activity={activity({ kind: 'reasoning', hasText: false })}
+        agentRun={{ ...agentRun, toolCallProgress }}
+        answerEvidence={null}
+        onSourceClick={vi.fn()}
+        onOpenSources={vi.fn()}
+        markdown={{ content: '', sources: [] }}
+        showStreamingCursor={false}
+      />
+    );
+    const { rerender } = render(renderStack());
+    const before = screen.getByTestId('stack-activity-bottom').getAttribute('data-output-mark');
+
+    rerender(renderStack(1));
+
+    expect(screen.getByTestId('stack-activity-bottom').getAttribute('data-output-mark')).not.toBe(before);
   });
 
   it('透传各子组件事件和 Markdown 渲染参数', () => {

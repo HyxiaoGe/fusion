@@ -1077,4 +1077,23 @@ describe('createAgentStreamEventHandlers', () => {
     )).toHaveLength(1000);
     expect(elapsedMs, `1000 条真实 dispatch 耗时 ${elapsedMs.toFixed(2)}ms`).toBeLessThan(500);
   });
+
+  it('工具参数输出信号按当前会话记到对应 run', () => {
+    const dispatch = vi.fn();
+    const handlers = createAgentStreamEventHandlers({
+      dispatch,
+      isActive: () => true,
+      resolveMessageId: ev => ev.message_id,
+      resolveConversationId: () => 'c1',
+    });
+
+    handlers.onToolCallProgress?.({ run_id: 'r1', step_id: 's1' });
+    handlers.onToolCallProgress?.({});
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'stream/noteToolCallProgress',
+      payload: { conversationId: 'c1', runId: 'r1' },
+    }));
+  });
 });

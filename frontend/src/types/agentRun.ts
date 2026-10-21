@@ -197,6 +197,8 @@ export interface AgentRunState {
   documentDraft?: DocumentDraftState;
   /** 当前模型轮次的输出阶段，仅生成期用于状态提示；轮次结束即清除。 */
   llmPhase?: AgentLlmPhase;
+  /** 收到的工具参数输出信号次数；参数不展示，靠它判断模型仍在输出而不是卡住。 */
+  toolCallProgress?: number;
   lastSequence: number;
 }
 

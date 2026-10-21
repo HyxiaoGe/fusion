@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -213,6 +214,52 @@ def _document_draft_observer(
     return DocumentDraftStreamer(tool_names=tool_names, draft_id_prefix=step_id, emit=emit).on_tool_call_delta
 
 
+# 模型写工具参数时正文和思考都不增长，前端靠该信号区分“仍在输出”和“模型卡住”。
+# 间隔远小于前端变慢提示的阈值即可，不必逐片段写流。
+TOOL_CALL_PROGRESS_INTERVAL_S = 2.0
+
+
+def _tool_call_progress_observer(
+    *,
+    output: RunOutput,
+    run_id: str,
+    step_id: str,
+    clock: Callable[[], float] = time.monotonic,
+) -> Callable[[int, str | None, str], Awaitable[None]]:
+    """模型输出工具调用参数期间按间隔推送进度信号；只表示有输出，不带参数内容。"""
+
+    last_sent_at: float | None = None
+
+    async def observe(index: int, name: str | None, arguments: str) -> None:
+        nonlocal last_sent_at
+        now = clock()
+        if last_sent_at is not None and now - last_sent_at < TOOL_CALL_PROGRESS_INTERVAL_S:
+            return
+        last_sent_at = now
+        await output.append("tool_call_progress", "", "", run_id=run_id, step_id=step_id)
+
+    return observe
+
+
+def _tool_call_delta_observer(
+    draft_tool_names: frozenset[str],
+    *,
+    output: RunOutput,
+    run_id: str,
+    step_id: str,
+) -> Callable[[int, str | None, str], Awaitable[None]]:
+    progress = _tool_call_progress_observer(output=output, run_id=run_id, step_id=step_id)
+    draft = _document_draft_observer(draft_tool_names, output=output, run_id=run_id, step_id=step_id)
+    if draft is None:
+        return progress
+
+    async def observe(index: int, name: str | None, arguments: str) -> None:
+        await progress(index, name, arguments)
+        await draft(index, name, arguments)
+
+    return observe
+
+
 def _freeze_observation(observation: Any) -> None:
     freeze = getattr(observation, "freeze", None)
     if callable(freeze):
@@ -392,7 +439,7 @@ async def run_agent_round(
             on_output_candidate=getattr(observation, "observe_output_candidate", None),
             capture_output_candidate_time=getattr(observation, "capture_output_candidate_time", None),
             partial_output=partial_output,
-            on_tool_call_delta=_document_draft_observer(
+            on_tool_call_delta=_tool_call_delta_observer(
                 frozenset(draft_tool_names).intersection(round_tool_names(call_kwargs)),
                 output=output,
                 run_id=run_id,

@@ -44,6 +44,9 @@ def entry_to_sse_envelope(entry_fields: dict) -> dict:
         for k in ("run_id", "step_id"):
             if k in entry_fields:
                 data[k] = entry_fields[k]
+    elif chunk_type == "tool_call_progress":
+        # 模型正在输出工具调用参数：只作存活信号，供前端判断模型没有卡住
+        data = {k: entry_fields[k] for k in ("run_id", "step_id") if k in entry_fields}
     elif chunk_type == "thinking_pending":
         # 思考中占位事件：FE 用来显示脉冲动画
         data = {"block_id": block_id}
