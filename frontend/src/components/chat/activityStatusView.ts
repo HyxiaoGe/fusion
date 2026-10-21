@@ -38,8 +38,11 @@ const AWAITING_MODEL_OUTPUT_KINDS: ReadonlySet<AssistantActivityKind> = new Set(
   'drafting',
 ]);
 
-/** 模型阶段超过该秒数没有新输出，就提示用户模型变慢（后端首字 10 秒换模型、中途 30 秒截断）。 */
-export const MODEL_SLOW_AFTER_S = 10;
+/**
+ * 模型阶段超过该秒数没有新输出，就提示用户模型变慢。后端首字 10 秒换备用模型，
+ * 备用通常 1 秒内出字，留出余量让换模型成功时不提示；备用首字 15 秒、中途 30 秒才放弃。
+ */
+export const MODEL_SLOW_AFTER_S = 15;
 
 export function isAwaitingModelOutput(kind: AssistantActivityKind): boolean {
   return AWAITING_MODEL_OUTPUT_KINDS.has(kind);

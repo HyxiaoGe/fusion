@@ -10,6 +10,7 @@ import {
   initRun,
   markLimitReached,
   mergeToolCallDelta,
+  noteToolCallProgress,
   pushStep,
   pushToolCall,
   setLlmPhase,
@@ -90,6 +91,12 @@ export function createAgentStreamEventHandlers({
         field,
         delta: typeof payload.delta === 'string' ? payload.delta : undefined,
       }));
+    },
+    onToolCallProgress: payload => {
+      if (!isActive() || !payload.run_id) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
+      dispatch(noteToolCallProgress({ conversationId, runId: payload.run_id }));
     },
     onRunStarted: ev => {
       if (!isActive()) return;

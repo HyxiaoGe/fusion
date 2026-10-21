@@ -124,6 +124,12 @@ export interface ContentDeltaPayload {
   step_id?: string;
 }
 
+/** tool_call_progress chunk：模型正在输出工具调用参数，只作存活信号。 */
+export interface ToolCallProgressPayload {
+  run_id?: string;
+  step_id?: string;
+}
+
 /** document_draft chunk：文档工具参数里的正文片段，仅供生成期预览。 */
 export interface DocumentDraftPayload {
   draft_id?: string;
@@ -257,6 +263,8 @@ export interface StreamCallbacks {
   onAnswering: (payload: ContentDeltaPayload) => void;
   /** document_draft chunk：文档草稿实时预览 */
   onDocumentDraft?: (payload: DocumentDraftPayload) => void;
+  /** tool_call_progress chunk：模型仍在输出工具参数 */
+  onToolCallProgress?: (payload: ToolCallProgressPayload) => void;
   /** preparing chunk：流开启信号（FE 可显示 spinner） */
   onPreparing?: () => void;
 
@@ -843,6 +851,9 @@ async function parseSseEnvelopeStream(
             break;
           case 'document_draft':
             callbacks.onDocumentDraft?.(envelope.data as DocumentDraftPayload);
+            break;
+          case 'tool_call_progress':
+            callbacks.onToolCallProgress?.(envelope.data as ToolCallProgressPayload);
             break;
           case 'preparing':
             callbacks.onPreparing?.();

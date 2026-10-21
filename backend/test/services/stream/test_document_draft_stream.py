@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, patch
 
 from app.services.documents.draft_stream import DRAFT_FIELDS, DocumentDraftStreamer, TopLevelStringFieldScanner
 from app.services.stream import llm_stream as llm_stream_module
-from app.services.stream.agent_round import _document_draft_observer
+from app.services.stream.agent_round import (
+    TOOL_CALL_PROGRESS_INTERVAL_S,
+    _document_draft_observer,
+    _tool_call_delta_observer,
+    _tool_call_progress_observer,
+)
 from app.services.stream.run_output import ConversationStreamOutput
 from app.services.stream.sse_encoder import entry_to_sse_envelope
 
@@ -207,6 +212,60 @@ class DocumentDraftObserverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(block_id, "step:0")
         self.assertEqual(json.loads(content)["delta"], "第一段" * 70)
         self.assertEqual(append.await_args_list[1].kwargs, {"task_id": "task", "run_id": "run", "step_id": "step"})
+
+
+class ToolCallProgressTests(unittest.IsolatedAsyncioTestCase):
+    async def test_progress_signal_is_throttled_and_carries_run_identity(self):
+        now = [100.0]
+        output = SimpleNamespace(append=AsyncMock(return_value="1-0"))
+        observer = _tool_call_progress_observer(output=output, run_id="run", step_id="step", clock=lambda: now[0])
+
+        await observer(0, "web_search", '{"query":')
+        now[0] += TOOL_CALL_PROGRESS_INTERVAL_S / 2
+        await observer(0, None, '"天气"')
+        now[0] += TOOL_CALL_PROGRESS_INTERVAL_S
+        await observer(0, None, "}")
+
+        self.assertEqual(output.append.await_count, 2)
+        for call in output.append.await_args_list:
+            self.assertEqual(call.args, ("tool_call_progress", "", ""))
+            self.assertEqual(call.kwargs, {"run_id": "run", "step_id": "step"})
+
+    async def test_rounds_without_document_tools_still_report_tool_call_progress(self):
+        append = AsyncMock(return_value="1-0")
+        observer = _tool_call_delta_observer(
+            frozenset(),
+            output=ConversationStreamOutput("conv", "task"),
+            run_id="run",
+            step_id="step",
+        )
+        with patch("app.services.stream_state_service.append_chunk", new=append):
+            await observer(0, "web_search", '{"query":"天气"}')
+
+        self.assertEqual([call.args[1] for call in append.await_args_list], ["tool_call_progress"])
+
+    async def test_document_rounds_report_progress_and_draft(self):
+        append = AsyncMock(return_value="1-0")
+        observer = _tool_call_delta_observer(
+            DOCUMENT_TOOLS,
+            output=ConversationStreamOutput("conv", "task"),
+            run_id="run",
+            step_id="step",
+        )
+        with patch("app.services.stream_state_service.append_chunk", new=append):
+            await observer(0, "create_document", '{"content":"' + "第一段" * 70)
+
+        self.assertEqual(
+            [call.args[1] for call in append.await_args_list],
+            ["tool_call_progress", "document_draft", "document_draft"],
+        )
+
+    def test_progress_entry_becomes_envelope_with_run_identity(self):
+        envelope = entry_to_sse_envelope(
+            {"type": "tool_call_progress", "content": "", "block_id": "", "run_id": "run", "step_id": "step"}
+        )
+
+        self.assertEqual(envelope, {"chunk_type": "tool_call_progress", "data": {"run_id": "run", "step_id": "step"}})
 
 
 class DocumentDraftSseTests(unittest.TestCase):

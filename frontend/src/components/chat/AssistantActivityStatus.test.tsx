@@ -95,7 +95,7 @@ describe('AssistantActivityStatus', () => {
     }
   });
 
-  it('模型阶段 10 秒没有新输出时提示响应变慢，从最后一次输出起计时', () => {
+  it('模型阶段 15 秒没有新输出时提示响应变慢，从最后一次输出起计时', () => {
     vi.useFakeTimers();
     try {
       const answering = baseActivity({ kind: 'answering', hasText: true });
@@ -107,14 +107,14 @@ describe('AssistantActivityStatus', () => {
 
       act(() => { vi.advanceTimersByTime(8000); });
       rerender(<AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:42" />);
-      act(() => { vi.advanceTimersByTime(9000); });
+      act(() => { vi.advanceTimersByTime(14000); });
       expect(container).toBeEmptyDOMElement();
 
       act(() => { vi.advanceTimersByTime(3000); });
       const status = screen.getByRole('status');
-      expect(status).toHaveTextContent('模型响应变慢已等待 12 秒，可以停止后重试');
+      expect(status).toHaveTextContent('模型响应变慢已等待 17 秒，可以停止后重试');
       expect(status).toHaveAttribute('data-tone', 'warn');
-      expect(screen.queryByText('12 秒')).toBeNull();
+      expect(screen.queryByText('17 秒')).toBeNull();
 
       // 有新输出立即恢复
       rerender(<AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:50" />);
@@ -135,7 +135,7 @@ describe('AssistantActivityStatus', () => {
           outputMark="reasoning:0:300"
         />,
       );
-      act(() => { vi.advanceTimersByTime(11000); });
+      act(() => { vi.advanceTimersByTime(16000); });
       expect(screen.getByText('模型响应变慢')).toBeTruthy();
 
       rerender(

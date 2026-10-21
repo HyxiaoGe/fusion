@@ -11,6 +11,7 @@ import streamSliceReducer, {
   pushStep,
   setLlmPhase,
   clearLlmPhase,
+  noteToolCallProgress,
   pushToolCall,
   mergeToolCallDelta,
   finalizeToolCall,
@@ -588,6 +589,15 @@ describe('streamSlice — agent run timeline', () => {
 
     s = reducer(s, clearLlmPhase({ conversationId: 'c1', runId: 'r1', roundId: 'round-1' }));
     expect(slot(s, 'c1').currentRun?.llmPhase).toBeUndefined();
+  });
+
+  it('noteToolCallProgress 只累计当前 run 的工具参数输出信号', () => {
+    let s = reducer(startedAt('c1'), initRun({ conversationId: 'c1', runId: 'r1', messageId: 'm1', config: baseConfig, sequence: 0 }));
+    s = reducer(s, noteToolCallProgress({ conversationId: 'c1', runId: 'r1' }));
+    s = reducer(s, noteToolCallProgress({ conversationId: 'c1', runId: 'r1' }));
+    s = reducer(s, noteToolCallProgress({ conversationId: 'c1', runId: 'old-run' }));
+    expect(slot(s, 'c1').currentRun?.toolCallProgress).toBe(2);
+    expect(slot(s, 'c1').currentRun?.lastSequence).toBe(0);
   });
 
   it('updateRunProgress 写入 progress 并按 sequence 幂等', () => {

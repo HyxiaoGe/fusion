@@ -2292,3 +2292,34 @@ describe('document_draft chunk', () => {
     expect(onAnswering).not.toHaveBeenCalled();
   });
 });
+
+describe('tool_call_progress chunk', () => {
+  beforeEach(() => {
+    fetchWithAuthMock.mockReset();
+  });
+
+  it('把工具参数输出信号交给 onToolCallProgress', async () => {
+    fetchWithAuthMock.mockResolvedValue(
+      createStreamResponse([
+        envelope('tool_call_progress', { run_id: 'run-1', step_id: 'step-1' }),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onToolCallProgress = vi.fn();
+
+    await sendMessageStream(
+      { model_id: 'g', message: '查一下天气', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onToolCallProgress,
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    );
+
+    expect(onToolCallProgress).toHaveBeenCalledWith({ run_id: 'run-1', step_id: 'step-1' });
+  });
+});
