@@ -25,6 +25,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  // 安卓 Chrome 弹出键盘时缩小布局视口，底部输入框留在键盘上方（iOS 忽略该项）。
+  interactiveWidget: 'resizes-content',
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: 'white' },
     { media: '(prefers-color-scheme: dark)', color: 'black' },

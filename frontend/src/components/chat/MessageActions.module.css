@@ -36,7 +36,8 @@
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
-@media (min-width: 1024px) {
+/* 只有能悬停的设备才收起操作按钮；手机、平板等触屏一直显示。 */
+@media (hover: hover) and (pointer: fine) {
   .actions {
     opacity: 0;
     pointer-events: none;

@@ -44,6 +44,7 @@ import ComposerAttachmentList from "./ComposerAttachmentList";
 import ContextStatus from "./ContextStatus";
 import { makeSelectConversationContextStatus } from "@/lib/chat/contextUsage";
 import { resolveSendModel } from "@/lib/chat/sendModelResolution";
+import { useTouchInput } from "@/lib/hooks/useTouchInput";
 import { clearComposerDraftIfUnchanged, readComposerDraft, readComposerDraftRevision, writeComposerDraft } from "@/lib/chat/composerDraftStorage";
 import {
   isComposerAttachmentError,
@@ -231,6 +232,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     () => initialKnowledgeBaseIds?.length ? 'loading' : 'ready',
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isTouchInput = useTouchInput();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousResetSignalRef = useRef(resetSignal);
   const previousPrefillRequestIdRef = useRef<number | null>(null);
@@ -1257,19 +1259,40 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }, 100);
   }, [isComposerBlocked, chatId]);
 
-  useEffect(() => {
+  const fitTextareaHeight = useCallback(() => {
     if (!textareaRef.current) {
       return;
     }
 
     textareaRef.current.style.height = "auto";
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
-  }, [message]);
+  }, []);
+
+  useEffect(() => {
+    fitTextareaHeight();
+  }, [message, fitTextareaHeight]);
+
+  // 手机进入对话页时输入框会先以几十像素宽挂载，按那时的折行量出的高度会一直留着；宽度变了就重算。
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    let lastWidth = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === lastWidth) return;
+      lastWidth = textarea.clientWidth;
+      fitTextareaHeight();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [fitTextareaHeight]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // 选词 Enter 不是发送；229 兼容部分浏览器输入法结束组合的顺序。
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-    if (event.key === "Enter" && !event.shiftKey) {
+    // 手机键盘没有 Shift，回车用来换行，发送走发送按钮。
+    if (event.key === "Enter" && !event.shiftKey && !isTouchInput) {
       event.preventDefault();
       handleSendMessage();
     }
@@ -1426,7 +1449,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               ? "模型列表加载失败，请刷新页面重试"
               : isCurrentModelUnavailable
                 ? "当前会话模型不可用，请新建会话后继续"
-                : (placeholder || "发消息给 Fusion AI（Enter 发送）")
+                : (placeholder || (isTouchInput ? "发消息给 Fusion AI" : "发消息给 Fusion AI（Enter 发送）"))
           }
           disabled={isComposerBlocked}
           className="min-h-[44px] max-h-[168px] resize-none border-0 shadow-none focus-visible:ring-0 px-4 pt-3 pb-2 text-sm"
@@ -1527,8 +1550,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
         {isStopUnconfirmed ? <span className="inline-flex items-center gap-2">停止结果未确认，请刷新会话核实<Button type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => window.location.reload()}>刷新确认</Button></span>
           : isStopping ? "正在确认停止结果，已输入的草稿会保留"
             : isSubmitting ? "正在提交消息，草稿暂时保留"
-              : isCurrentConversationStreaming ? "正在生成，可继续编写下一条消息 · Shift+Enter 换行"
-                : "Enter 发送 · Shift+Enter 换行"}
+              : isCurrentConversationStreaming ? (isTouchInput ? "正在生成，可继续编写下一条消息" : "正在生成，可继续编写下一条消息 · Shift+Enter 换行")
+                : isTouchInput ? null : "Enter 发送 · Shift+Enter 换行"}
         {hasHydrated && isGuest && guestMessagesRemaining !== null && (
           <span data-testid="guest-quota-hint">
             {" · "}免登录今天还可发送 {guestMessagesRemaining} 条

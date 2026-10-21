@@ -171,7 +171,8 @@ const ChatItem: React.FC<ChatItemProps> = ({
             <Button
               variant="ghost"
               size="icon"
-              className={`h-7 w-7 rounded-md p-0 text-muted-foreground transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${isActive && !isStreaming ? "opacity-100" : "opacity-0"}`}
+              // 触屏没有悬停，看不见的按钮不能接住点击，否则点行尾会误开菜单；进入对话后再操作。
+              className={`h-7 w-7 rounded-md p-0 text-muted-foreground transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${isActive && !isStreaming ? "opacity-100" : "opacity-0 touch:pointer-events-none"}`}
               title="更多操作"
               aria-label="更多操作"
               onPointerDown={(event) => {

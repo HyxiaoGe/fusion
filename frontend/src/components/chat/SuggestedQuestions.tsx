@@ -141,7 +141,8 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
             size="sm"
             className={cn(
               "flex items-center gap-2 w-full text-left rounded-md border border-border/50 bg-transparent px-2.5 py-1.5 text-sm text-foreground transition-colors duration-fast hover:bg-muted/30 hover:border-border",
-              "h-auto justify-start font-normal disabled:opacity-75",
+              // 按钮默认不换行，长问题在窄屏会把整列消息撑出横向滚动。
+              "h-auto justify-start whitespace-normal font-normal disabled:opacity-75",
               fadeInArrivals && "animate-in fade-in duration-300 motion-reduce:animate-none",
               pendingQuestion === question && "border-info-border bg-info-bg text-info"
             )}
@@ -155,7 +156,7 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
               "h-3.5 w-3.5 flex-shrink-0",
               hoveredIndex === index || pendingQuestion === question ? "text-foreground" : "text-muted-foreground"
             )} />
-            <span>{pendingQuestion === question ? '发送中...' : question}</span>
+            <span className="min-w-0 break-words">{pendingQuestion === question ? '发送中...' : question}</span>
           </Button>
         ))}
         
