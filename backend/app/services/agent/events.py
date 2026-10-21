@@ -97,7 +97,7 @@ class StepCompleted(AgentEventBase):
 
 class RunLimitReached(AgentEventBase):
     type: Literal["run_limit_reached"]
-    reason: Literal["max_steps", "max_tool_calls", "timeout"]
+    reason: Literal["max_steps", "max_tool_calls", "timeout", "output_length"]
 
 
 class RunInterrupted(AgentEventBase):

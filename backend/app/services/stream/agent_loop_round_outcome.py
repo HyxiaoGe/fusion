@@ -12,7 +12,7 @@ from app.services.stream.agent_loop_runtime import AgentLoopRuntime
 from app.services.stream.agent_loop_state import AgentLoopState
 from app.services.stream.agent_loop_step_requests import build_tool_round_request
 from app.services.stream.agent_round import AgentRoundResult
-from app.services.stream.llm_stream import contains_tool_protocol_residue
+from app.services.stream.llm_stream import OUTPUT_LENGTH_FINISH_REASON, contains_tool_protocol_residue
 from app.services.stream.provider_content_filter import (
     CONTENT_FILTER_FINISH_REASON,
     replace_with_content_filtered_block,
@@ -76,6 +76,10 @@ async def _handle_agent_round_outcome(
             await _complete_empty_round_before_summary(request)
             return AgentLoopOutcome(exit=AgentLoopExit.SUMMARY_REQUIRED)
         await _complete_text_round(request)
+        return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
+
+    if finish_reason == OUTPUT_LENGTH_FINISH_REASON:
+        await _complete_output_length_round(request)
         return AgentLoopOutcome(exit=AgentLoopExit.COMPLETED)
 
     if finish_reason == "cancelled":
@@ -337,6 +341,21 @@ async def _complete_content_filtered_round(request: AgentRoundOutcomeRequest) ->
         emitter=request.runtime.emitter,
     )
     request.state.tool_transcript = []
+
+
+async def _complete_output_length_round(request: AgentRoundOutcomeRequest) -> None:
+    """输出触达 max_tokens：截断前的正文原样交付，运行标为达到上限并告知用户被截断。
+
+    截断中的工具调用参数不完整，不执行。
+    """
+
+    request.state.limit_reason = "output_length"
+    request.runtime.warning_fn(
+        "模型输出触达 max_tokens 被截断: "
+        f"conv_id={request.runtime.conversation_id}, run_id={request.runtime.run_id}, step={request.step_number}"
+    )
+    await request.runtime.emitter.run_limit_reached(reason="output_length")
+    await _complete_text_round(request)
 
 
 async def _complete_unknown_round(request: AgentRoundOutcomeRequest) -> None:

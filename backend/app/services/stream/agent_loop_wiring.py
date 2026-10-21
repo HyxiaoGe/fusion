@@ -292,6 +292,7 @@ def build_agent_loop_call_config_from_inputs(
 
     return build_call_config_fn(
         provider=run_input.provider,
+        model_id=run_input.model_id,
         options=inputs.options,
         capabilities=inputs.capabilities,
         additional_tools=inputs.additional_tools,

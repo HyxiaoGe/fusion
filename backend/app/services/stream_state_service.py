@@ -25,6 +25,7 @@ from app.core.redis import (
     LUA_INIT_STREAM,
     LUA_INSPECT_STREAM,
     LUA_RELEASE_STREAM_STOP_GUARD,
+    LUA_RENEW_STREAM,
     STREAM_CHUNK_TTL,
     STREAM_DONE_TTL,
     STREAM_STOP_GUARD_TTL,
@@ -341,13 +342,21 @@ async def release_stream_stop_guard(conversation_id: str, expected_task_id: str)
 
 
 async def check_lock_owner(conversation_id: str, task_id: str) -> bool:
-    """检查当前 task_id 是否仍是锁持有者"""
+    """检查当前 task_id 是否仍是锁持有者；仍持有时顺带续期，避免长时间生成中锁过期。"""
     redis = get_redis_pool()
     if not redis:
         return True
     try:
-        current = await redis.get(stream_lock_key(conversation_id))
-        return current == task_id
+        result = await redis.eval(
+            LUA_RENEW_STREAM,
+            3,
+            stream_lock_key(conversation_id),
+            stream_chunks_key(conversation_id),
+            stream_meta_key(conversation_id),
+            task_id,
+            str(STREAM_CHUNK_TTL),
+        )
+        return int(result) == 1
     except Exception:
         return True
 

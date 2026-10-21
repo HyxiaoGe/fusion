@@ -2234,6 +2234,23 @@ class LLMStreamTests(unittest.IsolatedAsyncioTestCase):
             step_id="step-1",
         )
 
+    async def test_length_finish_reason_is_reported_instead_of_stop(self):
+        with (
+            patch("app.services.stream_state_service.append_chunk", AsyncMock()),
+            patch("app.services.stream_state_service.check_lock_owner", AsyncMock(return_value=True)),
+        ):
+            result = await llm_stream_module.stream_round(
+                async_response([make_chunk(delta=SimpleNamespace(content="写到一半"), finish_reason="length")]),
+                ConversationStreamOutput("conv-1", "task-1"),
+                "conv-1",
+                False,
+                "blk-thinking",
+                "blk-text",
+            )
+
+        self.assertEqual(result[1], "写到一半")
+        self.assertEqual(result[3], "length")
+
     async def test_stream_round_exposes_raw_reasoning_without_expanding_legacy_tuple(self):
         with (
             patch("app.services.stream_state_service.append_chunk", AsyncMock()),

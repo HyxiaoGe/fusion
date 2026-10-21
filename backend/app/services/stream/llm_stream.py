@@ -31,6 +31,9 @@ from app.services.stream.run_output import RunOutput
 # 每 N 个 chunk 检查一次锁状态
 LOCK_CHECK_INTERVAL = 20
 
+# 供应商因 max_tokens 截断输出时返回的 finish_reason
+OUTPUT_LENGTH_FINISH_REASON = "length"
+
 # LLM 调用重试次数
 AGENT_LLM_MAX_RETRIES = 1
 
@@ -858,6 +861,9 @@ async def process_stream_choice(*, request: LLMStreamRequest, state: LLMStreamSt
         state.finish_reason = "tool_calls"
     elif finish_reason == "stop":
         state.finish_reason = "stop"
+    elif finish_reason == OUTPUT_LENGTH_FINISH_REASON:
+        # 触达 max_tokens：正文被截断，不能按正常 stop 交付。
+        state.finish_reason = OUTPUT_LENGTH_FINISH_REASON
     elif finish_reason == CONTENT_FILTER_FINISH_REASON:
         state.finish_reason = CONTENT_FILTER_FINISH_REASON
 

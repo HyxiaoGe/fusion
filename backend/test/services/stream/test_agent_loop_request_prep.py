@@ -4,8 +4,10 @@ from unittest.mock import patch
 
 from app.schemas.chat import TextBlock
 from app.services.stream.agent_loop_request_prep import (
+    AGENT_OUTPUT_MAX_TOKENS,
     UserPromptContext,
     _run_prompt_sections,
+    agent_output_max_tokens,
     build_agent_loop_call_config,
     inject_no_tool_network_boundary,
     prepare_agent_loop_messages,
@@ -310,7 +312,34 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
                     capabilities={"functionCalling": False},
                 )
 
-                self.assertNotIn("max_tokens", config.call_kwargs)
+                self.assertEqual(config.call_kwargs["max_tokens"], AGENT_OUTPUT_MAX_TOKENS)
+
+    def test_output_cap_applies_without_document_tools_and_respects_model_limits(self):
+        # 曾只在挂了文档工具时设 16384，其余运行用供应商默认值；长代码回答被截断。
+        entries = {
+            "wide": {"max_input_tokens": 1_000_000, "max_output_tokens": None},
+            "small-output": {"max_input_tokens": 1_000_000, "max_output_tokens": 8192},
+            "narrow-window": {"max_input_tokens": 256_000, "max_output_tokens": None},
+        }
+        with patch(
+            "app.services.stream.agent_loop_request_prep.litellm_catalog.get_model_entry",
+            side_effect=entries.get,
+        ):
+            for model_id, expected in (
+                ("wide", AGENT_OUTPUT_MAX_TOKENS),
+                ("small-output", 8192),
+                ("narrow-window", 38_400),
+                ("unknown", AGENT_OUTPUT_MAX_TOKENS),
+            ):
+                with self.subTest(model_id=model_id):
+                    self.assertEqual(agent_output_max_tokens(model_id), expected)
+                    config = build_agent_loop_call_config(
+                        provider="openai",
+                        options={},
+                        capabilities={"functionCalling": False},
+                        model_id=model_id,
+                    )
+                    self.assertEqual(config.call_kwargs["max_tokens"], expected)
 
     def test_build_call_config_can_disable_supported_tools(self):
         config = build_agent_loop_call_config(

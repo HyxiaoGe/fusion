@@ -30,7 +30,8 @@ export type ToolCallStatus =
  */
 export type FinalizeToolCallStatus = Exclude<ToolCallStatus, 'running' | 'interrupted'>;
 
-export type LimitReachedReason = 'max_steps' | 'max_tool_calls' | 'timeout';
+// output_length：单轮输出触达模型输出上限，正文被截断。
+export type LimitReachedReason = 'max_steps' | 'max_tool_calls' | 'timeout' | 'output_length';
 
 export type AgentProgressPhase =
   | 'planning'

@@ -167,6 +167,33 @@ class TestStreamStateService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await check_lock_owner("conv-1", "task-1"))
         self.assertFalse(await check_lock_owner("conv-1", "task-other"))
 
+    async def test_append_and_owner_check_renew_lock_and_meta_ttl(self):
+        # lock/meta 曾只在 init 设一次 TTL：单轮生成超过 STREAM_CHUNK_TTL 后丢失写入权。
+        from app.core.redis import STREAM_CHUNK_TTL
+        from app.services.stream_state_service import append_chunk, check_lock_owner, init_stream
+
+        await init_stream("conv-ttl", "user-1", "gpt-4", "msg-1", "task-1")
+        keys = ("stream:lock:conv-ttl", "stream:chunks:conv-ttl", "stream:meta:conv-ttl")
+
+        for renew in (
+            lambda: append_chunk("conv-ttl", "answering", "片段", "blk", task_id="task-1"),
+            lambda: check_lock_owner("conv-ttl", "task-1"),
+        ):
+            for key in keys:
+                await self.fake_redis.expire(key, 5)
+            await renew()
+            for key in keys:
+                self.assertGreater(await self.fake_redis.ttl(key), STREAM_CHUNK_TTL - 5, key)
+
+    async def test_owner_check_by_other_task_does_not_renew(self):
+        from app.services.stream_state_service import check_lock_owner, init_stream
+
+        await init_stream("conv-ttl-other", "user-1", "gpt-4", "msg-1", "task-1")
+        await self.fake_redis.expire("stream:lock:conv-ttl-other", 5)
+
+        self.assertFalse(await check_lock_owner("conv-ttl-other", "task-other"))
+        self.assertLessEqual(await self.fake_redis.ttl("stream:lock:conv-ttl-other"), 5)
+
     async def test_cancel_stream_rejects_replaced_task_with_same_message_id(self):
         from app.services.stream_state_service import cancel_stream, init_stream
 

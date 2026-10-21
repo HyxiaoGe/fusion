@@ -9,7 +9,7 @@ from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.documents.agent_tools import DocumentToolSet, render_current_documents_context
 from app.services.documents.service import DocumentVersionSnapshot
 from app.services.stream.agent_loop_request_prep import (
-    DOCUMENT_OUTPUT_MAX_TOKENS,
+    AGENT_OUTPUT_MAX_TOKENS,
     build_agent_loop_call_config,
     prepare_agent_loop_messages,
 )
@@ -65,7 +65,7 @@ class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("create_document", config.dynamic_tool_handlers)
         tools = {tool["function"]["name"]: tool for tool in config.call_kwargs["tools"]}
         self.assertIn("edit_document", tools)
-        self.assertEqual(config.call_kwargs["max_tokens"], DOCUMENT_OUTPUT_MAX_TOKENS)
+        self.assertEqual(config.call_kwargs["max_tokens"], AGENT_OUTPUT_MAX_TOKENS)
         self.assertIn("doc-1", config.document_context)
         TrajectoryCapabilityResolution.model_validate(
             {**serialize_capability_resolution(resolution), "bundle_fingerprint": "sha256:" + "0" * 64}
@@ -85,7 +85,7 @@ class DocumentCallConfigTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(config.output_tool_names, frozenset())
                 self.assertNotIn("create_document", _tool_names(config))
-                self.assertNotIn("max_tokens", config.call_kwargs)
+                self.assertEqual(config.call_kwargs["max_tokens"], AGENT_OUTPUT_MAX_TOKENS)
 
     async def test_document_contract_and_current_documents_enter_system_prompt(self):
         config = build_agent_loop_call_config(

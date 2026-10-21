@@ -188,6 +188,7 @@ class AgentLoopWiringTests(unittest.TestCase):
             captured["call_config_kwargs"],
             {
                 "provider": "openai",
+                "model_id": "gpt-4",
                 "options": {},
                 "capabilities": {"functionCalling": True},
                 "additional_tools": dynamic_tool_set.definitions,

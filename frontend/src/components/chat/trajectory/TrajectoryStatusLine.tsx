@@ -85,7 +85,9 @@ function highestPriorityIssue(run: AgentRunState): string | null {
       }
     }
   }
-  if (run.status === 'limit_reached') return '执行已达到上限';
+  if (run.status === 'limit_reached') {
+    return run.limitReachedReason === 'output_length' ? '回答达到长度上限，已截断' : '执行已达到上限';
+  }
   if (run.status === 'incomplete') return '任务仅部分完成';
   if (run.status === 'interrupted') return '执行已中断';
   return null;
