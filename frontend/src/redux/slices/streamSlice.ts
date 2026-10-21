@@ -56,6 +56,8 @@ export interface StreamSlot {
   displayedTextLength: number;
   // ── 流状态枚举 ──
   isStreaming: boolean;
+  // 本页不再跟这条流（页面卸载收掉恢复流），运行本身未必结束；侧栏据此继续以服务端为准。
+  detached: boolean;
   isStreamingReasoning: boolean;
   isThinkingPhaseComplete: boolean;
   reasoningStartTime: number | null;
@@ -103,6 +105,7 @@ export const EMPTY_STREAM_SLOT: StreamSlot = {
   totalTextLength: 0,
   displayedTextLength: 0,
   isStreaming: false,
+  detached: false,
   isStreamingReasoning: false,
   isThinkingPhaseComplete: false,
   reasoningStartTime: null,
@@ -801,7 +804,11 @@ const streamSlice = createSlice({
       }
     }),
 
-    endStream: withSlot((state, action: PayloadAction<{ conversationId: string; messageId?: string | null }>) => {
+    endStream: withSlot((state, action: PayloadAction<{
+      conversationId: string;
+      messageId?: string | null;
+      detached?: boolean;
+    }>) => {
       // 归属校验：全局槽位同一时刻只装一条流，而结束回调可能迟到。会话 A 的回调晚到时，
       // 槽位可能已被会话 B 的恢复流占用；无条件清空会让 B 在仍在接收时提前变成空闲
       // （dev 验收 12:29:05 提前 idle、12:29:37 正文才到）。同一会话的上一轮回调同理，
@@ -833,6 +840,7 @@ const streamSlice = createSlice({
       state.contextUsageInFlight = preservedContextUsageInFlight;
       state.contextUsageInFlightConversationId = preservedContextUsageInFlightConversationId;
       state.contextUsageInFlightMeta = preservedContextUsageInFlightMeta;
+      state.detached = action.payload.detached === true;
     }),
 
     /** 清空所有会话的槽位。登出等全局失效场景用；
@@ -872,6 +880,13 @@ export function selectStreamingConversationIds(state: { stream: StreamState }): 
   const byConversation = state.stream?.byConversation;
   if (!byConversation) return EMPTY_STREAMING_CONVERSATION_IDS;
   return Object.keys(byConversation).filter(id => byConversation[id].isStreaming);
+}
+
+/** 本页放手但运行未必结束的会话，见 StreamSlot.detached。 */
+export function selectDetachedConversationIds(state: { stream: StreamState }): string[] {
+  const byConversation = state.stream?.byConversation;
+  if (!byConversation) return EMPTY_STREAMING_CONVERSATION_IDS;
+  return Object.keys(byConversation).filter(id => byConversation[id].detached);
 }
 
 // Selector：从 streamSlice 组装出当前流式 content blocks 数组

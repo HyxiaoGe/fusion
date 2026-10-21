@@ -69,6 +69,39 @@ describe('useConversationActivity', () => {
     expect(result.current.streamingConversationIds).toEqual(['conv-1']);
   });
 
+  it('本页放手的流（页面卸载收掉恢复流）仍以服务端为准，侧栏继续转圈', async () => {
+    vi.useFakeTimers();
+    mockedGet.mockResolvedValue({ streaming: ['conv-1'] });
+    const settled = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ local, detached }: { local: readonly string[]; detached: readonly string[] }) =>
+        useConversationActivity('user-1', local, settled, detached),
+      { initialProps: { local: ['conv-1'] as readonly string[], detached: NO_LOCAL } },
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.streamingConversationIds).toEqual(['conv-1']);
+
+    // 刷新后续上的恢复流随页面卸载被收掉，后台运行还在继续。
+    rerender({ local: NO_LOCAL, detached: ['conv-1'] });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.streamingConversationIds).toEqual(['conv-1']);
+    expect(settled).not.toHaveBeenCalled();
+
+    // 仍按节拍轮询，服务端撤下时才算结束。
+    const callsBefore = mockedGet.mock.calls.length;
+    mockedGet.mockResolvedValue({ streaming: [] });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVITY_POLL_INTERVAL_MS);
+    });
+    expect(mockedGet.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(result.current.streamingConversationIds).toEqual([]);
+    expect(settled).toHaveBeenCalledWith(['conv-1']);
+  });
+
   it('polls only while something is streaming', async () => {
     vi.useFakeTimers();
     mockedGet.mockResolvedValue({ streaming: [] });
