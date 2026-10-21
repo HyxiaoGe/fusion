@@ -14,7 +14,7 @@ import { useSidebarActions } from "@/hooks/useSidebarActions";
 import { useConversationActivity } from "@/hooks/useConversationActivity";
 import { useAppSelector, useAppDispatch } from "@/redux/hooks";
 import { shallowEqual } from "react-redux";
-import { selectStreamingConversationIds } from "@/redux/slices/streamSlice";
+import { selectDetachedConversationIds, selectStreamingConversationIds } from "@/redux/slices/streamSlice";
 import { selectAuthSessionKey } from "@/redux/selectors";
 import { setThemeMode } from "@/redux/slices/themeSlice";
 import { requestSettledConversationListRefresh } from "@/redux/slices/conversationSlice";
@@ -72,6 +72,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   // 此前只能给出"那一个"正在生成的会话，因为全局只有一个槽位。
   // 槽位按会话拆开后这是一组，侧边栏可以同时转多个圈。
   const localStreamingConversationIds = useAppSelector(selectStreamingConversationIds, shallowEqual);
+  const detachedConversationIds = useAppSelector(selectDetachedConversationIds, shallowEqual);
   const resolvedTheme = useResolvedTheme(themeMode);
   const hasMounted = useHasMounted();
   // SSR 无法读取 localStorage 里的主题。首个 hydration 帧固定按浅色渲染，
@@ -105,6 +106,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
     authSessionKey,
     localStreamingConversationIds,
     refreshSettledConversations,
+    detachedConversationIds,
   );
 
   // 路由一旦落定——无论是落到刚点的那个，还是用户去了别处（新对话、后退）——

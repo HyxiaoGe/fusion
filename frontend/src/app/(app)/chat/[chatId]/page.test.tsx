@@ -1335,10 +1335,10 @@ describe('ChatPage 会话切换体验', () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(reconnectStreamMock).toHaveBeenCalledTimes(callsBeforeAbort);
     if (mode === 'unmount') {
-      // 卸载后没人再推进槽位：收掉生成中状态，回来时重新拉详情，侧栏不再残留转圈。
+      // 卸载后没人再推进槽位：收掉生成中状态，回来时重新拉详情；标记放手，侧栏转圈交给服务端登记。
       expect(dispatchMock).toHaveBeenCalledWith({
         type: 'stream/endStream',
-        payload: { conversationId: 'chat-a', messageId: 'assistant-1' },
+        payload: { conversationId: 'chat-a', messageId: 'assistant-1', detached: true },
       });
       expect(dispatchMock).toHaveBeenCalledWith({
         type: 'stream/clearCurrentRun',

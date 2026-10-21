@@ -16,6 +16,7 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
  *
  * 运行独立于页面连接，刷新或换标签页后本页 Redux 不再知道哪些对话还在跑，
  * 所以以服务端为准；本页刚发起的流先用 Redux 补上，避免等一个轮询周期。
+ * 本页放手的流（detachedIds，页面卸载收掉的恢复流）运行未必结束，仍以服务端为准。
  * 完成未读由通知中心管理。未登录时不请求。
  * 对话离开“进行中”时回调 onConversationsSettled：转到后台的运行收不到标题等
  * 流内事件，由调用方据此刷新列表元数据。
@@ -24,6 +25,7 @@ export function useConversationActivity(
   sessionKey: string | null | undefined,
   localStreamingIds: readonly string[],
   onConversationsSettled?: (conversationIds: string[]) => void,
+  detachedIds: readonly string[] = EMPTY_IDS,
 ) {
   const [remoteStreamingIds, setRemoteStreamingIds] = useState<readonly string[]>(EMPTY_IDS);
   const inflightRef = useRef<AbortController | null>(null);
@@ -70,14 +72,18 @@ export function useConversationActivity(
 
   // 本页的流起止时立即拉一次。
   const previousLocalRef = useRef<readonly string[]>(localStreamingIds);
+  const detachedIdsRef = useRef(detachedIds);
+  detachedIdsRef.current = detachedIds;
   useEffect(() => {
     const endedIds = previousLocalRef.current.filter((id) => !localStreamingIds.includes(id));
     const started = localStreamingIds.some((id) => !previousLocalRef.current.includes(id));
     previousLocalRef.current = localStreamingIds;
     const locallyEnded = locallyEndedRef.current;
     for (const id of localStreamingIds) locallyEnded.delete(id);
-    if (endedIds.length > 0) {
-      for (const id of endedIds) locallyEnded.add(id);
+    // 放手不是收尾：服务端还登记着就照常转圈，否则会一直藏到运行结束。
+    const finishedIds = endedIds.filter((id) => !detachedIdsRef.current.includes(id));
+    if (finishedIds.length > 0) {
+      for (const id of finishedIds) locallyEnded.add(id);
       setRemoteStreamingIds((prev) => {
         const next = prev.filter((id) => !locallyEnded.has(id));
         return next.length === prev.length ? prev : next;

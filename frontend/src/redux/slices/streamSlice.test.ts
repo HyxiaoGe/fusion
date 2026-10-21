@@ -23,6 +23,7 @@ import streamSliceReducer, {
   advanceTypewriter,
   endStream,
   selectStreamContentBlocks,
+  selectDetachedConversationIds,
   selectFullStreamContentBlocks,
   setLastEntryId,
   setStreamStatus,
@@ -1641,6 +1642,17 @@ describe('streamSlice — agent run timeline', () => {
     // 但其它 streaming-only 字段应清空
     expect(slot(s, 'c1').isStreaming).toBe(false);
     expect(slot(s, 'c1').textBlocks).toEqual({});
+  });
+
+  it('放手结束（detached）单独标记，正常结束与重新开流都不带', () => {
+    let s = reducer(initial(), startStream({ conversationId: 'conv-a', messageId: 'msg-a' }));
+    s = reducer(s, startStream({ conversationId: 'conv-b', messageId: 'msg-b' }));
+    s = reducer(s, endStream({ conversationId: 'conv-a', messageId: 'msg-a', detached: true }));
+    s = reducer(s, endStream({ conversationId: 'conv-b', messageId: 'msg-b' }));
+    expect(selectDetachedConversationIds({ stream: s })).toEqual(['conv-a']);
+
+    s = reducer(s, startStream({ conversationId: 'conv-a', messageId: 'msg-a' }));
+    expect(selectDetachedConversationIds({ stream: s })).toEqual([]);
   });
 
   it('两个会话各占一个槽位，结束其一不碰另一条', () => {

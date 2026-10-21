@@ -429,12 +429,12 @@ export default function ChatPage() {
       detach: () => { cancelled = true; },
       // 页面卸载时恢复流随之中止，此后再没人推进槽位。留着 isStreaming 会让侧栏
       // 一直转圈到用户点回来；收掉槽位与 running 快照，并退回 idle，回来时重新拉详情，
-      // 仍在运行则照常查 stream-status 续流。
+      // 仍在运行则照常查 stream-status 续流。标记 detached：运行没结束，侧栏转圈改由服务端登记维持。
       releaseSlot: () => {
         if (!recoverySlotStarted || !ownsRecoverySlot()) return;
         // 停止请求在途时槽位由停止流程收口，这里不插手。
         if (recoveryStopPendingRef.current?.controller === controller) return;
-        dispatch(endStream({ conversationId: chatId, messageId: recoveredMessageId }));
+        dispatch(endStream({ conversationId: chatId, messageId: recoveredMessageId, detached: true }));
         dispatch(clearCurrentRun({ conversationId: chatId }));
         dispatch(setHydrationStatus({ id: chatId, status: 'idle' }));
       },
