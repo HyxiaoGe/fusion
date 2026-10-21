@@ -345,6 +345,29 @@
   }
 }
 
+/*
+ * 手机浏览器的地址栏和工具栏会伸缩，100vh 按收起时计算，比可见区域高，底部输入框会被遮住。
+ * 支持动态视口单位的浏览器改用 100dvh；写在 @tailwind utilities 之后以覆盖同名工具类。
+ */
+.h-screen {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.min-h-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* iOS Safari 聚焦字号小于 16px 的输入框会自动放大页面，触屏设备上输入控件统一用 16px。 */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* 确保highlight.js样式在我们的CodeBlock组件中正常工作 */
 .hljs-keyword,
 .hljs-selector-tag,

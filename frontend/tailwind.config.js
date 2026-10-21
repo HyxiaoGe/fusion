@@ -1,3 +1,5 @@
+const plugin = require("tailwindcss/plugin");
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
@@ -131,5 +133,13 @@ module.exports = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  // 触屏没有悬停，点一下会让 hover 样式粘住；只在能悬停的设备上启用 hover 变体。
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
+  plugins: [
+    require("tailwindcss-animate"),
+    // touch: 与上面 hover 生效条件互补，给“悬停才出现”的控件补触屏下的显示方式。
+    plugin(({ addVariant }) => addVariant("touch", "@media not all and (hover: hover) and (pointer: fine)")),
+  ],
 }

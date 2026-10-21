@@ -2999,6 +2999,63 @@ describe('ChatInput', () => {
     expect(screen.queryByText('回答时可检索')).toBeNull();
   });
 
+  it('触屏设备上回车换行不发送，发送走按钮，不展示键盘快捷键提示', async () => {
+    configureAuthenticatedVisionModel();
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query === '(hover: none) and (pointer: coarse)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const onSendMessage = vi.fn(() => Promise.resolve());
+      render(<ChatInput onSendMessage={onSendMessage} />);
+
+      const input = await screen.findByPlaceholderText('发消息给 Fusion AI');
+      fireEvent.change(input, { target: { value: '第一行' } });
+      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+      expect(onSendMessage).not.toHaveBeenCalled();
+      expect(screen.queryByText('Enter 发送 · Shift+Enter 换行')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+      await waitFor(() => expect(onSendMessage).toHaveBeenCalledTimes(1));
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('输入框挂载后宽度变化时按新宽度重算高度，不保留窄宽度时量出的高度', () => {
+    configureAuthenticatedVisionModel();
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const callbacks: ResizeObserverCallback[] = [];
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) { callbacks.push(callback); }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      render(<ChatInput onSendMessage={vi.fn()} />);
+      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+      // 模拟手机上挂载时只有几十像素宽、占位符折成多行把高度撑到上限的状态。
+      textarea.style.height = '200px';
+
+      Object.defineProperty(textarea, 'clientWidth', { configurable: true, value: 357 });
+      Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: 44 });
+      act(() => callbacks.forEach(callback => callback([], {} as ResizeObserver)));
+
+      expect(textarea.style.height).toBe('44px');
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
+  });
+
   it('中文输入法确认选词时不发送，兼容组合状态和 229 键码', () => {
     configureAuthenticatedVisionModel();
     const onSendMessage = vi.fn();
