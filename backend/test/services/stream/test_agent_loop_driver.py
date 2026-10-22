@@ -31,9 +31,13 @@ from app.services.stream.tool_round import ToolRoundOutcome
 class DummyEmitter:
     limit_reasons: list[str]
     plan_snapshots: list[dict] = field(default_factory=list)
+    fallbacks: list[tuple[str, str | None, str]] = field(default_factory=list)
 
     async def run_limit_reached(self, *, reason):
         self.limit_reasons.append(reason)
+
+    async def model_fallback(self, *, failed_model, fallback_model, reason):
+        self.fallbacks.append((failed_model, fallback_model, reason))
 
     async def plan_snapshot(self, **snapshot):
         self.plan_snapshots.append(snapshot)
@@ -1270,6 +1274,7 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.pick_fallback = MagicMock(return_value="deepseek-chat")
+        self.emitter = DummyEmitter(limit_reasons=[])
 
     async def _run_loop(
         self, run_round_fn, *, messages=None, call_kwargs=None, should_use_reasoning=True, allowed_model_ids=None
@@ -1320,6 +1325,7 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
                     handle_tool_calls_round_fn=handle_tool_calls_round_fn,
                     warning_fn=warnings.append,
                     allowed_model_ids=allowed_model_ids,
+                    emitter=self.emitter,
                 ),
             )
         return state, warnings
@@ -1343,6 +1349,7 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.active_model_id, "deepseek-chat")
         self.assertEqual(state.total_tool_calls, 1)
         self.assertTrue(any("reason=http_500" in warning for warning in warnings))
+        self.assertEqual(self.emitter.fallbacks, [("gemini-4-argon", "deepseek-chat", "http_500")])
 
     async def test_fallback_failure_still_fails_the_run(self):
         from app.services.stream.first_output_timeout import ModelRoundUnavailableError
@@ -1389,6 +1396,8 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(calls, [("gemini-4-argon", FIRST_OUTPUT_TIMEOUT_S)] * 2)
+        # 挑不到备用模型也要留痕：轨迹里能看到原模型是在限时重试。
+        self.assertEqual(self.emitter.fallbacks, [("gemini-4-argon", None, "first_output_timeout")])
         self.assertEqual(
             _sample(
                 "fusion_model_fallback_total",
@@ -1484,6 +1493,7 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, [("deepseek-chat", FALLBACK_FIRST_OUTPUT_TIMEOUT_S)])
         self.assertEqual(state.active_model_id, "deepseek-chat")
         self.assertTrue(any("reason=circuit_open" in warning for warning in warnings))
+        self.assertEqual(self.emitter.fallbacks, [("gemini-4-argon", "deepseek-chat", "circuit_open")])
         self.assertTrue(model_circuit_breaker.is_open("gemini-4-argon"))
         self.assertFalse(model_circuit_breaker.is_open("deepseek-chat"))
 

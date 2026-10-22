@@ -325,6 +325,7 @@ function cellTypeLabel(type: TrajectoryCell['type']): string {
     case 'tool': return '工具';
     case 'subtool': return '工具尝试';
     case 'compacted': return '上下文压缩';
+    case 'model_fallback': return '换模型';
   }
 }
 

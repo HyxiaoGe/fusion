@@ -44,6 +44,7 @@ const KIND_LABELS: Record<TrajectoryCell['type'], string> = {
   tool: '工具',
   subtool: '尝试',
   compacted: '压缩',
+  model_fallback: '换模型',
 };
 
 const COLLAPSIBLE_ATTEMPT_STATUSES = new Set(['success', 'completed', 'complete']);

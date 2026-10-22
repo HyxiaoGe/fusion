@@ -70,6 +70,11 @@ EVENT_FIELDS = {
     "run_interrupted": {"reason": "user_cancelled"},
     "run_failed": {"error_code": "upstream_error", "message": "安全错误摘要"},
     "run_completed": {"total_steps": 1, "total_tool_calls": 1, "finish_reason": "stop"},
+    "model_fallback": {
+        "failed_model": "gemini-4-argon",
+        "fallback_model": "deepseek-chat",
+        "reason": "first_output_timeout",
+    },
     "llm_round_started": {
         "llm_round_id": "round-1",
         "round_index": 1,
@@ -288,6 +293,7 @@ EVENT_ALLOWED_FIELDS = {
     "run_interrupted": {"reason"},
     "run_failed": {"error_code", "message"},
     "run_completed": {"total_steps", "total_tool_calls", "finish_reason"},
+    "model_fallback": {"failed_model", "fallback_model", "reason"},
     "llm_round_started": {
         "llm_round_id",
         "round_index",

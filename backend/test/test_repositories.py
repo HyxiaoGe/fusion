@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.database import Base
-from app.db.models import AgentProgressSnapshot, AgentSession, ConversationFile, File
+from app.db.models import AgentProgressSnapshot, AgentSession, ConversationFile, File, ToolCallLog
 from app.db.models import Conversation as ConversationModel
 from app.db.models import Message as MessageModel
 from app.db.models import User as UserModel
@@ -279,6 +279,104 @@ class MessageRepositoryTests(unittest.TestCase):
             self.assertEqual(result.messages[0].agent_run.config["max_steps"], 3)
             self.assertNotIn("system_prompt_snapshot", result.messages[0].agent_run.config)
             self.assertNotIn("不能进入会话摘要", result.model_dump_json())
+        finally:
+            db.close()
+            engine.dispose()
+
+    def test_get_by_id_restores_tool_calls_per_step_from_tool_call_logs(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            conversation = ConversationModel(id="conv-1", user_id="user-1", title="会话", model_id="deepseek-chat")
+            message = MessageModel(
+                id="msg-1",
+                conversation_id="conv-1",
+                role="assistant",
+                content=[{"type": "text", "id": "blk_1", "text": "回答"}],
+                model_id="deepseek-chat",
+            )
+            run = AgentSession(
+                id="run-1",
+                conversation_id="conv-1",
+                message_id="msg-1",
+                user_id="user-1",
+                model_id="deepseek-chat",
+                provider="deepseek",
+                status="completed",
+            )
+
+            def log(log_id, *, trace_id="run-1", step_number, tool_call_id, minute, **fields):
+                return ToolCallLog(
+                    id=log_id,
+                    conversation_id="conv-1",
+                    user_id="user-1",
+                    model_id="deepseek-chat",
+                    provider="deepseek",
+                    trace_id=trace_id,
+                    step_number=step_number,
+                    tool_call_id=tool_call_id,
+                    created_at=datetime(2026, 10, 22, 10, minute, 0),
+                    **{"tool_name": "web_search", "status": "success", **fields},
+                )
+
+            db.add_all(
+                [
+                    conversation,
+                    message,
+                    run,
+                    log(
+                        "log-3",
+                        step_number=2,
+                        tool_call_id="call-3",
+                        minute=3,
+                        tool_name="url_read",
+                        status="failed",
+                        error_message="超时" * 200,
+                        input_params={"url": "https://a.example"},
+                    ),
+                    log(
+                        "log-2",
+                        step_number=1,
+                        tool_call_id="call-2",
+                        minute=2,
+                        input_params={"query": "故宫门票"},
+                        output_data={"results": ["工具输出不进历史摘要"]},
+                        duration_ms=1200,
+                    ),
+                    log("log-1", step_number=1, tool_call_id="call-1", minute=1, input_params={"query": "北京天气"}),
+                    log(
+                        "log-place",
+                        step_number=2,
+                        tool_call_id="call-4",
+                        minute=4,
+                        tool_name="weather_forecast",
+                        status="failed",
+                        error_message="天气查询失败",
+                        output_data={"status": "failed", "error_code": "ambiguous_location"},
+                    ),
+                    log("log-other", trace_id="run-other", step_number=1, tool_call_id="call-x", minute=1),
+                    log("log-unlinked", step_number=None, tool_call_id="call-y", minute=4),
+                ]
+            )
+            db.commit()
+
+            result = ConversationRepository(db).get_by_id("conv-1", "user-1")
+
+            steps = result.messages[0].agent_run.steps
+            self.assertEqual([step.step_number for step in steps], [1, 2])
+            self.assertEqual([call.tool_call_id for call in steps[0].tool_calls], ["call-1", "call-2"])
+            self.assertEqual(steps[0].tool_calls[1].arguments, {"query": "故宫门票"})
+            self.assertEqual(steps[0].tool_calls[1].duration_ms, 1200)
+            failed = steps[1].tool_calls[0]
+            self.assertEqual((failed.tool_name, failed.status), ("url_read", "failed"))
+            self.assertEqual(len(failed.error), 200)
+            self.assertIsNone(failed.repair_state)
+            # 地名多候选与实时事件同口径：待确认而不是失败。
+            place = steps[1].tool_calls[1]
+            self.assertEqual((place.status, place.repair_state, place.error), ("degraded", "awaiting_choice", None))
+            self.assertNotIn("工具输出不进历史摘要", result.model_dump_json())
         finally:
             db.close()
             engine.dispose()
