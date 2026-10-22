@@ -632,6 +632,48 @@ describe('TrajectoryTabView', () => {
     expect(tool).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('换选中项时详情回到顶部，同一项的实时更新保留滚动位置', async () => {
+    const store = createStore();
+    store.dispatch(setTrajectoryActiveSurface({ conversationId: 'chat-a', surface: 'trajectory' }));
+    getTrajectoryRunsMock.mockResolvedValue({ items: [runSummary()], truncated: false });
+    getTrajectorySnapshotMock.mockResolvedValue(snapshot());
+
+    render(
+      <TrajectoryTabView conversationId="chat-a" messages={messages} />,
+      { wrapper: wrapper(store) },
+    );
+
+    const tool = await screen.findByRole('option', { name: /搜索.*工具调用.*完成/ });
+    fireEvent.click(tool);
+    const detailScroll = screen.getByTestId('trajectory-detail-scroll');
+    detailScroll.scrollTop = 300;
+
+    fireEvent.click(screen.getByRole('option', { name: /用户提问.*查天气/ }));
+    expect(within(screen.getByLabelText('轨迹节点详情'))
+      .getByRole('heading', { name: '用户提问' })).toBeInTheDocument();
+    expect(detailScroll.scrollTop).toBe(0);
+
+    detailScroll.scrollTop = 120;
+    act(() => {
+      store.dispatch(mergeLiveTrajectoryEvent({
+        conversationId: 'chat-a',
+        event: {
+          runId: 'run-1',
+          sequence: 41,
+          eventType: 'tool_call_started',
+          schemaVersion: 1,
+          timestamp: '2026-08-22T00:00:00.900Z',
+          stepId: 'step-live',
+          toolCallId: 'tool-live',
+          parentStepId: null,
+          traceId: 'run-1',
+          payload: { tool_name: 'live_tool' },
+        },
+      }));
+    });
+    expect(detailScroll.scrollTop).toBe(120);
+  });
+
   it('点击 Turn 级用户节点只更新详情，不卸载当前 Run 快照', async () => {
     const store = createStore();
     store.dispatch(setTrajectoryActiveSurface({ conversationId: 'chat-a', surface: 'trajectory' }));

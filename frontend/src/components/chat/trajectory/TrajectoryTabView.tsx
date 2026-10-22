@@ -197,6 +197,7 @@ function TrajectoryTabView({
   const [overviewRange, setOverviewRange] = useState<TrajectoryOverviewRange | null>(null);
   const [followTailRequest, setFollowTailRequest] = useState(0);
   const committedProjectionRef = useRef<CommittedTrajectoryProjection | null>(null);
+  const detailScrollRef = useRef<HTMLDivElement>(null);
   const localFocusRequestSequenceRef = useRef(0);
   const selectionDomainRef = useRef('');
   const previousVisibleRef = useRef(visible);
@@ -263,6 +264,13 @@ function TrajectoryTabView({
     selectedRunId: trajectory.selectedRunId,
     selectedSpan,
   });
+  const selectedDetailKey = selectedCell
+    ? `${conversationId ?? 'no-conversation'}:${selectedCell.runId ?? 'no-run'}:${selectedCell.key}`
+    : null;
+  // 详情内容随选中项重新挂载，外层滚动容器不会；换选中项时回到顶部，同一项的实时更新不动滚动位置。
+  useLayoutEffect(() => {
+    if (detailScrollRef.current) detailScrollRef.current.scrollTop = 0;
+  }, [selectedDetailKey]);
   const selectedRunCell = runCell(cells, trajectory.selectedRunId);
   const notificationTargetReady = Boolean(
     visible
@@ -886,7 +894,12 @@ function TrajectoryTabView({
               />
             </div>
 
-            <div id={notificationDomId} className="min-h-0 overflow-y-auto border-l border-border/60">
+            <div
+              ref={detailScrollRef}
+              id={notificationDomId}
+              data-testid="trajectory-detail-scroll"
+              className="min-h-0 overflow-y-auto border-l border-border/60"
+            >
               <TrajectoryNodeDetailPanel
                 conversationId={conversationId}
                 cell={selectedCell}
