@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TrajectoryCell } from '@/lib/trajectory/TrajectoryCellProjection';
+import type { NormalizedTrajectoryEvent } from '@/lib/trajectory/normalizeTrajectoryEvent';
 import type { TrajectoryNodeDetailResponse, TrajectorySpan } from '@/types/trajectory';
 
 const getTrajectoryToolNodeDetailMock = vi.hoisted(() => vi.fn());
@@ -25,6 +26,17 @@ function deferred<T>() {
     reject = promiseReject;
   });
   return { promise, resolve, reject };
+}
+
+function trajectoryEvent(
+  eventType: string,
+  payload: Record<string, unknown>,
+  overrides: Partial<NormalizedTrajectoryEvent> = {},
+): NormalizedTrajectoryEvent {
+  return {
+    runId: 'run-1', sequence: 1, eventType, schemaVersion: 1, timestamp: '2026-10-22T10:00:00Z',
+    stepId: 'step-1', toolCallId: null, parentStepId: null, traceId: null, payload, ...overrides,
+  };
 }
 
 function toolCell(toolCallId = 'tool-1'): Extract<TrajectoryCell, { type: 'tool' }> {
@@ -285,8 +297,8 @@ function renderPanel(
 describe('TrajectoryNodeDetailPanel', () => {
   beforeEach(async () => {
     await i18n.changeLanguage('zh-CN');
-    getTrajectoryLlmNodeDetailMock.mockReset();
-    getTrajectoryToolNodeDetailMock.mockReset();
+    getTrajectoryLlmNodeDetailMock.mockReset().mockReturnValue(new Promise(() => {}));
+    getTrajectoryToolNodeDetailMock.mockReset().mockReturnValue(new Promise(() => {}));
   });
 
   afterEach(() => {
@@ -308,28 +320,35 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(within(summary).getByText('All available tools · agent')).toBeInTheDocument();
     expect(within(summary).getByText('Announced tools')).toBeInTheDocument();
     expect(within(summary).getByText('Off')).toBeInTheDocument();
-    expect(within(summary).getByText('Router version')).toBeInTheDocument();
-    expect(within(summary).getByText('Tool bundle fingerprint')).toBeInTheDocument();
+    expect(within(summary).queryByText('Router version')).not.toBeInTheDocument();
+    const diagnostics = screen.getByRole('group', { name: '诊断信息' });
+    expect(within(diagnostics).getByText('Router version')).toBeInTheDocument();
+    expect(within(diagnostics).getByText('Tool bundle fingerprint')).toBeInTheDocument();
     expect(within(summary).queryByText('模式')).not.toBeInTheDocument();
   });
 
-  it('初始 Tool 与非 Tool 都只显示本地 Summary，点击 Payload 后才请求且 Result 复用响应', async () => {
+  it('打开 Tool 即请求详情，摘要内嵌调用与结果预览，载荷和结果页签复用同一响应', async () => {
     getTrajectoryToolNodeDetailMock.mockResolvedValue(detail('available'));
-    const { rerender } = renderPanel();
+    const { rerender } = renderPanel({
+      ...toolCell(),
+      events: [trajectoryEvent('tool_call_completed', { tool_name: 'web_search', status: 'success', duration_ms: 1500 })],
+    });
 
     const panel = screen.getByRole('complementary', { name: '轨迹节点详情' });
     expect(panel).toHaveClass('min-h-full');
     expect(panel).not.toHaveClass('h-full');
-    expect(within(panel).getByRole('tabpanel', { name: '摘要' })).toHaveTextContent('工具调用');
-    expect(within(panel).getByRole('tabpanel', { name: '摘要' })).toHaveTextContent('来源工具 · 搜索');
-    expect(getTrajectoryToolNodeDetailMock).not.toHaveBeenCalled();
+    const summary = within(panel).getByRole('tabpanel', { name: '摘要' });
+    expect(summary).toHaveTextContent('来源工具 · 搜索');
+    expect(summary).toHaveTextContent('耗时1.5 秒');
+    expect(summary).toHaveTextContent('正在加载');
+    expect(await within(summary).findByText('上海天气')).toBeInTheDocument();
+    expect(within(summary).getByText('queryText')).toBeInTheDocument();
+    expect(within(summary).getByText(/"temperatureC": 28/)).toBeInTheDocument();
+    expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1);
 
-    expect(within(panel).getByRole('button', { name: '查看完整载荷' })).toBeInTheDocument();
-    expect(within(panel).getByRole('button', { name: '查看完整结果' })).toBeInTheDocument();
     fireEvent.click(within(panel).getByRole('button', { name: '查看完整载荷' }));
-    await waitFor(() => expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1));
+    expect(within(panel).getByRole('tab', { name: '载荷' })).toHaveAttribute('aria-selected', 'true');
     expect(await within(panel).findByText(/"queryText": "上海天气"/)).toBeInTheDocument();
-
     fireEvent.click(within(panel).getByRole('tab', { name: '结果' }));
     expect(await within(panel).findByText(/"temperatureC": 28/)).toBeInTheDocument();
     expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1);
@@ -340,6 +359,32 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(within(panel).queryByRole('tab', { name: '载荷' })).not.toBeInTheDocument();
     expect(within(panel).getByRole('tab', { name: '摘要' })).toHaveAttribute('aria-selected', 'true');
     expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('工具结果预览优先展示模型实际收到的内容，超长时截断', async () => {
+    const response = detail('available');
+    response.detail = {
+      ...response.detail!,
+      observation: { schema_version: 1, status: 'available', text: `模型收到的${'长'.repeat(700)}`, original_chars: 900, generated_round_index: 1, redacted_fields: [], truncated_fields: [] },
+    };
+    getTrajectoryToolNodeDetailMock.mockResolvedValue(response);
+    renderPanel();
+
+    const summary = screen.getByRole('tabpanel', { name: '摘要' });
+    const preview = await within(summary).findByText(/^模型收到的/);
+    expect(preview.textContent?.endsWith('…')).toBe(true);
+    expect(preview.textContent?.length).toBeLessThan(700);
+    expect(within(summary).queryByText(/temperatureC/)).not.toBeInTheDocument();
+  });
+
+  it('工具详情未落账时摘要只给一句说明，完整原因留在对应页签', async () => {
+    getTrajectoryToolNodeDetailMock.mockResolvedValue(detail('not_recorded'));
+    renderPanel();
+
+    const summary = screen.getByRole('tabpanel', { name: '摘要' });
+    expect(await within(summary).findAllByText('该运行生成时尚未记录详情')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('tab', { name: '载荷' }));
+    expect(screen.getByText('该运行生成时尚未记录 Payload/Result')).toBeInTheDocument();
   });
 
   it('LLM Request 用 Preview 组合思考与输出，Raw 复用同一份安全详情', async () => {
@@ -375,12 +420,12 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(summaryPanel).toHaveTextContent('请求计时');
     expect(summaryPanel).toHaveTextContent('总耗时800 毫秒');
     expect(summaryPanel).toHaveTextContent('首次输出90 毫秒');
-    expect(summaryPanel).not.toHaveTextContent('先分析项目结构');
-    expect(within(summaryPanel).queryByRole('button', { name: '查看完整预览' }))
-      .not.toBeInTheDocument();
-    expect(getTrajectoryLlmNodeDetailMock).not.toHaveBeenCalled();
+    expect(await within(summaryPanel).findByText('项目整体结构清晰。')).toBeInTheDocument();
+    expect(within(summaryPanel).getByText('思考')).toBeInTheDocument();
+    expect(within(summaryPanel).getByText('先读取项目结构，再检查关键实现。')).not.toBeVisible();
+    expect(getTrajectoryLlmNodeDetailMock).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('tab', { name: '预览' }));
+    fireEvent.click(within(summaryPanel).getByRole('button', { name: '查看完整预览' }));
     expect(await screen.findByRole('heading', { name: '思考过程' })).toBeInTheDocument();
     expect(await screen.findByText('先读取项目结构，再检查关键实现。')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '模型输出' })).toBeInTheDocument();
@@ -477,6 +522,34 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(await screen.findByText(label)).toBeInTheDocument();
     expect(screen.getByText(sourceLabel)).toBeInTheDocument();
     expect(screen.getByText('未经采用的模型候选')).toBeInTheDocument();
+  });
+
+  it('模型摘要列出本轮以工具调用结束时发起的工具，不认领其他步骤的工具', async () => {
+    getTrajectoryLlmNodeDetailMock.mockResolvedValue({
+      status: 'available', node_type: 'llm', available_sections: ['output'],
+      detail: { llm_round_id: 'round-1', output_text: '' },
+      redacted_fields: [], truncated_fields: [], reason: null,
+    });
+    const round = {
+      ...llmCell(),
+      events: [
+        trajectoryEvent('llm_round_started', { llm_round_id: 'round-1' }),
+        trajectoryEvent('llm_round_completed', { llm_round_id: 'round-1', finish_reason: 'tool_calls' }),
+      ],
+    };
+    const ownTool = {
+      ...toolCell('tool-own'),
+      status: 'failed' as const,
+      events: [trajectoryEvent('tool_call_completed', { status: 'failed', duration_ms: 2300 })],
+    };
+    const otherStepTool = { ...toolCell('tool-other'), stepId: 'step-2', toolName: 'url_read' };
+    renderPanel(round, [ownTool, otherStepTool]);
+
+    const tools = await screen.findByRole('list', { name: '本轮发起的工具调用' });
+    expect(within(tools).getAllByRole('listitem')).toHaveLength(1);
+    expect(tools).toHaveTextContent('搜索');
+    expect(tools).toHaveTextContent('2.3 秒');
+    expect(screen.queryByText('本轮没有可见输出')).not.toBeInTheDocument();
   });
 
   it('旧详情没有输出归因时显示未知', async () => {
@@ -647,7 +720,7 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(screen.getByText('第 2 次')).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: '载荷' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: '结果' })).not.toBeInTheDocument();
-    expect(getTrajectoryToolNodeDetailMock).not.toHaveBeenCalled();
+    expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1);
 
     rerender(
       <TrajectoryNodeDetailPanel
@@ -674,7 +747,7 @@ describe('TrajectoryNodeDetailPanel', () => {
     const { rerender } = renderPanel(toolCell('tool-a'));
 
     fireEvent.click(screen.getByRole('tab', { name: '载荷' }));
-    await waitFor(() => expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1));
+    expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1);
     rerender(
       <TrajectoryNodeDetailPanel
         conversationId="conversation-1"
@@ -685,7 +758,7 @@ describe('TrajectoryNodeDetailPanel', () => {
 
     expect(signalA?.aborted).toBe(true);
     expect(screen.getByRole('tab', { name: '摘要' })).toHaveAttribute('aria-selected', 'true');
-    expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1);
+    expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(2);
     await act(async () => {
       requestA.resolve(detail('available', {
         detail: { ...detail('available').detail!, payload: { latePayload: 'A' } },
@@ -695,7 +768,7 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(screen.queryByText(/latePayload/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: '载荷' }));
-    await waitFor(() => expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(2));
+    expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(2);
     await act(async () => {
       requestB.resolve(detail('available', {
         detail: { ...detail('available').detail!, payload: { currentPayload: 'B' } },
@@ -734,7 +807,7 @@ describe('TrajectoryNodeDetailPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: '结果' }));
     expect(await screen.findByText(message)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: '摘要' }));
-    expect(screen.getByRole('tabpanel', { name: '摘要' })).toHaveTextContent('工具调用');
+    expect(screen.getByRole('tabpanel', { name: '摘要' })).toHaveTextContent('来源工具 · 搜索');
     expect(screen.queryByText('轨迹降级')).not.toBeInTheDocument();
   });
 
@@ -889,6 +962,8 @@ describe('系统提示词正文', () => {
   beforeEach(async () => {
     await i18n.changeLanguage('zh-CN');
     getTrajectorySystemPromptNodeDetailMock.mockReset();
+    getTrajectoryLlmNodeDetailMock.mockReset().mockReturnValue(new Promise(() => {}));
+    getTrajectoryToolNodeDetailMock.mockReset().mockReturnValue(new Promise(() => {}));
     writeTextMock.mockReset().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
