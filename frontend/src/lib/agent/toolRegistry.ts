@@ -182,6 +182,7 @@ export const TOOL_REGISTRY: Record<string, ToolMeta> = {
       quality: { label: '画质', values: { standard: '标准', high: '高' } },
       reference_subject: { label: '参考对象' },
       regenerate: { label: '重新生成', values: YES_NO },
+      source_image_id: { label: '编辑的图片' },
     },
   },
   load_skill: {

@@ -30,6 +30,9 @@ from app.services.knowledge.storage_upload_guard import (
 from app.services.storage import get_storage, get_storage_for_backend
 from app.services.storage.base import StorageBackend
 
+# 生成图在 processing_result 里记录的来源；只有带它的图片能在会话里继续编辑。
+GENERATED_IMAGE_SOURCE = "image-service"
+
 # 图片 MIME 类型集合
 IMAGE_MIME_TYPES = {
     "image/jpeg",
@@ -285,11 +288,13 @@ class FileService:
         user_id: str,
         conversation_id: str,
         filename: str,
+        source_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """保存 Agent 生成的图片，与上传图片同一预处理与存储链路。
 
         生成图属于助手回复，不挂到会话附件列表：不占用户的上传配额，也不会被当作
-        用户附件再次送进模型。
+        用户附件再次送进模型。source_url 是生图服务里的原图地址，记下来供之后在同一
+        会话里编辑这张图时交回给生图服务。
         """
         if not is_image_mime(mime_type) or mime_type not in settings.ALLOWED_FILE_TYPES:
             raise ValueError(f"不支持的图片类型: {mime_type}")
@@ -313,7 +318,15 @@ class FileService:
                 "size": len(content),
                 "path": stored["storage_key"],
                 "status": "processed",
-                "processing_result": None,
+                "processing_result": (
+                    {
+                        "generated_by": GENERATED_IMAGE_SOURCE,
+                        "source_url": source_url,
+                        "conversation_id": conversation_id,
+                    }
+                    if source_url
+                    else None
+                ),
                 "storage_key": stored["storage_key"],
                 "thumbnail_key": stored["thumbnail_key"],
                 "storage_backend": settings.STORAGE_BACKEND,
@@ -335,6 +348,21 @@ class FileService:
             "width": stored["width"],
             "height": stored["height"],
         }
+
+    def generated_image_source(self, *, file_id: str, user_id: str, conversation_id: str) -> Optional[Dict[str, Any]]:
+        """取本会话里一张生成图在生图服务中的原图地址与尺寸；不是该用户该会话的生成图时返回 None。"""
+        if not file_id or not user_id or not conversation_id:
+            return None
+        file = self.file_repo.get_file_by_id(file_id, user_id)
+        result = getattr(file, "processing_result", None)
+        if (
+            not isinstance(result, dict)
+            or result.get("generated_by") != GENERATED_IMAGE_SOURCE
+            or result.get("conversation_id") != conversation_id
+            or not isinstance(result.get("source_url"), str)
+        ):
+            return None
+        return {"source_url": result["source_url"], "width": file.width, "height": file.height}
 
     async def create_direct_upload(
         self,

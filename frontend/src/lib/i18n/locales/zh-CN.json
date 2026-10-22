@@ -123,6 +123,7 @@
           "content_filtered": "图片内容未通过模型审核",
           "upstream_timeout": "生成超时",
           "generation_in_progress": "相同的请求正在生成",
+          "source_image_unavailable": "这张图片无法直接编辑",
           "default": "图片生成失败"
         }
       },

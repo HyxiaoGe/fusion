@@ -123,6 +123,7 @@
           "content_filtered": "Blocked by the model's content review",
           "upstream_timeout": "Generation timed out",
           "generation_in_progress": "The same request is already generating",
+          "source_image_unavailable": "This image can't be edited directly",
           "default": "Image generation failed"
         }
       },
