@@ -152,6 +152,14 @@ export interface ToolCallState {
   completedAt?: number;
 }
 
+/** 原模型本轮不可用后换成备用模型；fallbackModel 为空表示挑不到备用、原模型限时再试。 */
+export interface AgentModelFallback {
+  stepId: string | null;
+  failedModel: string;
+  fallbackModel: string | null;
+  reason: string;
+}
+
 export interface AgentStepState {
   stepId: string;
   stepNumber: number;
@@ -199,6 +207,8 @@ export interface AgentRunState {
   llmPhase?: AgentLlmPhase;
   /** 收到的工具参数输出信号次数；参数不展示，靠它判断模型仍在输出而不是卡住。 */
   toolCallProgress?: number;
+  /** 本次回答中途换过的模型，仅生成期可见；刷新后在轨迹里查看。 */
+  modelFallbacks?: AgentModelFallback[];
   lastSequence: number;
 }
 

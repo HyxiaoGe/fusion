@@ -25,7 +25,8 @@ import DocumentCards from '@/components/documents/DocumentCards';
 import DocumentDraftCard from '@/components/documents/DocumentDraftCard';
 import GeneratedImages from './GeneratedImages';
 import { collectPendingImageGenerations } from './generatedImageModel';
-import TrajectoryStatusLine from './trajectory/TrajectoryStatusLine';
+import AgentProcess from './AgentProcess';
+import type { AgentProcessRow } from './agentProcessModel';
 
 interface AssistantResponseStackProps {
   reasoning: {
@@ -40,6 +41,8 @@ interface AssistantResponseStackProps {
   };
   activity: AssistantActivity;
   agentRun?: AgentRunState | null;
+  /** 有运行记录时，思考与工具调用按步骤合成过程区，替代单独的思考面板。 */
+  processRows?: readonly AgentProcessRow[];
   trajectoryRunSummary?: TrajectoryRunSummary;
   trajectoryStatus?: TrajectoryBadgeStatus;
   onInspectTrajectory?: () => void;
@@ -69,6 +72,7 @@ interface AssistantResponseStackProps {
 const EMPTY_DOCUMENT_BLOCKS: DocumentBlock[] = [];
 const EMPTY_GENERATED_IMAGES: GeneratedImageBlock[] = [];
 const EMPTY_MAP_DATA_SOURCES: string[] = [];
+const EMPTY_PROCESS_ROWS: AgentProcessRow[] = [];
 // 地图来源只在回答结束后标注，生成中（含思考、调用工具阶段）不提前出现；HTML 代码块也只在结束后可运行。
 const TERMINAL_ACTIVITY_KINDS: ReadonlySet<AssistantActivity['kind']> = new Set(['completed', 'failed', 'interrupted']);
 
@@ -76,6 +80,7 @@ function AssistantResponseStack({
   reasoning,
   activity,
   agentRun,
+  processRows = EMPTY_PROCESS_ROWS,
   trajectoryRunSummary,
   trajectoryStatus = 'unknown',
   onInspectTrajectory,
@@ -95,6 +100,10 @@ function AssistantResponseStack({
   showStreamingCursor,
 }: AssistantResponseStackProps) {
   const showReasoning = reasoning.shouldRender;
+  // 有运行记录时思考在过程区里展示，过程区展开且已有思考行才算“思考可见”，否则状态栏照常提示模型阶段。
+  const reasoningVisible = agentRun
+    ? reasoning.isVisible && processRows.some(row => row.kind === 'thinking')
+    : showReasoning;
   const pendingImages = useMemo(
     () => collectPendingImageGenerations(agentRun, generatedImages),
     [agentRun, generatedImages],
@@ -123,7 +132,18 @@ function AssistantResponseStack({
       className="w-full min-w-0 [&>*:last-child]:mb-0"
     >
       <div className="w-full max-w-6xl">
-        {showReasoning ? (
+        {agentRun ? (
+          <AgentProcess
+            run={agentRun}
+            rows={processRows}
+            thinkingStreaming={reasoning.isStreaming}
+            isVisible={reasoning.isVisible}
+            onToggle={reasoning.onToggle}
+            runSummary={trajectoryRunSummary}
+            trajectoryStatus={trajectoryStatus}
+            onInspect={onInspectTrajectory}
+          />
+        ) : showReasoning ? (
           <ReasoningContent
             content={reasoning.content}
             trace={reasoning.trace}
@@ -138,19 +158,9 @@ function AssistantResponseStack({
         <AssistantActivityStatus
           activity={activity}
           placement="top"
-          reasoningVisible={showReasoning}
+          reasoningVisible={reasoningVisible}
           stopPending={stopAwaitingConfirmation}
         />
-
-        {agentRun ? (
-          <TrajectoryStatusLine
-            run={agentRun}
-            runSummary={trajectoryRunSummary}
-            trajectoryStatus={trajectoryStatus}
-            onInspect={onInspectTrajectory}
-          />
-        ) : null}
-
       </div>
 
       <StructuredToolResults
@@ -215,7 +225,7 @@ function AssistantResponseStack({
         <AssistantActivityStatus
           activity={activity}
           placement="bottom"
-          reasoningVisible={showReasoning}
+          reasoningVisible={reasoningVisible}
           stopPending={stopAwaitingConfirmation}
           outputMark={outputMark}
         />

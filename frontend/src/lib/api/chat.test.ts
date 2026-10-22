@@ -1010,13 +1010,18 @@ describe('sendMessageStream — 新 envelope 协议', () => {
           },
           5,
         ),
-        agentEvent('run_limit_reached', { reason: 'timeout' }, 6),
-        agentEvent('run_interrupted', { reason: 'user_cancelled' }, 7),
-        agentEvent('run_failed', { error_code: 'X', message: 'boom' }, 8),
+        agentEvent(
+          'model_fallback',
+          { step_id: 's1', failed_model: 'mimo', fallback_model: 'deepseek-chat', reason: 'first_output_timeout' },
+          6,
+        ),
+        agentEvent('run_limit_reached', { reason: 'timeout' }, 7),
+        agentEvent('run_interrupted', { reason: 'user_cancelled' }, 8),
+        agentEvent('run_failed', { error_code: 'X', message: 'boom' }, 9),
         agentEvent(
           'run_completed',
           { total_steps: 1, total_tool_calls: 1, finish_reason: 'stop' },
-          9,
+          10,
         ),
         envelope('done', {}),
         'data: [DONE]\n\n',
@@ -1032,6 +1037,7 @@ describe('sendMessageStream — 新 envelope 协议', () => {
       onToolCallDelta: vi.fn(),
       onToolCallCompleted: vi.fn(),
       onStepCompleted: vi.fn(),
+      onModelFallback: vi.fn(),
       onRunLimitReached: vi.fn(),
       onRunInterrupted: vi.fn(),
       onRunFailed: vi.fn(),
@@ -1052,6 +1058,11 @@ describe('sendMessageStream — 新 envelope 协议', () => {
       plan_item_id: 'search',
     }));
     expect(cbs.onStepCompleted).toHaveBeenCalledTimes(1);
+    expect(cbs.onModelFallback).toHaveBeenCalledWith(expect.objectContaining({
+      failed_model: 'mimo',
+      fallback_model: 'deepseek-chat',
+      reason: 'first_output_timeout',
+    }));
     expect(cbs.onRunLimitReached).toHaveBeenCalledTimes(1);
     expect(cbs.onRunInterrupted).toHaveBeenCalledTimes(1);
     expect(cbs.onRunFailed).toHaveBeenCalledTimes(1);

@@ -70,6 +70,41 @@
 .content :where(a) { color: var(--info); text-decoration: underline; text-underline-offset: 3px; }
 .content > :first-child { margin-top: 0; }
 .content > :last-child { margin-bottom: 0; }
+/* 过程区：标题一行汇总整轮，展开后每步一行，行内可再展开参数与结果 */
+.processHeader { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.processHeader > .header { flex: 1; min-width: 0; }
+.processHeader > .trajectoryDetails { flex-shrink: 0; padding-right: 8px; }
+.processHeader .statusIcon[data-done="true"][data-tone="danger"] { background: var(--danger-bg); color: var(--danger); }
+.processHeader .statusIcon[data-done="true"][data-tone="warn"] { background: var(--warn-bg); color: var(--warn); }
+.processBody { max-height: 360px; overflow-y: auto; padding-top: 8px; }
+.processRows { list-style: none; margin: 0; padding: 0; }
+.processRow + .processRow { margin-top: 2px; }
+.processRowButton {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: left;
+  white-space: nowrap;
+  transition: background-color 160ms ease;
+}
+button.processRowButton:not(:disabled):hover { background: var(--bg-subtle); }
+button.processRowButton:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+.processRowButton[data-status="failed"] { color: var(--danger); }
+.processStatus { border-radius: 6px; padding: 0 6px; font-size: 11px; line-height: 18px; background: var(--bg-subtle); color: var(--muted-foreground); }
+.processStatus[data-tone="warn"] { background: var(--warn-bg); color: var(--warn); }
+.processStatus[data-tone="danger"] { background: var(--danger-bg); color: var(--danger); }
+.processRowDetail { margin: 2px 0 8px 29px; padding: 8px 10px; border-left: 2px solid var(--aux-edge); max-height: none; overflow: visible; }
+.processField { display: grid; grid-template-columns: minmax(64px, max-content) 1fr; gap: 12px; font-size: 12px; line-height: 1.6; }
+.processField + .processField { margin-top: 4px; }
+.processField dt { color: var(--muted-foreground); }
+.processField dd { margin: 0; min-width: 0; color: var(--fg-secondary); overflow-wrap: anywhere; white-space: pre-wrap; }
 .fade { position: absolute; bottom: 12px; left: 12px; right: 12px; height: 20px; background: linear-gradient(to top, var(--background), transparent); pointer-events: none; }
 .streaming .fade { background: linear-gradient(to top, var(--info-bg), transparent); }
 
@@ -132,7 +167,7 @@
 
 :global(.dark) .reasoning { --aux-sheen: rgb(255 255 255 / 5%); }
 @media (prefers-reduced-motion: reduce) {
-  .header, .details, .detailButton { transition: none; }
+  .header, .details, .detailButton, .processRowButton { transition: none; }
   .activity { animation: none; }
   .chevron > svg { transition: none; }
 }

@@ -21,6 +21,7 @@ import type {
 } from '@/types/conversation';
 import { extractTextFromBlocks, extractThinkingFromBlocks } from '@/types/conversation';
 import { buildThinkingTrace, type ThinkingTraceEntry } from './thinkingTrace';
+import { buildAgentProcessRows, type AgentProcessRow } from './agentProcessModel';
 import {
   collectStructuredToolResultBlocks,
   isStructuredToolResultBlock,
@@ -68,6 +69,8 @@ export interface AssistantMessageViewModel {
   displayThinking: string;
   /** 多轮思考与工具调用按发生顺序穿插，供深度思考面板展开时展示。 */
   thinkingTrace: ThinkingTraceEntry[];
+  /** 有运行记录时的过程行：思考、工具调用、换模型按发生顺序排列。 */
+  processRows: AgentProcessRow[];
   hasThinking: boolean;
   streamingStartTime: number | null;
   streamingEndTime: number | undefined;
@@ -131,6 +134,7 @@ export function deriveStaticAssistantMessageViewModel({
   const answerVideos = collectAnswerVideos(blocksToRender);
   const mapDataSources = collectMapDataSources(blocksToRender);
   const thinkingTrace = buildThinkingTrace(blocksToRender, ownedRun);
+  const processRows = ownedRun ? buildAgentProcessRows(blocksToRender, ownedRun) : [];
 
   return {
     blocksToRender,
@@ -151,6 +155,7 @@ export function deriveStaticAssistantMessageViewModel({
     displayText,
     displayThinking,
     thinkingTrace,
+    processRows,
     hasThinking: displayThinking.length > 0,
     streamingStartTime: null,
     streamingEndTime: undefined,
@@ -302,6 +307,10 @@ export function useAssistantMessageViewModel({
     () => buildThinkingTrace(blocksToRender, ownedRun),
     [blocksToRender, ownedRun],
   );
+  const processRows = useMemo(
+    () => (ownedRun ? buildAgentProcessRows(blocksToRender, ownedRun) : []),
+    [blocksToRender, ownedRun],
+  );
   const hasThinking = displayThinking.length > 0;
 
   return {
@@ -323,6 +332,7 @@ export function useAssistantMessageViewModel({
     displayText,
     displayThinking,
     thinkingTrace,
+    processRows,
     hasThinking,
     streamingStartTime,
     streamingEndTime,

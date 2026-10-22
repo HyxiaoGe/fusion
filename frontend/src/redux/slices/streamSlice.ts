@@ -26,6 +26,7 @@ import type {
   AgentRunConfig,
   AgentRunState,
   AgentRunStatus,
+  AgentModelFallback,
   AgentToolDigest,
   AgentContextPurpose,
   AgentContextRequestPhase,
@@ -706,6 +707,14 @@ const streamSlice = createSlice({
       }
     }),
 
+    pushModelFallback: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; sequence: number } & AgentModelFallback>) => {
+      const run = state.currentRun;
+      const { runId, sequence, stepId, failedModel, fallbackModel, reason } = action.payload;
+      if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
+      run.lastSequence = sequence;
+      run.modelFallbacks = [...(run.modelFallbacks ?? []), { stepId, failedModel, fallbackModel, reason }];
+    }),
+
     markLimitReached: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; reason: LimitReachedReason; sequence: number }>) => {
       const run = state.currentRun;
       const { runId, reason, sequence } = action.payload;
@@ -1032,6 +1041,7 @@ export const {
   finalizeToolCall,
   initRun,
   markLimitReached,
+  pushModelFallback,
   mergeToolCallDelta,
   migrateStreamConversation,
   resetStreamState,

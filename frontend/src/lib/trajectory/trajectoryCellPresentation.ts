@@ -1,3 +1,4 @@
+import { modelFallbackReasonLabel } from '@/lib/agent/modelFallback';
 import i18n from '@/lib/i18n';
 import { getToolMeta } from '@/lib/agent/toolRegistry';
 import { extractTextFromBlocks, isContentFilteredMessage } from '@/types/conversation';
@@ -254,16 +255,6 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
       };
     }
   }
-}
-
-function modelFallbackReasonLabel(reason: string | null): string {
-  if (!reason) return '原因未知';
-  if (reason === 'first_output_timeout') return '首字超时';
-  if (reason === 'stream_idle_timeout') return '输出中途卡住';
-  if (reason === 'circuit_open') return '近期连续失败，已熔断';
-  if (reason === 'network_error') return '网络错误';
-  const status = /^http_(\d{3})$/.exec(reason);
-  return status ? `服务商返回 ${status[1]}` : reason;
 }
 
 function statusTone(status: string): TrajectoryCellPresentation['tone'] {

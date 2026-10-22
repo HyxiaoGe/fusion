@@ -320,6 +320,9 @@ export interface StreamCallbacks {
     },
   ) => void;
   onRunLimitReached?: (ev: AgentEventEnvelope & { reason: string }) => void;
+  onModelFallback?: (
+    ev: AgentEventEnvelope & { failed_model: string; fallback_model: string | null; reason: string },
+  ) => void;
   onRunInterrupted?: (ev: AgentEventEnvelope & { reason: string }) => void;
   onRunFailed?: (
     ev: AgentEventEnvelope & { error_code: string; message: string },
@@ -655,6 +658,8 @@ async function parseSseEnvelopeStream(
           return callbacks.onStepCompleted?.(ev as never);
         case 'run_limit_reached':
           return callbacks.onRunLimitReached?.(ev as never);
+        case 'model_fallback':
+          return callbacks.onModelFallback?.(ev as never);
         case 'run_interrupted':
           return callbacks.onRunInterrupted?.(ev as never);
         case 'run_failed':

@@ -18,6 +18,7 @@ import streamSliceReducer, {
   finalizeStep,
   discardContentBlock,
   markLimitReached,
+  pushModelFallback,
   finalizeRun,
   appendTextDelta,
   appendThinkingDelta,
@@ -1443,6 +1444,17 @@ describe('streamSlice — agent run timeline', () => {
     s = reducer(s, markLimitReached({ conversationId: 'c1', runId: 'r1', reason: 'max_steps', sequence: 5 }));
     expect(slot(s, 'c1').currentRun?.status).toBe('running');
     expect(slot(s, 'c1').currentRun?.limitReachedReason).toBe('max_steps');
+  });
+
+  it('pushModelFallback 按顺序记下换模型，重复或倒退的 sequence 不重复写', () => {
+    let s = reducer(startedAt('c1'), initRun({ conversationId: 'c1', runId: 'r1', messageId: 'm1', config: baseConfig, sequence: 0 }));
+    const fallback = { conversationId: 'c1', runId: 'r1', stepId: 's1', failedModel: 'mimo', fallbackModel: 'deepseek-chat', reason: 'first_output_timeout' };
+    s = reducer(s, pushModelFallback({ ...fallback, sequence: 3 }));
+    s = reducer(s, pushModelFallback({ ...fallback, sequence: 3 }));
+    s = reducer(s, pushModelFallback({ ...fallback, runId: 'other', sequence: 4 }));
+    expect(slot(s, 'c1').currentRun?.modelFallbacks).toEqual([
+      { stepId: 's1', failedModel: 'mimo', fallbackModel: 'deepseek-chat', reason: 'first_output_timeout' },
+    ]);
   });
 
   it('finalizeRun completed', () => {
