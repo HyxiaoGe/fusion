@@ -156,8 +156,30 @@ describe('AgentProcess', () => {
     const row = screen.getByRole('button', { name: /搜索杭州天气/ });
     expect(row).toHaveTextContent('800 毫秒');
     fireEvent.click(row);
-    expect(screen.getByText('query')).toBeInTheDocument();
+    expect(screen.getByText('搜索词')).toBeInTheDocument();
     expect(screen.getByText('6 条结果')).toBeInTheDocument();
+  });
+
+  it('参数名和枚举取值显示中文，未登记的参数保留原名', () => {
+    const agentRun = run({
+      steps: [step(1, {
+        toolCalls: [call({
+          toolName: 'generate_image',
+          arguments: { prompt: '书架上的猫头鹰', aspect_ratio: '1:1', quality: 'standard', seed: 7 },
+        })],
+      })],
+    });
+    renderProcess(agentRun, { isVisible: true });
+
+    fireEvent.click(screen.getByRole('button', { name: /书架上的猫头鹰/ }));
+    const fields = Array.from(document.querySelectorAll('dt')).map(dt => [dt.textContent, dt.nextElementSibling?.textContent]);
+    expect(fields).toEqual([
+      ['画面描述', '书架上的猫头鹰'],
+      ['画面比例', '1:1'],
+      ['画质', '标准'],
+      ['seed', '7'],
+      ['结果', '已完成'],
+    ]);
   });
 
   it('失败显示原因，地名待确认不算故障也不进标题', () => {

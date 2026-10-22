@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { modelFallbackReasonLabel } from '@/lib/agent/modelFallback';
 import { RUN_STATUS_TREATMENT } from '@/lib/agent/statusTreatment';
 import { getToolErrorDisplay } from '@/lib/agent/toolErrorDisplay';
-import { getToolMeta } from '@/lib/agent/toolRegistry';
+import { describeToolArgument, getToolMeta } from '@/lib/agent/toolRegistry';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
 import { formatTrajectoryDuration } from '@/lib/trajectory/trajectoryCellPresentation';
 import { cn } from '@/lib/utils';
@@ -248,8 +248,8 @@ function ToolRow({ call }: { call: ToolCallState }) {
   const status = toolStatusText(call);
   const duration = formatTrajectoryDuration(toolCallDurationMs(call));
   const args = Object.entries(call.arguments ?? {})
-    .map(([key, value]) => [key, argumentText(value)] as const)
-    .filter(([, value]) => value);
+    .map(([key, value]) => ({ key, ...describeToolArgument(call.toolName, key, argumentText(value)) }))
+    .filter(({ value }) => value);
 
   return (
     <li className={styles.processRow}>
@@ -274,10 +274,10 @@ function ToolRow({ call }: { call: ToolCallState }) {
         </span>
       </button>
       {open ? (
-        <dl id={bodyId} className={styles.processRowDetail}>
-          {args.map(([key, value]) => (
+        <dl id={bodyId} className={cn(styles.processRowDetail, styles.processFields)}>
+          {args.map(({ key, label, value }) => (
             <div key={key} className={styles.processField}>
-              <dt>{key}</dt>
+              <dt>{label}</dt>
               <dd>{value}</dd>
             </div>
           ))}
