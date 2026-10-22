@@ -477,7 +477,7 @@ describe('ChatMessage', () => {
     expect(screen.getByRole('region', { name: 'Agent 运行过程' })).toHaveTextContent('正在综合工具结果。');
   });
 
-  it('renders degraded web_search notice without rendering an empty sources panel', () => {
+  it('degraded web_search 由过程区说明，不再挂回答提示，也不渲染空资料面板', () => {
     const agentRun = {
       runId: 'run-1',
       messageId: 'assistant-1',
@@ -522,9 +522,10 @@ describe('ChatMessage', () => {
       />,
     );
 
-    const degradedNotice = screen.getByText('已基于可用信息回答').closest('[role="status"]');
-    expect(degradedNotice).toHaveTextContent('部分搜索结果未能使用');
-    expect(degradedNotice).toHaveTextContent('已基于可用信息回答');
+    const process = screen.getByRole('region', { name: 'Agent 运行过程' });
+    expect(process).toHaveTextContent('1 次工具调用');
+    expect(process).toHaveTextContent('部分搜索结果未能使用');
+    expect(screen.queryByText('已基于可用信息回答')).toBeNull();
     expect(screen.queryByText(/参考 \d+ 篇资料/)).toBeNull();
 
   });

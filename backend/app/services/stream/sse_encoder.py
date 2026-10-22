@@ -6,6 +6,7 @@
 
 import asyncio
 import json
+import time
 from contextlib import suppress
 from typing import AsyncGenerator
 
@@ -119,11 +120,14 @@ async def stream_redis_as_sse(
     message_id: str,
     task_id: str,
     last_entry_id: str = "0",
+    emit_server_clock: bool = False,
 ) -> AsyncGenerator[str, None]:
     """SSE 读取器：从 Redis Stream 读 chunk，按 spec §4.6 顶层 envelope 输出。
 
     每条 SSE 事件包含 id: 行（Redis entry ID），供断线重连使用。
     Redis 不可用时立即返回 error 帧 + [DONE]。
+    emit_server_clock 时先发一帧服务端当前时间（不带 id，不推进游标）：重连会一次性回放已发生的事件，
+    前端靠它把事件时刻换算成本机时间，否则耗时会按收到回放的时刻算成几毫秒。
     """
     from app.core.redis import get_redis_pool
 
@@ -139,6 +143,10 @@ async def stream_redis_as_sse(
         yield f"data: {json.dumps(error_envelope, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
         return
+
+    if emit_server_clock:
+        clock_envelope = {"chunk_type": "server_clock", "data": {"ts": time.time()}}
+        yield f"data: {json.dumps(clock_envelope)}\n\n"
 
     chunks = _read_chunks_with_heartbeat(
         conversation_id,

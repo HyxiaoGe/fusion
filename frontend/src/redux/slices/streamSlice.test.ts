@@ -1377,6 +1377,24 @@ describe('streamSlice — agent run timeline', () => {
     expect(slot(s, 'c1').currentRun?.steps[0].toolCalls[0].resultSummary?.count).toBe(5);
   });
 
+  it('重连回放的步骤与工具按事件时刻和服务端耗时计时，不按收到时刻', () => {
+    const t0 = 1_000_000;
+    let s = reducer(startedAt('c1'), initRun({ conversationId: 'c1', runId: 'r1', messageId: 'm1', config: baseConfig, sequence: 0 }));
+    s = reducer(s, pushStep({ conversationId: 'c1', runId: 'r1', stepId: 's1', stepNumber: 1, sequence: 1, at: t0 }));
+    s = reducer(s, pushToolCall({ conversationId: 'c1',
+      runId: 'r1', stepId: 's1', toolCallId: 't1',
+      toolName: 'generate_image', arguments: {}, sequence: 2, at: t0 + 7_590,
+    }));
+    s = reducer(s, finalizeToolCall({ conversationId: 'c1',
+      runId: 'r1', toolCallId: 't1', status: 'failed', durationMs: 150_115, sequence: 3, at: t0 + 157_710,
+    }));
+    s = reducer(s, finalizeStep({ conversationId: 'c1', runId: 'r1', stepId: 's1', sequence: 4, at: t0 + 157_800 }));
+    const step = slot(s, 'c1').currentRun!.steps[0];
+    expect(step.startedAt).toBe(t0);
+    expect(step.completedAt).toBe(t0 + 157_800);
+    expect(step.toolCalls[0].completedAt! - step.toolCalls[0].startedAt).toBe(150_115);
+  });
+
   it('finalizeStep 把 step → completed + completedAt', () => {
     let s = reducer(startedAt('c1'), initRun({ conversationId: 'c1', runId: 'r1', messageId: 'm1', config: baseConfig, sequence: 0 }));
     s = reducer(s, pushStep({ conversationId: 'c1', runId: 'r1', stepId: 's1', stepNumber: 1, sequence: 1 }));

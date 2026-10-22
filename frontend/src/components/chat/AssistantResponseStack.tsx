@@ -160,6 +160,7 @@ function AssistantResponseStack({
           placement="top"
           reasoningVisible={reasoningVisible}
           stopPending={stopAwaitingConfirmation}
+          toolIssuesInProcess={Boolean(agentRun)}
         />
       </div>
 

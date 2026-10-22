@@ -561,9 +561,10 @@ const streamSlice = createSlice({
       run.toolCallProgress = (run.toolCallProgress ?? 0) + 1;
     }),
 
-    pushStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; stepNumber: number; sequence: number }>) => {
+    // 各 reducer 的 at 是事件在服务端发生的时刻（已换成本机时间）；重连回放的旧事件按收到时刻计时会把耗时算成几毫秒。
+    pushStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; stepNumber: number; sequence: number; at?: number }>) => {
       const run = state.currentRun;
-      const { runId, stepId, stepNumber, sequence } = action.payload;
+      const { runId, stepId, stepNumber, sequence, at } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
       run.steps.push({
@@ -572,7 +573,7 @@ const streamSlice = createSlice({
         status: 'running',
         toolCalls: [],
         contentBlockIds: [],
-        startedAt: Date.now(),
+        startedAt: at ?? Date.now(),
       });
       run.totalSteps = Math.max(run.totalSteps, stepNumber);
     }),
@@ -599,7 +600,7 @@ const streamSlice = createSlice({
       run.llmPhase = undefined;
     }),
 
-    pushToolCall: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; toolCallId: string; planItemId?: string; toolName: string; arguments: Record<string, unknown>; sequence: number; }>) => {
+    pushToolCall: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; toolCallId: string; planItemId?: string; toolName: string; arguments: Record<string, unknown>; sequence: number; at?: number; }>) => {
       const run = state.currentRun;
       const {
         runId,
@@ -609,6 +610,7 @@ const streamSlice = createSlice({
         toolName,
         arguments: args,
         sequence,
+        at,
       } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
@@ -620,7 +622,7 @@ const streamSlice = createSlice({
         toolName,
         arguments: args,
         status: 'running',
-        startedAt: Date.now(),
+        startedAt: at ?? Date.now(),
       });
       run.totalToolCalls += 1;
     }),
@@ -648,7 +650,7 @@ const streamSlice = createSlice({
       }
     }),
 
-    finalizeToolCall: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; toolCallId: string; planItemId?: string; status: 'success' | 'failed' | 'degraded'; durationMs: number; resultSummary?: ToolCallResultSummary; error?: string | null; sequence: number; }>) => {
+    finalizeToolCall: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; toolCallId: string; planItemId?: string; status: 'success' | 'failed' | 'degraded'; durationMs: number; resultSummary?: ToolCallResultSummary; error?: string | null; sequence: number; at?: number; }>) => {
       const run = state.currentRun;
       const {
         runId,
@@ -659,6 +661,7 @@ const streamSlice = createSlice({
         resultSummary,
         error,
         sequence,
+        at,
       } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
@@ -667,23 +670,24 @@ const streamSlice = createSlice({
         if (tc) {
           if (planItemId) tc.planItemId = planItemId;
           tc.status = status;
-          tc.completedAt = Date.now();
+          // 服务端记下的执行耗时与刷新后历史里的一致，优先用它。
+          tc.completedAt = Number.isFinite(durationMs) && durationMs >= 0
+            ? tc.startedAt + durationMs
+            : at ?? Date.now();
           if (resultSummary) tc.resultSummary = resultSummary;
           if (error) tc.error = error;
           // 草稿只是工具参数的预览；对应调用失败时文档并未生成，草稿卡片要如实标成失败，而不是静默消失。
           if (status === 'failed' && run.documentDraft && run.documentDraft.toolName === tc.toolName) {
             run.documentDraft.failed = true;
           }
-          // duration_ms 暂不映射到 ToolCallState（信息可由 startedAt/completedAt 推算）
-          void durationMs;
           return;
         }
       }
     }),
 
-    finalizeStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; sequence: number; toolCallCount?: number; }>) => {
+    finalizeStep: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; stepId: string; sequence: number; toolCallCount?: number; at?: number; }>) => {
       const run = state.currentRun;
-      const { runId, stepId, sequence, toolCallCount } = action.payload;
+      const { runId, stepId, sequence, toolCallCount, at } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
       const step = run.steps.find(s => s.stepId === stepId);
@@ -703,7 +707,7 @@ const streamSlice = createSlice({
           step.contentBlockIds = step.contentBlockIds.filter(blockId => !transientTextIds.has(blockId));
         }
         step.status = 'completed';
-        step.completedAt = Date.now();
+        step.completedAt = at ?? Date.now();
       }
     }),
 
@@ -734,9 +738,9 @@ const streamSlice = createSlice({
       run.stopConfirmation = action.payload.confirmation;
     }),
 
-    finalizeRun: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; status: Exclude<AgentRunStatus, 'running'>; failure?: { code: string; message: string }; reason?: string; sequence: number; }>) => {
+    finalizeRun: withSlot((state, action: PayloadAction<{ conversationId: string } & { runId: string; status: Exclude<AgentRunStatus, 'running'>; failure?: { code: string; message: string }; reason?: string; sequence: number; at?: number; }>) => {
       const run = state.currentRun;
-      const { runId, status, failure, sequence } = action.payload;
+      const { runId, status, failure, sequence, at } = action.payload;
       if (!run || run.runId !== runId || sequence <= run.lastSequence) return;
       run.lastSequence = sequence;
       run.status = status;
@@ -751,7 +755,7 @@ const streamSlice = createSlice({
       //   失败发生在 tool_call_started 之后、tool_call_completed 之前时，BE 不会再
       //   补 tool_call_completed，FE 必须在这里收尾，否则 chip 会一直转。
       if (status === 'interrupted' || status === 'failed') {
-        const now = Date.now();
+        const now = at ?? Date.now();
         run.steps.forEach(step => {
           if (step.status === 'running') {
             step.status = status;

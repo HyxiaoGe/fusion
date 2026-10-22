@@ -62,6 +62,21 @@ class StreamSseEncoderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frames[2], "data: [DONE]\n\n")
         self.assertNotIn(": keepalive", "".join(frames))
 
+    async def test_server_clock_frame_precedes_replay_without_entry_id(self):
+        async def read_stream_chunks(*_args, **_kwargs):
+            yield {"entry_id": "2-0", "type": "answering", "content": "旧", "block_id": "blk-1"}
+
+        with (
+            patch("app.core.redis.get_redis_pool", return_value=object()),
+            patch("app.services.stream.sse_encoder.read_stream_chunks", new=read_stream_chunks),
+            patch("app.services.stream.sse_encoder.time.time", return_value=1_761_100_000.25),
+        ):
+            frames = [frame async for frame in stream_redis_as_sse("conv-1", "msg-1", "task-1", emit_server_clock=True)]
+
+        self.assertEqual(frames[0], 'data: {"chunk_type": "server_clock", "data": {"ts": 1761100000.25}}\n\n')
+        self.assertTrue(frames[1].startswith("id: 2-0\n"))
+        self.assertEqual(frames[-1], "data: [DONE]\n\n")
+
     async def test_closing_sse_stream_cancels_pending_reader_task(self):
         reader_cancelled = asyncio.Event()
 

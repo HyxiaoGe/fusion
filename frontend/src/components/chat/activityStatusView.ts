@@ -66,11 +66,16 @@ export interface ResolveActivityStatusOptions {
   reasoningVisible?: boolean;
   /** 停止请求等待服务端确认时不展示任何生成期状态。 */
   stopPending?: boolean;
+  /**
+   * 过程区已逐行列出每次调用的成败时不再挂工具问题提示：回答有没有用到某个结果前端判断不了，
+   * 模型换参数重试成功后，提示会把已恢复的失败说成“本轮回答未使用”。
+   */
+  toolIssuesInProcess?: boolean;
 }
 
 export function resolveActivityStatus(
   activity: AssistantActivity,
-  { reasoningVisible = false, stopPending = false }: ResolveActivityStatusOptions = {},
+  { reasoningVisible = false, stopPending = false, toolIssuesInProcess = false }: ResolveActivityStatusOptions = {},
 ): ActivityStatusView | null {
   if (stopPending) return null;
 
@@ -122,7 +127,7 @@ export function resolveActivityStatus(
     return { key: activity.kind, ...MODEL_PHASE_VIEWS[activity.kind], busy: true, role: 'status' };
   }
 
-  if (activity.issue) {
+  if (activity.issue && !toolIssuesInProcess) {
     return {
       key: `issue:${activity.issue.call.toolCallId}`,
       tone: activity.issue.kind === 'failed' ? 'danger' : 'warn',

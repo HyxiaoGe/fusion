@@ -196,6 +196,7 @@ class ChatStreamReconnectTests(unittest.IsolatedAsyncioTestCase):
             message_id="msg-1",
             task_id="task-1",
             last_entry_id="10-0",
+            emit_server_clock=True,
         )
 
 

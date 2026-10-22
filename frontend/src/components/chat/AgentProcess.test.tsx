@@ -192,6 +192,20 @@ describe('AgentProcess', () => {
     expect(screen.getByText('轨迹记录不完整')).toBeInTheDocument();
   });
 
+  it('标题只说失败了几次，不把某次失败的原因当成整轮结论', () => {
+    const agentRun = run({
+      steps: [
+        step(1, { toolCalls: [call({ toolCallId: 'img-1', toolName: 'generate_image', arguments: { prompt: '柴犬' }, status: 'failed', error: '图片生成失败' })] }),
+        step(2, { toolCalls: [call({ toolCallId: 'img-2', toolName: 'generate_image', arguments: { prompt: '柴犬头像' } })] }),
+      ],
+    });
+    renderProcess(agentRun);
+    const header = screen.getByRole('button', { name: /已完成/ });
+    expect(header).toHaveTextContent('2 次工具调用');
+    expect(header).toHaveTextContent('1 次调用失败');
+    expect(header).not.toHaveTextContent('图片生成失败');
+  });
+
   it('换模型行写明原模型、备用模型和原因', () => {
     const agentRun = run({
       steps: [step(1)],
