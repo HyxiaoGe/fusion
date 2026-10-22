@@ -128,6 +128,7 @@ function GeneratedImageCard({
   const [downloading, setDownloading] = useState(false);
   const [width, height] = blockFrame(block);
   const modelName = imageModelDisplayName(block.model);
+  const providedBy = modelName ? t('chatBody.generatedImage.providedBy', { model: modelName }) : null;
 
   const load = useCallback(async () => {
     setState('loading');
@@ -212,10 +213,9 @@ function GeneratedImageCard({
       </div>
       <figcaption className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
         <div className="flex min-w-0 items-center gap-1">
-          {modelName ? (
-            <span className="min-w-0 flex-1 truncate">
-              {t('chatBody.generatedImage.providedBy', { model: modelName })}
-            </span>
+          {providedBy ? (
+            // 竖图卡片窄，模型名放不下时换行，不截断。
+            <span className="min-w-0 flex-1 break-words">{providedBy}</span>
           ) : <span className="flex-1" />}
           <button
             type="button"
