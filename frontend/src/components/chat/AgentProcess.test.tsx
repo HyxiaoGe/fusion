@@ -247,6 +247,19 @@ describe('AgentProcess', () => {
     expect(screen.getByRole('button', { name: /已完成/ })).not.toHaveTextContent('用时');
   });
 
+  it('运行中本机见过第 1 步时按本机起点计时，不受服务端时钟差影响', () => {
+    vi.useFakeTimers();
+    const now = Date.parse('2026-08-26T02:28:10.000Z');
+    vi.setSystemTime(now);
+    // 本机 7 秒前开始第 1 步；服务端起点比本机快 5 秒，按它算会少 5 秒。
+    const live = run({ status: 'running', steps: [step(1, { startedAt: now - 7_000, completedAt: undefined, status: 'running' })] });
+    renderProcess(live, {
+      trajectoryStatus: 'recording',
+      runSummary: summary({ status: 'running', duration_ms: null, ended_at: null, started_at: '2026-08-26T02:28:08.000Z' }),
+    });
+    expect(screen.getByRole('region', { name: 'Agent 运行过程' })).toHaveTextContent('处理中用时 7 秒');
+  });
+
   it('运行中按服务端起点持续计时', () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.parse('2026-08-26T02:28:00.000Z'));
