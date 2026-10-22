@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from prometheus_client import REGISTRY
+
 from app.ai.prompts.section_ids import RESEARCH_EVIDENCE_WORKSET
 from app.schemas.chat import PlaceResult, PlaceResultsBlock, SourceReference, TextBlock, UrlBlock, Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
@@ -1257,6 +1259,10 @@ class OrdinaryRunWorksetContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any("never fetched" in content for content in system_contents))
 
 
+def _sample(name: str, **labels: str) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0
+
+
 class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
     """原模型本轮不可用时换备用模型；备用模型能力不够时不换；连续失败打开熔断。"""
 
@@ -1367,6 +1373,12 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
             ],
         }
+        fallback_before = _sample(
+            "fusion_model_fallback_total", model="gemini-4-argon", fallback="none", reason="first_output_timeout"
+        )
+        unavailable_before = _sample(
+            "fusion_model_round_unavailable_total", model="gemini-4-argon", reason="first_output_timeout"
+        )
         # 服务商卡住时：原模型限时再试一次后失败，不无限等。
         with self.assertRaises(FirstOutputTimeoutError):
             await self._run_loop(
@@ -1377,6 +1389,19 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(calls, [("gemini-4-argon", FIRST_OUTPUT_TIMEOUT_S)] * 2)
+        self.assertEqual(
+            _sample(
+                "fusion_model_fallback_total",
+                model="gemini-4-argon",
+                fallback="none",
+                reason="first_output_timeout",
+            ),
+            fallback_before + 1,
+        )
+        self.assertEqual(
+            _sample("fusion_model_round_unavailable_total", model="gemini-4-argon", reason="first_output_timeout"),
+            unavailable_before + 2,
+        )
         pick_kwargs = self.pick_fallback.call_args.kwargs
         self.assertEqual(pick_kwargs["failed_model_id"], "gemini-4-argon")
         self.assertEqual(pick_kwargs["required_capabilities"], ("agentTools", "vision"))
@@ -1394,8 +1419,11 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
                 return _Rounds.weather_round_result()
             return _Rounds.answer_round_result()
 
+        labels = {"model": "gemini-4-argon", "fallback": "qwen3.8-flash", "reason": "first_output_timeout"}
+        before = _sample("fusion_model_fallback_total", **labels)
         state, warnings = await self._run_loop(run_round_fn)
 
+        self.assertEqual(_sample("fusion_model_fallback_total", **labels), before + 1)
         self.assertEqual(calls, ["gemini-4-argon", "qwen3.8-flash", "qwen3.8-flash"])
         self.assertEqual(state.active_model_id, "qwen3.8-flash")
         self.assertTrue(any("fallback=qwen3.8-flash" in warning for warning in warnings))

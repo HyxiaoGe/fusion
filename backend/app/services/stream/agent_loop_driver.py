@@ -10,6 +10,7 @@ from app.ai.llm_manager import llm_manager
 from app.ai.llm_round_observability import summarize_messages
 from app.ai.model_circuit_breaker import model_circuit_breaker
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages, to_provider_messages
+from app.core.metrics import MODEL_FALLBACK_TOTAL, MODEL_ROUND_UNAVAILABLE_TOTAL
 from app.db.model_catalog_control_repository import ModelCatalogControlRepository
 from app.services.auto_model import pick_fallback_model
 from app.services.chat.tool_transcript import without_tool_transactions
@@ -61,7 +62,7 @@ async def run_agent_loop(
                 step_context=step_context,
             )
         except ModelRoundUnavailableError as error:
-            model_circuit_breaker.record_failure(runtime.model_id, error.reason)
+            _record_model_unavailable(runtime.model_id, error.reason)
             # 每次回答只换一次模型，备用模型也不可用时照常失败。
             if state.active_model_id is not None:
                 raise
@@ -75,7 +76,7 @@ async def run_agent_loop(
                     step_context=step_context,
                 )
             except ModelRoundUnavailableError as retry_error:
-                model_circuit_breaker.record_failure(runtime.model_id, retry_error.reason)
+                _record_model_unavailable(runtime.model_id, retry_error.reason)
                 raise
         if round_result.finish_reason != "cancelled":
             model_circuit_breaker.record_success(runtime.model_id)
@@ -234,6 +235,11 @@ async def _run_round(
     return round_result
 
 
+def _record_model_unavailable(model_id: str, reason: str) -> None:
+    MODEL_ROUND_UNAVAILABLE_TOTAL.labels(model=model_id, reason=reason).inc()
+    model_circuit_breaker.record_failure(model_id, reason)
+
+
 def _switch_to_fallback_model(
     runtime: AgentLoopRuntime,
     *,
@@ -262,6 +268,7 @@ def _switch_to_fallback_model(
         except ValueError:
             resolved = None
     if fallback_model_id is None or resolved is None:
+        MODEL_FALLBACK_TOTAL.labels(model=runtime.model_id, fallback="none", reason=reason).inc()
         runtime.warning_fn(
             "原模型本轮不可用且没有可换的备用模型，原模型限时再试: "
             f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, model_id={runtime.model_id}, "
@@ -269,6 +276,7 @@ def _switch_to_fallback_model(
         )
         return runtime
     litellm_model, provider, litellm_kwargs = resolved
+    MODEL_FALLBACK_TOTAL.labels(model=runtime.model_id, fallback=fallback_model_id, reason=reason).inc()
     runtime.warning_fn(
         "原模型本轮不可用，本次回答改用备用模型: "
         f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, "

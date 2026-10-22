@@ -9,6 +9,7 @@ import json
 from contextlib import suppress
 from typing import AsyncGenerator
 
+from app.core.metrics import SSE_STREAMS_ACTIVE
 from app.services.stream_state_service import read_stream_chunks
 
 SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
@@ -145,6 +146,7 @@ async def stream_redis_as_sse(
         expected_message_id=message_id,
         expected_task_id=task_id,
     )
+    SSE_STREAMS_ACTIVE.inc()
     try:
         async for chunk in chunks:
             if chunk is _HEARTBEAT:
@@ -161,6 +163,7 @@ async def stream_redis_as_sse(
             envelope = entry_to_sse_envelope(chunk)
             yield f"id: {entry_id}\ndata: {json.dumps(envelope, ensure_ascii=False)}\n\n"
     finally:
+        SSE_STREAMS_ACTIVE.dec()
         await chunks.aclose()
 
     yield "data: [DONE]\n\n"

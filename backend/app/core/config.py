@@ -446,6 +446,9 @@ class Settings(BaseSettings):
     # 文档站点开关（生产关掉减少攻击面）
     ENABLE_DOCS: bool = True
 
+    # Prometheus 指标独立端口：业务端口经 nginx 整站反代到公网，指标不能挂在上面。0 表示不启动。
+    METRICS_PORT: int = 0
+
     class Config:
         env_file = ".env"
         extra = "ignore"

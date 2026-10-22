@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from prometheus_client import REGISTRY
 from sqlalchemy import create_engine, event
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
@@ -1100,6 +1101,20 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(row.total_steps, 1)
             self.assertEqual(row.total_tool_calls, 0)
             session.commit.assert_called_once()
+
+    async def test_write_session_status_counts_each_run_terminal_once(self):
+        """终态指标只在 running → 终态那一次计数，迟到的收尾写入不重复计。"""
+        before = REGISTRY.get_sample_value("fusion_agent_runs_total", {"status": "interrupted"}) or 0
+        with patch("app.services.agent.session_cache.SessionLocal") as mock_sl:
+            session = MagicMock()
+            mock_sl.return_value.__enter__.return_value = session
+            row = MagicMock(status="running")
+            session.get.return_value = row
+            await write_session_status(run_id="r1", status="interrupted", total_steps=1, total_tool_calls=0)
+            await write_session_status(run_id="r1", status="error", total_steps=1, total_tool_calls=0)
+
+        self.assertEqual(row.status, "interrupted")
+        self.assertEqual(REGISTRY.get_sample_value("fusion_agent_runs_total", {"status": "interrupted"}), before + 1)
 
     async def test_write_session_status_rejects_invalid_status(self):
         """status 必须是声明过的终态值之一"""
