@@ -14,6 +14,7 @@ from app.services.mcp.image_service_tools import (  # noqa: E402
     EXECUTION_TIMEOUT_SECONDS,
     MCP_CALL_TIMEOUT_SECONDS,
     ImageGenerationError,
+    build_generate_image_definition,
     parse_generate_image_text,
 )
 from app.services.stream.tool_executor import AGENT_TOOL_TIMEOUT, _handler_timeout_seconds  # noqa: E402
@@ -197,6 +198,9 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"prompt": "x", "regenerate": "yes"},
             {"prompt": "x", "reference_subject": 18},
             {"prompt": "x", "reference_subject": "x" * 81},
+            {"prompt": "x", "quality": "ultra"},
+            {"prompt": "x", "quality": True},
+            {"prompt": "x", "model": "doubao-seedream-5-0-pro"},
         ):
             with self.subTest(args=args):
                 self.assertTrue(handler.validate_arguments(args))
@@ -267,6 +271,24 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "success")
         self.assertIs(client.calls[0][2]["grounding"], True)
         self.assertTrue(result.data["grounding_used"])
+
+    async def test_quality_is_passed_only_when_given_and_recorded(self):
+        handler, client, *_ = self.build_handler()
+
+        default = await handler.execute({"prompt": "a fox"})
+        high = await handler.execute({"prompt": "a fox", "quality": "high"})
+
+        self.assertNotIn("quality", client.calls[0][2])
+        self.assertEqual(client.calls[1][2]["quality"], "high")
+        self.assertIsNone(default.data["quality"])
+        self.assertEqual(high.data["quality"], "high")
+
+    def test_definition_offers_quality_tiers_only(self):
+        properties = build_generate_image_definition()["function"]["parameters"]["properties"]
+
+        self.assertEqual(properties["quality"]["enum"], ["standard", "high"])
+        self.assertNotIn("model", properties)
+        self.assertNotIn("search the web", properties["prompt"]["description"])
 
     async def test_reference_subject_is_passed_only_when_given(self):
         handler, client, *_ = self.build_handler()
