@@ -6,6 +6,8 @@ export interface TrajectoryTableRow {
   key: string;
   cell: TrajectoryCell;
   sourceIndex: number;
+  /** 表格行号：按收起单次成功尝试后的行顺序连续编号，搜索与聚焦过滤不改变行号。 */
+  rowNumber: number;
   turnNumber: number | null;
   /** 后端提供的 1 基尝试序号；未知时保持 null。 */
   attemptNumber: number | null;
@@ -48,6 +50,8 @@ const KIND_LABELS: Record<TrajectoryCell['type'], string> = {
 };
 
 const COLLAPSIBLE_ATTEMPT_STATUSES = new Set(['success', 'completed', 'complete']);
+// 每轮都有的「上下文充足」不携带新信息（输入 Token 已在模型请求行），表格里不单独成行。
+const NO_OP_CONTEXT_STATUSES = new Set(['no_op', 'no_op_fast_path']);
 
 /** 将 cell 投影为不依赖 React/Redux/fetch 的稳定记录表行。 */
 export function projectTrajectoryTableRows({
@@ -76,7 +80,7 @@ export function projectTrajectoryTableRows({
 
   for (let sourceIndex = 0; sourceIndex < cells.length; sourceIndex += 1) {
     const cell = cells[sourceIndex];
-    if (collapsedAttemptKeys.has(cell.key)) continue;
+    if (collapsedAttemptKeys.has(cell.key) || isNoOpContextStatus(cell)) continue;
     const presentation = getTrajectoryCellPresentation(cell);
     const kindLabel = KIND_LABELS[cell.type];
     const summary = tableSummary(cell, presentation.kindLabel, presentation.summary);
@@ -113,6 +117,7 @@ export function projectTrajectoryTableRows({
       key: cell.key,
       cell,
       sourceIndex,
+      rowNumber: rows.length + 1,
       turnNumber: metadata[sourceIndex].turnNumber,
       attemptNumber: cell.type === 'run' || cell.type === 'subtool'
         ? cell.attemptIndex
@@ -216,6 +221,12 @@ function collectAttemptsByTool(
   return attempts;
 }
 
+function isNoOpContextStatus(cell: TrajectoryCell): boolean {
+  return cell.type === 'context'
+    && cell.eventType === 'context_status_updated'
+    && NO_OP_CONTEXT_STATUSES.has(String(cell.payload.status ?? ''));
+}
+
 function toolIdentity(runId: string, toolCallId: string): string {
   return `${runId}\u0000${toolCallId}`;
 }
@@ -259,6 +270,7 @@ function stripPrivateFields(rows: MutableTableRow[]): TrajectoryTableRow[] {
     key: row.key,
     cell: row.cell,
     sourceIndex: row.sourceIndex,
+    rowNumber: row.rowNumber,
     turnNumber: row.turnNumber,
     attemptNumber: row.attemptNumber,
     kindLabel: row.kindLabel,

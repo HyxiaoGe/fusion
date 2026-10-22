@@ -182,6 +182,44 @@ describe('trajectoryTableModel', () => {
     ]);
   });
 
+  it('收起单次成功尝试后行号仍连续，搜索过滤不改变行号', () => {
+    const cells = [
+      userCell('user-1', '查询北京天气'),
+      toolCell('tool-1'),
+      attemptCell('attempt-1', 'tool-1', 'success'),
+      messageCell('message-1', '北京今天晴朗'),
+    ];
+    const rows = projectTrajectoryTableRows({ cells });
+    expect(rows.map(row => [row.key, row.rowNumber])).toEqual([['user-1', 1], ['tool-1', 2], ['message-1', 3]]);
+
+    const filtered = projectTrajectoryTableRows({ cells, searchQuery: '晴朗' });
+    expect(filtered.map(row => [row.key, row.rowNumber])).toEqual([['message-1', 3]]);
+  });
+
+  it('上下文充足的逐轮状态不单独成行，压缩等有信息的状态仍显示', () => {
+    const contextCell = (key: string, status: string): TrajectoryCell => ({
+      key,
+      type: 'context',
+      runId: 'run-1',
+      userMessageId: 'user-1',
+      assistantMessageId: 'run-1-answer',
+      completenessSources: ['durable-snapshot'],
+      sourceSequences: [5],
+      contextId: key,
+      eventType: 'context_status_updated',
+      payload: { status, phase: 'final', actual_prompt_tokens: 12_840, window_tokens: 1_000_000 },
+    });
+    const rows = projectTrajectoryTableRows({
+      cells: [
+        userCell('user-1', '查询北京天气'),
+        contextCell('context-noop', 'no_op'),
+        contextCell('context-fast', 'no_op_fast_path'),
+        contextCell('context-trimmed', 'trimmed'),
+      ],
+    });
+    expect(rows.map(row => [row.key, row.rowNumber])).toEqual([['user-1', 1], ['context-trimmed', 2]]);
+  });
+
   it('Run 首次与重试直接使用后端 1 基序号，未知序号不按位置推断', () => {
     const rows = projectTrajectoryTableRows({
       cells: [
