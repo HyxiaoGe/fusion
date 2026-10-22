@@ -374,7 +374,10 @@ class ImageGenerationToolHandler(BaseToolHandler):
             return self._failed(error.code, started_at)
         source_image_id = _source_image_id(args)
         if source_image_id is not None:
-            # 查不到原图不占本轮生图次数。
+            # 查不到原图不占本轮生图次数。模型自己编的编号（不是我们给出的格式）同样按查不到处理，
+            # 让它如实告诉用户这张图不能直接编辑，而不是当成参数错误改掉编号去重画。
+            if not _SOURCE_IMAGE_ID.fullmatch(source_image_id):
+                return self._failed("source_image_unavailable", started_at)
             try:
                 source = await self.load_source_image(
                     file_id=source_image_id,
@@ -588,11 +591,11 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
 
 
 def _source_image_id(args: dict) -> str | None:
-    """要编辑的图片编号；只校验格式，归属由服务端查库确认。"""
+    """要编辑的图片编号；这里只校验类型，是否是本会话可编辑的图由执行时判断。"""
     value = args.get("source_image_id")
     if value is None:
         return None
-    if not isinstance(value, str) or not _SOURCE_IMAGE_ID.fullmatch(value.strip()):
+    if not isinstance(value, str):
         raise ImageGenerationError("invalid_arguments")
     return value.strip()
 

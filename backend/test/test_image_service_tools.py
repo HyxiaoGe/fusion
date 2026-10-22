@@ -222,8 +222,6 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"prompt": "x", "quality": True},
             {"prompt": "x", "model": "doubao-seedream-5-0-pro"},
             {"prompt": "x", "source_image_id": 5},
-            {"prompt": "x", "source_image_id": "../file-1"},
-            {"prompt": "x", "source_image_id": "x" * 65},
             {"prompt": "x", "reference_images": [SOURCE_URL]},
         ):
             with self.subTest(args=args):
@@ -450,6 +448,23 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         context = unavailable.format_llm_context(failed)
         self.assertIn("cannot be edited directly", context)
         self.assertIn("Do not call again with the same id", context)
+
+    async def test_made_up_source_id_is_reported_as_not_editable(self):
+        # dev 实测：旧会话里没有图片编号，模型编了一个带下划线的编号。按参数错误处理时模型会
+        # 去掉编号重画，还对用户说「其他保持不变」；应当告诉它这张图不能直接编辑。
+        for source_image_id in ("img_55d0d6a946b5e", "../file-1", "x" * 65):
+            with self.subTest(source_image_id=source_image_id):
+                loader = SourceLoader({"source_url": SOURCE_URL, "width": 1024, "height": 1024})
+                handler, client, *_ = self.build_handler(loader=loader)
+                args = {"prompt": "把背景改成白天", "source_image_id": source_image_id}
+
+                self.assertEqual(handler.validate_arguments(args), [])
+                result = await handler.execute(args)
+
+                self.assertEqual(result.data["error_code"], "source_image_unavailable")
+                self.assertEqual(loader.calls, [])
+                self.assertEqual(client.calls, [])
+                self.assertIn("cannot be edited directly", handler.format_llm_context(result))
 
     async def test_image_without_usable_service_url_is_not_offered_for_editing(self):
         client = self.structured_client(
