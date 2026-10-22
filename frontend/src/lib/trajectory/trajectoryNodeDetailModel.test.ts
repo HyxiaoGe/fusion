@@ -50,7 +50,7 @@ function baseCell(): {
 }
 
 describe('buildTrajectoryNodeDetailModel', () => {
-  it('Run 详情展示模式、可辨识的公告工具与按需检索工具', async () => {
+  it('Run 详情摘要只列内置工具中文名，外部工具记个数，原名放诊断信息', async () => {
     await i18n.changeLanguage('zh-CN');
     const run: Extract<TrajectoryCell, { type: 'run' }> = {
       ...baseCell(),
@@ -86,13 +86,15 @@ describe('buildTrajectoryNodeDetailModel', () => {
     const model = buildTrajectoryNodeDetailModel(run, null);
     expect(model.summaryFields).toEqual([
       { label: '模式', value: '全部可用工具 · agent' },
-      { label: '公告工具', value: '查询天气 (weather_forecast)' },
-      { label: '按需检索工具', value: expect.stringContaining('(mcp_docs_search)') },
+      { label: '公告工具', value: '查询天气' },
+      { label: '按需检索工具', value: '外部工具 1 个' },
       { label: '计划模式', value: '关闭' },
     ]);
     expect(model.diagnostics).toEqual(expect.arrayContaining([
       { label: '路由器版本', value: '2026-10-05.1' },
       { label: '工具包指纹', value: `sha256:${'a'.repeat(64)}` },
+      { label: '公告工具原名', value: 'weather_forecast' },
+      { label: '按需检索工具原名', value: 'mcp_docs_search' },
     ]));
   });
 
@@ -133,7 +135,7 @@ describe('buildTrajectoryNodeDetailModel', () => {
 
     // 既不丢弃整条 resolution，也不把 i18n key 直接显示给用户。
     expect(fields).toContainEqual({ label: '模式', value: 'future_mode' });
-    expect(fields).toContainEqual({ label: '公告工具', value: '查询天气 (weather_forecast)' });
+    expect(fields).toContainEqual({ label: '公告工具', value: '查询天气' });
     expect(fields.map(field => field.label)).not.toContain('按需检索工具');
   });
 
@@ -316,6 +318,59 @@ describe('buildTrajectoryNodeDetailModel', () => {
       attemptCount: null,
       errorSummary: '当前模型阶段暂时不可用',
     });
+  });
+
+  it('节点已完成时中途已恢复的失败不显示为异常摘要', () => {
+    const run: TrajectoryCell = {
+      ...baseCell(),
+      key: 'run:run-1',
+      type: 'run',
+      summarySource: 'run-summary',
+      attemptIndex: 1,
+      runStatus: 'completed',
+      totalSteps: 2,
+      totalToolCalls: 0,
+      startedAt: '2026-08-23T00:00:00.000Z',
+      endedAt: '2026-08-23T00:00:02.000Z',
+      isSelected: true,
+      isHydrated: true,
+      association: 'explicit',
+      trajectoryBadge: { status: 'complete', source: 'durable-snapshot', reason: null },
+      records: [
+        event(10, 'llm_round_failed', '2026-08-23T00:00:01.000Z', {
+          llm_round_id: 'round-1',
+          status: 'failed',
+          message: '模型服务响应超时',
+        }, { toolCallId: null }),
+        event(11, 'llm_round_completed', '2026-08-23T00:00:02.000Z', {
+          llm_round_id: 'round-2',
+          status: 'completed',
+        }, { toolCallId: null }),
+      ],
+      spans: [],
+      liveTail: [],
+    };
+    const runSpan: TrajectorySpan = {
+      span_id: 'run:run-1',
+      kind: 'run',
+      name: 'run',
+      parent_span_id: null,
+      start_sequence: 10,
+      end_sequence: 11,
+      started_at: '2026-08-23T00:00:00.000Z',
+      ended_at: '2026-08-23T00:00:02.000Z',
+      duration_ms: 2000,
+      status: 'completed',
+      terminal_source: 'recorded',
+      inferred_reason: null,
+      ttft_ms: null,
+      record_sequences: [10, 11],
+    };
+
+    expect(buildTrajectoryNodeDetailModel(run, null).errorSummary).toBeNull();
+    expect(buildTrajectoryNodeDetailModel(run, runSpan).errorSummary).toBeNull();
+    expect(buildTrajectoryNodeDetailModel({ ...run, runStatus: 'failed' }, null).errorSummary)
+      .toBe('模型服务响应超时');
   });
 
   it('Run span 使用稳定用户标题，不把后端 name 中的 run_id 暴露到默认区域', () => {

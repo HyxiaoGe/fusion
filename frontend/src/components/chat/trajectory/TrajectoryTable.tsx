@@ -402,7 +402,7 @@ export function TrajectoryTable({
                   active={index === activeIndex}
                   position={index + 1}
                   setSize={rows.length}
-                  sourceNumber={row.sourceIndex + 1}
+                  sourceNumber={row.rowNumber}
                   kindLabel={row.kindLabel}
                   summary={row.summary}
                   statusLabel={row.statusLabel}

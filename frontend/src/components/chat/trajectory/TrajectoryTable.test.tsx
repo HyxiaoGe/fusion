@@ -234,7 +234,7 @@ describe('TrajectoryTable', () => {
     expect(screen.queryByText('没有匹配记录')).not.toBeInTheDocument();
   });
 
-  it('原始类型、原始工具名与长正文尾部命中时都展示字段和高亮片段', () => {
+  it('原始类型仍可搜索命中，原始工具名与长正文尾部命中时展示字段和高亮片段', () => {
     const longTail = '尾部唯一关键字';
     const { rerender } = render(
       <TrajectoryTable
@@ -244,7 +244,9 @@ describe('TrajectoryTable', () => {
         viewportHeight={112}
       />,
     );
-    expect(screen.getByText('message')).toHaveAttribute('data-trajectory-match', 'true');
+    // 内部类型名不再显示在类型列，但仍参与搜索。
+    expect(screen.getByRole('option', { name: /搜索命中/ })).toBeInTheDocument();
+    expect(screen.queryByText('message')).toBeNull();
 
     rerender(
       <TrajectoryTable

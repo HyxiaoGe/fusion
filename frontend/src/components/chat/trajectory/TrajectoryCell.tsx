@@ -177,12 +177,9 @@ export function TrajectoryCell({
         TONE_CLASSES[presentation.tone],
       )}>
         <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        {/* 内部类型名（assistant_request 等）只用于搜索，不占用户可见的类型列。 */}
         <span className="min-w-0 truncate">
           <HighlightText text={kindLabel} query={searchQuery} />
-          {' '}
-          <span className="font-mono text-[10px] opacity-70">
-            <HighlightText text={cell.type} query={searchQuery} />
-          </span>
         </span>
       </span>
       <span className="flex min-w-0 items-center gap-2">

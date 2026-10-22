@@ -1,6 +1,6 @@
 import i18n from '@/lib/i18n';
 import type { TrajectorySpan } from '@/types/trajectory';
-import { getToolMeta } from '@/lib/agent/toolRegistry';
+import { getToolMeta, hasToolMeta } from '@/lib/agent/toolRegistry';
 import type { TFunction } from 'i18next';
 
 import type { NormalizedTrajectoryEvent } from './normalizeTrajectoryEvent';
@@ -43,6 +43,8 @@ const FAILURE_MESSAGE_EVENTS = new Set([
   'llm_round_failed',
   'retrieval_failed',
 ]);
+// 节点本身成功时，其中途失败已被恢复（如换备用模型后重试成功），不算该节点的异常。
+const SUCCEEDED_STATUSES = new Set(['completed', 'complete', 'success']);
 const FAILURE_REASON_EVENTS = new Set([
   'run_limit_reached',
   'run_interrupted',
@@ -259,9 +261,16 @@ function cellSummaryFields(
         value: translate('trajectory.capabilityResolution.notRecorded'),
       }];
     }
-    const formatToolNames = (names: readonly string[]) => (names.length > 0
-      ? names.map(toolName => `${getToolMeta(toolName).label} (${toolName})`).join(' · ')
-      : translate('trajectory.capabilityResolution.none'));
+    // 摘要只列内置工具的中文名；外部（MCP）工具名是哈希别名，只记个数，原名在诊断信息里。
+    const formatToolNames = (names: readonly string[]) => {
+      if (names.length === 0) return translate('trajectory.capabilityResolution.none');
+      const labels = names.filter(hasToolMeta).map(toolName => getToolMeta(toolName).label);
+      const externalCount = names.length - labels.length;
+      if (externalCount > 0) {
+        labels.push(translate('trajectory.capabilityResolution.externalToolCount', { count: externalCount }));
+      }
+      return labels.join(' · ');
+    };
     const fields: TrajectoryNodeSummaryField[] = [
       {
         label: translate('trajectory.capabilityResolution.mode'),
@@ -400,6 +409,7 @@ function cellError(
   events: readonly NormalizedTrajectoryEvent[],
 ): string | null {
   if (cell.type === 'message' && cell.message.status === 'failed') return '回答未能完成';
+  if (SUCCEEDED_STATUSES.has(cellStatus(cell) ?? '')) return null;
   const eventDetail = latestSafeEventDetail(events);
   if (eventDetail) return eventDetail;
   if (cell.type === 'subtool' && cell.status === 'failed') return '工具尝试未能完成';
@@ -409,6 +419,19 @@ function cellError(
   return null;
 }
 
+function cellStatus(cell: TrajectoryCell): string | null {
+  switch (cell.type) {
+    case 'run': return cell.runStatus;
+    case 'message': return cell.message.status ?? null;
+    case 'tool':
+    case 'subtool':
+    case 'assistant_request':
+      return cell.status;
+    default:
+      return null;
+  }
+}
+
 function spanError(
   span: TrajectorySpan,
   events: readonly NormalizedTrajectoryEvent[],
@@ -416,6 +439,7 @@ function spanError(
   if (span.terminal_source === 'inferred' || span.inferred_reason !== null) {
     return inferredSpanSummary(span.inferred_reason);
   }
+  if (SUCCEEDED_STATUSES.has(span.status)) return null;
   const eventDetail = latestSafeEventDetail(events);
   if (eventDetail) return eventDetail;
   if (span.status !== 'failed') return null;
@@ -480,16 +504,30 @@ function cellDiagnostics(cell: TrajectoryCell, translate: TFunction): Trajectory
 /** 路由器版本、指纹这类排查用的标识只放诊断信息，不占摘要。 */
 function engineeringDiagnostics(cell: TrajectoryCell, translate: TFunction): TrajectoryNodeDiagnostic[] {
   if (cell.type === 'run' && cell.capabilityResolution) {
-    return [
+    const resolution = cell.capabilityResolution;
+    const items: TrajectoryNodeDiagnostic[] = [
       {
         label: translate('trajectory.capabilityResolution.routerVersion'),
-        value: cell.capabilityResolution.router_version,
+        value: resolution.router_version,
       },
       {
         label: translate('trajectory.capabilityResolution.bundleFingerprint'),
-        value: cell.capabilityResolution.bundle_fingerprint,
+        value: resolution.bundle_fingerprint,
       },
     ];
+    if (resolution.external_tool_names.length > 0) {
+      items.push({
+        label: translate('trajectory.capabilityResolution.externalToolNames'),
+        value: resolution.external_tool_names.join(' · '),
+      });
+    }
+    if (resolution.deferred_tool_names.length > 0) {
+      items.push({
+        label: translate('trajectory.capabilityResolution.deferredToolNames'),
+        value: resolution.deferred_tool_names.join(' · '),
+      });
+    }
+    return items;
   }
   if (cell.type === 'assistant_request') {
     const fingerprint = cell.events.find(event => (

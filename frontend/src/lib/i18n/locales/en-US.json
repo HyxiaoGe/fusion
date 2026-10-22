@@ -752,6 +752,9 @@
       "planMode": "Plan mode",
       "routerVersion": "Router version",
       "bundleFingerprint": "Tool bundle fingerprint",
+      "externalToolCount": "{{count}} external tools",
+      "externalToolNames": "Announced tool names",
+      "deferredToolNames": "Deferred tool names",
       "none": "None",
       "planModes": {
         "on": "On",

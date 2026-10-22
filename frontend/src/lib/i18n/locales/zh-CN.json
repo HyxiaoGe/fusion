@@ -746,6 +746,9 @@
       "planMode": "计划模式",
       "routerVersion": "路由器版本",
       "bundleFingerprint": "工具包指纹",
+      "externalToolCount": "外部工具 {{count}} 个",
+      "externalToolNames": "公告工具原名",
+      "deferredToolNames": "按需检索工具原名",
       "none": "无",
       "planModes": {
         "on": "开启",
