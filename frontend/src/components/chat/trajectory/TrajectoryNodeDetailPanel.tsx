@@ -3,9 +3,11 @@
 import type { ContextToolVisibility, ToolObservation } from "@/types/trajectory";
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import AdminSafeMarkdown from '@/components/admin/AdminSafeMarkdown';
+import { getToolMeta } from '@/lib/agent/toolRegistry';
 import { useTrajectoryLlmNodeDetail } from '@/hooks/useTrajectoryLlmNodeDetail';
 import { useTrajectorySystemPromptNodeDetail } from '@/hooks/useTrajectorySystemPromptNodeDetail';
 import { useTrajectoryToolNodeDetail } from '@/hooks/useTrajectoryToolNodeDetail';
@@ -15,6 +17,10 @@ import {
 } from '@/lib/trajectory/trajectoryNodeDetailModel';
 import { normalizeOutputProvenance } from '@/lib/trajectory/normalizeTrajectoryEvent';
 import type { TrajectoryCell } from '@/lib/trajectory/TrajectoryCellProjection';
+import {
+  formatTrajectoryDuration,
+  formatTrajectoryStatus,
+} from '@/lib/trajectory/trajectoryCellPresentation';
 import { extractTextFromBlocks, type ContentBlock } from '@/types/conversation';
 import type {
   LlmOutputProvenance,
@@ -67,6 +73,8 @@ const PENDING_RETRY_INTERVAL_MS = 1_000;
 const PENDING_RETRY_DEADLINE_MS = 7_000;
 const PENDING_MAX_REQUESTS = 7;
 const EMPTY_RELATED_CELLS: readonly TrajectoryCell[] = [];
+const SUMMARY_PAYLOAD_FIELDS = 6;
+const SUMMARY_TEXT_CHARS = 600;
 
 export function TrajectoryNodeDetailPanel({
   conversationId,
@@ -129,10 +137,12 @@ function TrajectoryNodeDetailContent({
   const tabsId = useId();
   const tabRefs = useRef<Partial<Record<DetailSection, HTMLButtonElement | null>>>({});
   const startsWithPrompt = isSystemPrompt;
+  // 摘要页要直接给出调用、结果和本轮输出的预览，打开节点即读取详情。
+  const startsWithDetail = startsWithPrompt || needsRemoteDetail(cell, 'summary');
   const [activeSection, setActiveSection] = useState<DetailSection>(startsWithPrompt ? 'prompt' : 'summary');
-  const [detailRequested, setDetailRequested] = useState(startsWithPrompt);
+  const [detailRequested, setDetailRequested] = useState(startsWithDetail);
   const [pendingWindow, setPendingWindow] = useState<PendingWindow | null>(() => (
-    startsWithPrompt
+    startsWithDetail
       ? { deadline: performance.now() + PENDING_RETRY_DEADLINE_MS, requestCount: 1 }
       : null
   ));
@@ -277,15 +287,6 @@ function TrajectoryNodeDetailContent({
         </h2>
       </div>
 
-      {isLlm && (
-        <OutputProvenanceSection provenance={
-          cell.outputProvenance ?? normalizeOutputProvenance(
-            response?.detail && 'llm_round_id' in response.detail
-              ? response.detail.output_provenance : null,
-          )
-        } />
-      )}
-
       <div
         role="tablist"
         aria-label="节点详情栏目"
@@ -324,7 +325,21 @@ function TrajectoryNodeDetailContent({
         className="min-w-0 pt-4"
       >
         {activeSection === 'summary' && (
-          <SummarySection cell={cell} model={model} onSelectSection={selectSection} />
+          <SummarySection
+            cell={cell}
+            model={model}
+            relatedCells={relatedCells}
+            detail={{ requestStatus, response }}
+            onSelectSection={selectSection}
+          />
+        )}
+        {activeSection === 'preview' && isLlm && (
+          <OutputProvenanceSection provenance={
+            cell.outputProvenance ?? normalizeOutputProvenance(
+              response?.detail && 'llm_round_id' in response.detail
+                ? response.detail.output_provenance : null,
+            )
+          } />
         )}
         {activeSection === 'preview' && (cell.type === 'user' || cell.type === 'message') && (
           <MessagePreviewSection cell={cell} />
@@ -336,7 +351,7 @@ function TrajectoryNodeDetailContent({
           <MessageSourceSection cell={cell} model={model} />
         )}
         {activeSection === 'timing' && <TimingSection model={model} />}
-        {isRemoteSection && (
+        {isRemoteSection && activeSection !== 'summary' && (
           <RemoteDetailSection
             section={activeSection as RemoteDetailSectionName}
             requestStatus={requestStatus}
@@ -374,8 +389,10 @@ function TrajectoryNodeDetailContent({
 
 function needsRemoteDetail(cell: TrajectoryCell, section: DetailSection): boolean {
   if (cell.type === 'context' && cell.eventType === 'system_prompt_prepared') return section === 'prompt';
-  if (cell.type === 'tool') return section === 'payload' || section === 'result';
-  if (cell.type === 'assistant_request') return section === 'preview' || section === 'raw';
+  if (cell.type === 'tool') return section === 'summary' || section === 'payload' || section === 'result';
+  if (cell.type === 'assistant_request') {
+    return cell.detailAvailable && (section === 'summary' || section === 'preview' || section === 'raw');
+  }
   return false;
 }
 
@@ -494,13 +511,22 @@ function sanitizeRawValue(value: unknown): unknown {
   );
 }
 
+interface SummaryDetailState {
+  requestStatus: DetailRequestStatus;
+  response: TrajectoryNodeDetailResponse | null;
+}
+
 function SummarySection({
   cell,
   model,
+  relatedCells,
+  detail,
   onSelectSection,
 }: {
   cell: TrajectoryCell;
   model: TrajectoryNodeDetailModel;
+  relatedCells: readonly TrajectoryCell[];
+  detail: SummaryDetailState;
   onSelectSection: (section: DetailSection) => void;
 }) {
   const sourceFields = model.summaryFields.filter(field => field.label === '来源');
@@ -509,6 +535,7 @@ function SummarySection({
     ...sourceFields,
     { label: '状态', value: model.status },
     ...otherFields,
+    ...(cell.type === 'tool' && model.duration ? [{ label: '耗时', value: model.duration }] : []),
     ...(model.attemptCount !== null && model.attemptMode
       ? [{
         label: model.attemptMode === 'count' ? '尝试次数' : '尝试',
@@ -536,14 +563,205 @@ function SummarySection({
         </div>
       )}
       {cell.type === 'tool' && (
-        <ToolSummaryLinks
-          onOpenPayload={() => onSelectSection('payload')}
-          onOpenResult={() => onSelectSection('result')}
-        />
+        <>
+          <SummaryBlock title="调用" actionLabel="查看完整载荷" onOpen={() => onSelectSection('payload')}>
+            <ToolCallPreview toolName={cell.toolName} detail={detail} />
+          </SummaryBlock>
+          <SummaryBlock title="结果" actionLabel="查看完整结果" onOpen={() => onSelectSection('result')}>
+            <ToolResultPreview detail={detail} />
+          </SummaryBlock>
+        </>
+      )}
+      {cell.type === 'assistant_request' && (
+        <SummaryBlock
+          title="预览"
+          actionLabel="查看完整预览"
+          onOpen={cell.detailAvailable ? () => onSelectSection('preview') : undefined}
+        >
+          <LlmRoundPreview cell={cell} relatedCells={relatedCells} detail={detail} />
+        </SummaryBlock>
       )}
       {cell.type === 'assistant_request' && <RequestTimingSummary model={model} />}
     </div>
   );
+}
+
+function SummaryBlock({
+  title,
+  actionLabel,
+  onOpen,
+  children,
+}: {
+  title: string;
+  actionLabel: string;
+  onOpen?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="min-w-0 space-y-2 border-b border-border/45 pb-3">
+      {onOpen ? (
+        <button
+          type="button"
+          aria-label={actionLabel}
+          onClick={onOpen}
+          className="group flex cursor-pointer items-center gap-0.5 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {title}
+          <ChevronRight aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground" />
+        </button>
+      ) : (
+        <h3 className="text-sm font-medium text-foreground">{title}</h3>
+      )}
+      {children}
+    </section>
+  );
+}
+
+/** 详情尚未可用时的一句说明；重试和完整原因留在对应页签。 */
+function summaryDetailNotice(detail: SummaryDetailState): string | null {
+  if (detail.requestStatus === 'idle' || detail.requestStatus === 'loading') return '正在加载';
+  if (detail.requestStatus === 'failed') return '加载失败，可在对应页签重试';
+  const response = detail.response;
+  if (!response) return '详情不可用';
+  if (response.status === 'pending') return '详情仍在落账';
+  if (response.status === 'not_recorded') return '该运行生成时尚未记录详情';
+  if (response.status === 'degraded') return '详情记录不完整，可在对应页签查看说明';
+  return null;
+}
+
+function SummaryNotice({ text }: { text: string }) {
+  return <p className="text-xs text-muted-foreground">{text}</p>;
+}
+
+function ToolCallPreview({ toolName, detail }: { toolName: string | null; detail: SummaryDetailState }) {
+  const notice = summaryDetailNotice(detail);
+  if (notice) return <SummaryNotice text={notice} />;
+  const payload = detail.response ? remoteSectionValue(detail.response, 'payload') : null;
+  if (!payload || Object.keys(payload).length === 0) return <SummaryNotice text="没有参数" />;
+  const headline = getToolMeta(toolName ?? '').summarize(payload);
+  const entries = Object.entries(payload);
+  return (
+    <div className="min-w-0 space-y-1.5">
+      {headline && <p className="break-words text-sm text-foreground">{headline}</p>}
+      <dl className="space-y-0.5 font-mono text-xs">
+        {entries.slice(0, SUMMARY_PAYLOAD_FIELDS).map(([key, value]) => (
+          <div key={key} className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-2">
+            <dt className="truncate text-muted-foreground">{key}</dt>
+            <dd className="truncate text-foreground">{formatPayloadValue(value)}</dd>
+          </div>
+        ))}
+      </dl>
+      {entries.length > SUMMARY_PAYLOAD_FIELDS && (
+        <SummaryNotice text={`另有 ${entries.length - SUMMARY_PAYLOAD_FIELDS} 项参数`} />
+      )}
+    </div>
+  );
+}
+
+function ToolResultPreview({ detail }: { detail: SummaryDetailState }) {
+  const notice = summaryDetailNotice(detail);
+  if (notice) return <SummaryNotice text={notice} />;
+  const response = detail.response;
+  const observation = response?.detail && 'tool_call_id' in response.detail ? response.detail.observation : undefined;
+  // 模型实际收到的工具消息最能说明这一步带回了什么；旧记录没有时退回工具返回。
+  const result = response ? remoteSectionValue(response, 'result') : null;
+  const text = observation?.status === 'available' && typeof observation.text === 'string'
+    ? observation.text
+    : result ? JSON.stringify(result, null, 2) : null;
+  if (!text?.trim()) return <SummaryNotice text="没有返回内容" />;
+  return <ClippedText text={text} />;
+}
+
+function LlmRoundPreview({
+  cell,
+  relatedCells,
+  detail,
+}: {
+  cell: Extract<TrajectoryCell, { type: 'assistant_request' }>;
+  relatedCells: readonly TrajectoryCell[];
+  detail: SummaryDetailState;
+}) {
+  const notice = cell.detailAvailable ? summaryDetailNotice(detail) : null;
+  const llmDetail = detail.response?.detail && 'llm_round_id' in detail.response.detail
+    ? detail.response.detail
+    : null;
+  const sections = detail.response?.available_sections ?? [];
+  const reasoning = sections.includes('thinking') ? llmDetail?.reasoning_text?.trim() : '';
+  const output = sections.includes('output') ? llmDetail?.output_text?.trim() : '';
+  const tools = roundToolCells(cell, relatedCells);
+  const empty = !notice && !reasoning && !output && tools.length === 0;
+
+  return (
+    <div className="min-w-0 space-y-2.5">
+      {notice && <SummaryNotice text={notice} />}
+      {reasoning && (
+        <details className="group">
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            思考
+          </summary>
+          <div className="mt-1.5 max-h-60 overflow-auto border-l-2 border-border/60 pl-3 text-muted-foreground">
+            <AdminSafeMarkdown content={reasoning} className="text-sm" />
+          </div>
+        </details>
+      )}
+      {output && (
+        <div className="max-h-60 overflow-auto">
+          <AdminSafeMarkdown content={output} className="text-sm" />
+        </div>
+      )}
+      {tools.length > 0 && (
+        <ul aria-label="本轮发起的工具调用" className="space-y-1 text-xs">
+          {tools.map(tool => (
+            <li key={tool.toolCallId} className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0 font-medium text-foreground">{getToolMeta(tool.toolName ?? '').label}</span>
+              <span className="truncate text-muted-foreground">
+                {[formatTrajectoryStatus(tool.status), formatTrajectoryDuration(toolDurationMs(tool))]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {empty && <SummaryNotice text="本轮没有可见输出" />}
+    </div>
+  );
+}
+
+/** 只有以工具调用结束的一轮才认领同一步骤里的工具，失败后重试的那轮不重复列出。 */
+function roundToolCells(
+  cell: Extract<TrajectoryCell, { type: 'assistant_request' }>,
+  relatedCells: readonly TrajectoryCell[],
+): Extract<TrajectoryCell, { type: 'tool' }>[] {
+  const roundEvent = (eventType: string) => cell.events.find(event => (
+    event.eventType === eventType && event.payload.llm_round_id === cell.llmRoundId
+  ));
+  if (roundEvent('llm_round_completed')?.payload.finish_reason !== 'tool_calls') return [];
+  const stepId = roundEvent('llm_round_started')?.stepId;
+  if (!stepId) return [];
+  return relatedCells.filter((related): related is Extract<TrajectoryCell, { type: 'tool' }> => (
+    related.type === 'tool' && related.runId === cell.runId && related.stepId === stepId
+  ));
+}
+
+function toolDurationMs(cell: Extract<TrajectoryCell, { type: 'tool' }>): number | null {
+  const duration = cell.events.findLast(event => event.eventType === 'tool_call_completed')?.payload.duration_ms;
+  return typeof duration === 'number' ? duration : null;
+}
+
+function ClippedText({ text }: { text: string }) {
+  const clipped = text.length > SUMMARY_TEXT_CHARS;
+  return (
+    <pre className="max-h-48 overflow-hidden whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-2.5 text-xs text-foreground">
+      {clipped ? `${text.slice(0, SUMMARY_TEXT_CHARS)}…` : text}
+    </pre>
+  );
+}
+
+function formatPayloadValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value) ?? '';
 }
 
 function SummaryFieldRow({ label, value }: { label: string; value: string }) {
@@ -552,67 +770,6 @@ function SummaryFieldRow({ label, value }: { label: string; value: string }) {
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-words text-foreground">{value}</dd>
     </div>
-  );
-}
-
-function ToolSummaryLinks({
-  onOpenPayload,
-  onOpenResult,
-}: {
-  onOpenPayload: () => void;
-  onOpenResult: () => void;
-}) {
-  return (
-    <div className="divide-y divide-border/45 border-y border-border/45">
-      <SummaryLinkRow
-        label="载荷"
-        description="按需读取本次工具调用参数"
-        actionLabel="查看完整载荷"
-        onClick={onOpenPayload}
-      />
-      <SummaryLinkRow
-        label="结果"
-        description="按需读取本次工具调用结果"
-        actionLabel="查看完整结果"
-        onClick={onOpenResult}
-      />
-    </div>
-  );
-}
-
-function SummaryLinkRow({
-  label,
-  description,
-  actionLabel,
-  onClick,
-}: {
-  label: string;
-  description: string;
-  actionLabel: string;
-  onClick: () => void;
-}) {
-  return (
-    <div className="py-2.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">{label}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-        </div>
-        <SummarySectionLink label={actionLabel} onClick={onClick} />
-      </div>
-    </div>
-  );
-}
-
-function SummarySectionLink({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="cursor-pointer text-xs font-medium text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      {label}
-    </button>
   );
 }
 

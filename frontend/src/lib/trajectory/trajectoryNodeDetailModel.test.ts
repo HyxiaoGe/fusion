@@ -83,14 +83,17 @@ describe('buildTrajectoryNodeDetailModel', () => {
       liveTail: [],
     };
 
-    expect(buildTrajectoryNodeDetailModel(run, null).summaryFields).toEqual([
+    const model = buildTrajectoryNodeDetailModel(run, null);
+    expect(model.summaryFields).toEqual([
       { label: '模式', value: '全部可用工具 · agent' },
       { label: '公告工具', value: '查询天气 (weather_forecast)' },
       { label: '按需检索工具', value: expect.stringContaining('(mcp_docs_search)') },
       { label: '计划模式', value: '关闭' },
-      { label: '路由器版本', value: '2026-10-05.1' },
-      { label: '工具包指纹', value: `sha256:${'a'.repeat(12)}…` },
     ]);
+    expect(model.diagnostics).toEqual(expect.arrayContaining([
+      { label: '路由器版本', value: '2026-10-05.1' },
+      { label: '工具包指纹', value: `sha256:${'a'.repeat(64)}` },
+    ]));
   });
 
   it('后端新增模式时无需改前端：未知模式退回展示原始 id', async () => {

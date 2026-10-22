@@ -85,7 +85,7 @@ export function buildTrajectoryNodeDetailModel(
     attemptMode: cellAttemptMode(cell, relatedCells),
     errorSummary: cellError(cell, events),
     summaryFields: cellSummaryFields(cell, translate),
-    diagnostics: cellDiagnostics(cell),
+    diagnostics: cellDiagnostics(cell, translate),
   };
 }
 
@@ -114,7 +114,7 @@ function buildSpanDetailModel(
     attemptMode: attemptOrdinal === null ? null : 'ordinal',
     errorSummary: spanError(span, events),
     summaryFields: cellSummaryFields(cell, translate),
-    diagnostics: spanDiagnostics(span),
+    diagnostics: [...spanDiagnostics(span), ...engineeringDiagnostics(cell, translate)],
   };
 }
 
@@ -283,14 +283,6 @@ function cellSummaryFields(
         label: translate('trajectory.capabilityResolution.planMode'),
         value: translate(`trajectory.capabilityResolution.planModes.${resolution.effective_plan_mode}`),
       },
-      {
-        label: translate('trajectory.capabilityResolution.routerVersion'),
-        value: resolution.router_version,
-      },
-      {
-        label: translate('trajectory.capabilityResolution.bundleFingerprint'),
-        value: `${resolution.bundle_fingerprint.slice(0, 19)}…`,
-      },
     );
     return fields;
   }
@@ -310,8 +302,6 @@ function cellSummaryFields(
       value: cell.requestIndex !== null ? `Request #${cell.requestIndex}` : '模型请求',
     },
   ];
-  const fingerprint = cell.events.find(event => event.eventType === 'llm_round_started' && event.payload.llm_round_id === cell.llmRoundId)?.payload.system_prompt_fingerprint;
-  if (typeof fingerprint === 'string') fields.push({ label: translate('trajectory.systemPrompt.requestFingerprint'), value: fingerprint });
   const model = [cell.provider, cell.model].filter(Boolean).join(' · ');
   if (model) fields.push({ label: '模型', value: model });
   for (const [label, value] of [
@@ -469,8 +459,8 @@ function shortText(value: unknown): string | null {
     : normalized;
 }
 
-function cellDiagnostics(cell: TrajectoryCell): TrajectoryNodeDiagnostic[] {
-  const items: TrajectoryNodeDiagnostic[] = [];
+function cellDiagnostics(cell: TrajectoryCell, translate: TFunction): TrajectoryNodeDiagnostic[] {
+  const items: TrajectoryNodeDiagnostic[] = [...engineeringDiagnostics(cell, translate)];
   if (cell.runId) items.push({ label: '运行 ID', value: cell.runId });
   if (cell.type === 'tool' || cell.type === 'subtool') {
     if (cell.toolCallId) items.push({ label: '工具调用 ID', value: cell.toolCallId });
@@ -484,6 +474,31 @@ function cellDiagnostics(cell: TrajectoryCell): TrajectoryNodeDiagnostic[] {
     items.push({ label: '记录序号', value: sequenceReferences(cell.sourceSequences) });
   }
   return items;
+}
+
+/** 路由器版本、指纹这类排查用的标识只放诊断信息，不占摘要。 */
+function engineeringDiagnostics(cell: TrajectoryCell, translate: TFunction): TrajectoryNodeDiagnostic[] {
+  if (cell.type === 'run' && cell.capabilityResolution) {
+    return [
+      {
+        label: translate('trajectory.capabilityResolution.routerVersion'),
+        value: cell.capabilityResolution.router_version,
+      },
+      {
+        label: translate('trajectory.capabilityResolution.bundleFingerprint'),
+        value: cell.capabilityResolution.bundle_fingerprint,
+      },
+    ];
+  }
+  if (cell.type === 'assistant_request') {
+    const fingerprint = cell.events.find(event => (
+      event.eventType === 'llm_round_started' && event.payload.llm_round_id === cell.llmRoundId
+    ))?.payload.system_prompt_fingerprint;
+    if (typeof fingerprint === 'string') {
+      return [{ label: translate('trajectory.systemPrompt.requestFingerprint'), value: fingerprint }];
+    }
+  }
+  return [];
 }
 
 function spanDiagnostics(span: TrajectorySpan): TrajectoryNodeDiagnostic[] {
