@@ -111,6 +111,19 @@ describe('buildAgentProcessRows', () => {
     });
     expect(buildAgentProcessRows([], agentRun).map(row => row.kind)).toEqual(['fallback', 'tool', 'fallback']);
   });
+
+  it('历史换模型记录挂在没有工具调用的步骤上时仍排在该步思考之前', () => {
+    // 历史只返回有工具调用的步骤：第 2 步只有思考，换模型记录按合成步骤 id 对上。
+    const agentRun = run({
+      steps: [step(1, { stepId: 'run-1:step:1', toolCalls: [call({ toolCallId: 'a' })] })],
+      modelFallbacks: [
+        { stepId: 'run-1:step:2', failedModel: 'mimo', fallbackModel: 'deepseek-chat', reason: 'first_output_timeout' },
+      ],
+    });
+    const blocks = [thinking('t1', '一'), thinking('t2', '二')];
+    expect(buildAgentProcessRows(blocks, agentRun).map(row => row.kind === 'fallback' ? 'fallback' : row.id))
+      .toEqual(['t1', 'a', 'fallback', 't2']);
+  });
 });
 
 describe('AgentProcess', () => {

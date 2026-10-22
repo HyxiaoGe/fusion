@@ -1,5 +1,6 @@
 import { RUN_STATUS_TREATMENT } from '@/lib/agent/statusTreatment';
 import { getToolErrorDisplay } from '@/lib/agent/toolErrorDisplay';
+import { historyStepId } from '@/lib/chat/conversationHydration';
 import type { AgentModelFallback, AgentRunState, ToolCallState } from '@/types/agentRun';
 import type { ContentBlock } from '@/types/conversation';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
@@ -60,7 +61,8 @@ export function buildAgentProcessRows(
     const lastStep = Math.max(thinking.length, ...run.steps.map(step => step.stepNumber));
     for (let number = 1; number <= lastStep; number += 1) {
       const step = stepsByNumber.get(number);
-      if (step) pushFallbacks(step.stepId);
+      // 历史只返回有工具调用的步骤；没有工具的步骤上的换模型记录按合成 id 对上。
+      pushFallbacks(step?.stepId ?? historyStepId(run.runId, number));
       const block = thinking[number - 1];
       if (block) pushThinking(block);
       if (step) pushTools(step.toolCalls);

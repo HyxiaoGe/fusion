@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.database import Base
-from app.db.models import AgentProgressSnapshot, AgentSession, ConversationFile, File, ToolCallLog
+from app.db.models import AgentEvent, AgentProgressSnapshot, AgentSession, ConversationFile, File, ToolCallLog
 from app.db.models import Conversation as ConversationModel
 from app.db.models import Message as MessageModel
 from app.db.models import User as UserModel
@@ -377,6 +377,99 @@ class MessageRepositoryTests(unittest.TestCase):
             place = steps[1].tool_calls[1]
             self.assertEqual((place.status, place.repair_state, place.error), ("degraded", "awaiting_choice", None))
             self.assertNotIn("工具输出不进历史摘要", result.model_dump_json())
+        finally:
+            db.close()
+            engine.dispose()
+
+    def test_get_by_id_restores_model_fallbacks_with_step_numbers(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            conversation = ConversationModel(id="conv-1", user_id="user-1", title="会话", model_id="mimo-v2.6-flash")
+            message = MessageModel(
+                id="msg-1",
+                conversation_id="conv-1",
+                role="assistant",
+                content=[{"type": "text", "id": "blk_1", "text": "回答"}],
+                model_id="mimo-v2.6-flash",
+            )
+            run = AgentSession(
+                id="run-1",
+                conversation_id="conv-1",
+                message_id="msg-1",
+                user_id="user-1",
+                model_id="mimo-v2.6-flash",
+                provider="openai",
+                status="completed",
+            )
+
+            def event(sequence, event_type, step_id, payload, run_id="run-1"):
+                return AgentEvent(
+                    conversation_id="conv-1",
+                    message_id="msg-1",
+                    run_id=run_id,
+                    sequence=sequence,
+                    event_type=event_type,
+                    step_id=step_id,
+                    event_ts=datetime(2026, 10, 22, 10, 0, sequence, tzinfo=timezone.utc),
+                    payload={"type": event_type, **payload},
+                )
+
+            other_run = AgentSession(
+                id="run-other",
+                conversation_id="conv-1",
+                message_id="msg-other",
+                user_id="user-1",
+                model_id="mimo-v2.6-flash",
+                provider="openai",
+                status="completed",
+            )
+            db.add_all(
+                [
+                    conversation,
+                    message,
+                    run,
+                    other_run,
+                    event(1, "step_started", "step-a", {"step_number": 1}),
+                    event(
+                        2,
+                        "model_fallback",
+                        "step-a",
+                        {
+                            "failed_model": "mimo-v2.6-flash",
+                            "fallback_model": "deepseek-chat",
+                            "reason": "first_output_timeout",
+                        },
+                    ),
+                    event(3, "step_started", "step-b", {"step_number": 2}),
+                    event(
+                        4,
+                        "model_fallback",
+                        "step-b",
+                        {"failed_model": "deepseek-chat", "fallback_model": None, "reason": "circuit_open"},
+                    ),
+                    event(5, "model_fallback", None, {"failed_model": "deepseek-chat", "reason": "http_503"}),
+                    event(6, "model_fallback", "step-b", {"reason": "缺少失败模型的坏记录"}),
+                    event(
+                        1, "model_fallback", None, {"failed_model": "x", "reason": "network_error"}, run_id="run-other"
+                    ),
+                ]
+            )
+            db.commit()
+
+            result = ConversationRepository(db).get_by_id("conv-1", "user-1")
+
+            fallbacks = result.messages[0].agent_run.model_fallbacks
+            self.assertEqual(
+                [(f.step_number, f.failed_model, f.fallback_model, f.reason) for f in fallbacks],
+                [
+                    (1, "mimo-v2.6-flash", "deepseek-chat", "first_output_timeout"),
+                    (2, "deepseek-chat", None, "circuit_open"),
+                    (None, "deepseek-chat", None, "http_503"),
+                ],
+            )
         finally:
             db.close()
             engine.dispose()
