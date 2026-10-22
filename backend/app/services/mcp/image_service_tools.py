@@ -28,8 +28,12 @@ IMAGE_SERVICE_PROVIDER = "image-service"
 GENERATE_IMAGE_TOOL_NAME = "generate_image"
 IMAGE_SERVICE_REMOTE_TOOL_NAME = "generate_image"
 
-# image-service 所有 Gemini 模型都接受的比例；Seedream 接受任意比例。
+# image-service 所有 Gemini 模型都接受的比例；Seedream 接受 1:16 到 16:1 的任意比例。
+# 默认主力是 Seedream，Gemini 在备用链上，限定在这组比例内才能切到 Gemini。
 ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
+# image-service 的画质档：standard 为 Seedream 5.0 Flash，high 为 Seedream 5.0 Pro；省略时用服务默认模型。
+IMAGE_QUALITIES = ("standard", "high")
+_ALLOWED_ARGUMENTS = frozenset({"prompt", "aspect_ratio", "style", "regenerate", "reference_subject", "quality"})
 # image-service 结构化错误码（P0 设计 §2.1）；不认识的码按通用上游失败处理。
 KNOWN_ERROR_CODES = frozenset({
     "invalid_params",
@@ -50,7 +54,7 @@ MAX_REFERENCE_SUBJECT_CHARS = 80
 REFERENCE_SEARCH_STATUSES = frozenset({"found", "cached", "none_accepted", "search_failed", "skipped"})
 # 生图有真实费用：同一 run 最多生成的张数。
 MAX_IMAGES_PER_RUN = 3
-# 实测 Gemini Flash 约 15 秒，Pro 与 Seedream 更慢；image-service 自身上游超时为 300 秒。
+# image-service 整条主备链限时 135 秒（含参考图、各模型尝试），超时返回 upstream_timeout；这里留出传输余量。
 MCP_CALL_TIMEOUT_SECONDS = 150.0
 EXECUTION_TIMEOUT_SECONDS = 180.0
 DOWNLOAD_TIMEOUT_SECONDS = 30.0
@@ -151,6 +155,11 @@ def build_generate_image_definition() -> dict[str, Any]:
                         "type": "string",
                         "maxLength": MAX_REFERENCE_SUBJECT_CHARS,
                         "description": render_runtime_prompt("image_service.reference_subject"),
+                    },
+                    "quality": {
+                        "type": "string",
+                        "enum": list(IMAGE_QUALITIES),
+                        "description": render_runtime_prompt("image_service.quality"),
                     },
                 },
                 "required": ["prompt"],
@@ -355,6 +364,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 "height": stored.get("height"),
                 "prompt": arguments["prompt"],
                 "aspect_ratio": arguments["aspect_ratio"],
+                "quality": arguments.get("quality"),
                 "model": outcome.model,
                 "requested_model": outcome.requested_model,
                 "fallback_used": outcome.fallback_used,
@@ -462,7 +472,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
 
 
 def _normalized_arguments(args: Any) -> dict[str, Any]:
-    if not isinstance(args, dict) or set(args) - {"prompt", "aspect_ratio", "style", "regenerate", "reference_subject"}:
+    if not isinstance(args, dict) or set(args) - _ALLOWED_ARGUMENTS:
         raise ImageGenerationError("invalid_arguments")
     prompt = args.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > MAX_PROMPT_CHARS:
@@ -473,6 +483,9 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
     regenerate = args.get("regenerate", False)
     if not isinstance(regenerate, bool):
         raise ImageGenerationError("invalid_arguments")
+    quality = args.get("quality")
+    if quality is not None and quality not in IMAGE_QUALITIES:
+        raise ImageGenerationError("invalid_arguments")
     # 主力/备用模型由 image-service 的 DEFAULT_MODEL / DEFAULT_FALLBACK_MODEL 决定，便于切换。
     arguments: dict[str, Any] = {
         "prompt": prompt.strip(),
@@ -481,6 +494,8 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
     }
     if regenerate:
         arguments["no_cache"] = True
+    if quality is not None:
+        arguments["quality"] = quality
     style = args.get("style")
     if style is not None:
         if not isinstance(style, str) or len(style) > MAX_STYLE_CHARS:
