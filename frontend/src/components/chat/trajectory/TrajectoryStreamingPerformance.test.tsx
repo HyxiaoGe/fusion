@@ -36,6 +36,9 @@ const {
 }));
 
 vi.mock('@/lib/api/trajectory', () => ({
+  // 详情面板打开节点即读取详情；这里不关心内容，保持加载中。
+  getTrajectoryLlmNodeDetail: () => new Promise(() => {}),
+  getTrajectoryToolNodeDetail: () => new Promise(() => {}),
   getTrajectoryRuns: getTrajectoryRunsMock,
   getTrajectorySnapshot: getTrajectorySnapshotMock,
 }));

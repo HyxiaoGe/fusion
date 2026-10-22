@@ -1177,6 +1177,7 @@ it('请求详情只显示对应 started 的实际指纹，旧请求不推断', a
       event('r', 2, 'llm_round_started', { payload: { llm_round_id: 'selected', system_prompt_fingerprint: 'c'.repeat(64) } })],
   };
   const field = { label: '当轮实际系统消息指纹', value: 'c'.repeat(64) };
-  expect(buildTrajectoryNodeDetailModel(base, null).summaryFields).toContainEqual(field);
-  expect(buildTrajectoryNodeDetailModel({ ...base, llmRoundId: 'old' }, null).summaryFields.some(item => item.label === field.label)).toBe(false);
+  expect(buildTrajectoryNodeDetailModel(base, null).diagnostics).toContainEqual(field);
+  expect(buildTrajectoryNodeDetailModel(base, null).summaryFields.some(item => item.label === field.label)).toBe(false);
+  expect(buildTrajectoryNodeDetailModel({ ...base, llmRoundId: 'old' }, null).diagnostics.some(item => item.label === field.label)).toBe(false);
 });

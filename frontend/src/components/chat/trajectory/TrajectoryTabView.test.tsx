@@ -30,6 +30,8 @@ const {
 
 vi.mock('@/lib/api/trajectory', () => ({
   getTrajectoryLlmNodeDetail: getTrajectoryLlmNodeDetailMock,
+  // 详情面板打开工具节点即读取详情；这里不关心内容，保持加载中。
+  getTrajectoryToolNodeDetail: () => new Promise(() => {}),
   getTrajectoryRuns: getTrajectoryRunsMock,
   getTrajectorySnapshot: getTrajectorySnapshotMock,
 }));
@@ -465,7 +467,7 @@ function installNotificationObservation() {
 
 describe('TrajectoryTabView', () => {
   beforeEach(() => {
-    getTrajectoryLlmNodeDetailMock.mockReset();
+    getTrajectoryLlmNodeDetailMock.mockReset().mockReturnValue(new Promise(() => {}));
     installCanvasMocks();
     getTrajectoryRunsMock.mockReset();
     getTrajectorySnapshotMock.mockReset();
