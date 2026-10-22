@@ -447,7 +447,11 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         failed = await unavailable.execute({"prompt": "改成蓝色", "source_image_id": "file-9"})
         context = unavailable.format_llm_context(failed)
         self.assertIn("cannot be edited directly", context)
-        self.assertIn("Do not call again with the same id", context)
+        self.assertIn("Do not call again with this id or a guessed one", context)
+        # dev 实测：模型改为按描述重画后对用户说「其他保持原样」；重画时必须说明是新画的一张。
+        self.assertIn("this is a new image redrawn from the description", context)
+        self.assertIn("Never say that the original was changed", context)
+        self.assertIn("call generate_image again without source_image_id", context)
 
     async def test_made_up_source_id_is_reported_as_not_editable(self):
         # dev 实测：旧会话里没有图片编号，模型编了一个带下划线的编号。按参数错误处理时模型会
