@@ -11,6 +11,7 @@ import {
   markLimitReached,
   mergeToolCallDelta,
   noteToolCallProgress,
+  pushModelFallback,
   pushStep,
   pushToolCall,
   setLlmPhase,
@@ -212,6 +213,20 @@ export function createAgentStreamEventHandlers({
         runId: ev.run_id,
         stepId: ev.step_id,
         toolCallCount: ev.tool_call_count,
+        sequence: ev.sequence,
+      }));
+    },
+    onModelFallback: ev => {
+      if (!isActive()) return;
+      const conversationId = resolveConversationId();
+      if (!conversationId) return;
+      dispatch(pushModelFallback({
+        conversationId,
+        runId: ev.run_id,
+        stepId: ev.step_id ?? null,
+        failedModel: ev.failed_model,
+        fallbackModel: ev.fallback_model ?? null,
+        reason: ev.reason,
         sequence: ev.sequence,
       }));
     },

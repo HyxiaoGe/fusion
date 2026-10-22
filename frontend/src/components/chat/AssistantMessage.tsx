@@ -201,6 +201,7 @@ function AssistantMessageFrame({
     displayText,
     displayThinking,
     thinkingTrace,
+    processRows,
     hasThinking,
     streamingStartTime,
     streamingEndTime,
@@ -369,6 +370,7 @@ function AssistantMessageFrame({
             reasoning={reasoningProps}
             activity={activity}
             agentRun={agentRun}
+            processRows={processRows}
             trajectoryRunSummary={trajectoryRunSummary}
             trajectoryStatus={trajectoryStatus}
             onInspectTrajectory={handleInspectTrajectory}

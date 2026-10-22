@@ -7,6 +7,15 @@ import type { PlaceResultsBlock, SearchSourceSummary } from '@/types/conversatio
 import type { AssistantActivity } from './assistantActivity';
 import type { AnswerEvidenceModel } from './answerEvidenceModel';
 import AssistantResponseStack from './AssistantResponseStack';
+import type { AgentProcessRow } from './agentProcessModel';
+
+function thinkingRows(text: string): AgentProcessRow[] {
+  return [{ kind: 'thinking', id: 'thinking-1', text }];
+}
+
+function processRegion() {
+  return screen.getByRole('region', { name: 'Agent 运行过程' });
+}
 
 vi.mock('./ReasoningContent', () => ({
   default: ({
@@ -162,7 +171,7 @@ const agentRun: AgentRunState = {
 
 describe('AssistantResponseStack', () => {
   beforeEach(async () => { await i18n.changeLanguage('zh-CN'); });
-  it('使用真实状态行展示状态、耗时、轨迹 badge 并进入轨迹', () => {
+  it('有运行记录时由过程区汇总状态与耗时，正常的轨迹状态不打扰，并可进入轨迹', () => {
     const onInspectTrajectory = vi.fn();
     render(
       <AssistantResponseStack
@@ -197,10 +206,10 @@ describe('AssistantResponseStack', () => {
       />,
     );
 
-    const status = screen.getByRole('group', { name: 'Agent 运行状态' });
-    expect(status).toHaveTextContent('Agent 已完成');
-    expect(status).toHaveTextContent('耗时 1.5 秒');
-    expect(status).toHaveTextContent('轨迹完整');
+    expect(processRegion()).toHaveTextContent('已完成');
+    expect(processRegion()).toHaveTextContent('用时 1.5 秒');
+    expect(processRegion()).not.toHaveTextContent('轨迹完整');
+    expect(screen.queryByTestId('stack-reasoning')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '查看轨迹' }));
     expect(onInspectTrajectory).toHaveBeenCalledTimes(1);
@@ -224,6 +233,7 @@ describe('AssistantResponseStack', () => {
       },
     };
     const props = {
+      processRows: thinkingRows('正在核对问题边界'),
       reasoning: {
         shouldRender: true,
         content: '正在核对问题边界',
@@ -245,7 +255,7 @@ describe('AssistantResponseStack', () => {
         agentRun={plannedRun}
       />,
     );
-    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核对问题边界');
+    expect(processRegion()).toHaveTextContent('正在核对问题边界');
 
     rerender(
       <AssistantResponseStack
@@ -253,7 +263,7 @@ describe('AssistantResponseStack', () => {
         agentRun={plannedRun}
       />,
     );
-    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核对问题边界');
+    expect(processRegion()).toHaveTextContent('正在核对问题边界');
 
     rerender(
       <AssistantResponseStack
@@ -261,7 +271,7 @@ describe('AssistantResponseStack', () => {
         agentRun={agentRun}
       />,
     );
-    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核对问题边界');
+    expect(processRegion()).toHaveTextContent('正在核对问题边界');
   });
 
   it.each([
@@ -273,6 +283,7 @@ describe('AssistantResponseStack', () => {
   ] as const)('计划进入 %s 或历史恢复后仍展示净化后的思考', (status) => {
     render(
       <AssistantResponseStack
+        processRows={thinkingRows('已核对所需资料')}
         reasoning={{
           shouldRender: true,
           content: '已核对所需资料',
@@ -306,12 +317,13 @@ describe('AssistantResponseStack', () => {
       />,
     );
 
-    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('已核对所需资料');
+    expect(processRegion()).toHaveTextContent('已核对所需资料');
   });
 
   it('首个计划快照到达前展示流式净化思考', () => {
     render(
       <AssistantResponseStack
+        processRows={thinkingRows('正在整理执行步骤')}
         reasoning={{
           shouldRender: true,
           content: '正在整理执行步骤',
@@ -329,12 +341,13 @@ describe('AssistantResponseStack', () => {
       />,
     );
 
-    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在整理执行步骤');
+    expect(processRegion()).toHaveTextContent('正在整理执行步骤');
   });
 
   it('思考块可见时告知状态栏，由状态栏决定不重复展示', () => {
     render(
       <AssistantResponseStack
+        processRows={thinkingRows('正在核验问题边界')}
         reasoning={{
           shouldRender: true,
           content: '正在核验问题边界',
@@ -352,7 +365,7 @@ describe('AssistantResponseStack', () => {
       />,
     );
 
-    expect(screen.getByTestId('stack-reasoning')).toHaveTextContent('正在核验问题边界');
+    expect(processRegion()).toHaveTextContent('正在核验问题边界');
     expect(screen.getByTestId('stack-activity')).toHaveAttribute('data-reasoning-visible', 'true');
   });
 

@@ -176,7 +176,7 @@ describe('ChatMessage', () => {
       />,
     );
 
-    expect(within(screen.getByRole('group', { name: 'Agent 运行状态' })).getByText('耗时 19.04 秒')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Agent 运行过程' })).toHaveTextContent('用时 19.04 秒');
   });
 
   it('为消息提供稳定 DOM 锚点，并从 Agent 状态行发起 inspect', () => {
@@ -472,7 +472,9 @@ describe('ChatMessage', () => {
     );
 
     expect(screen.getByText('历史回答。')).toBeTruthy();
-    expect(screen.getByTestId('reasoning-content')).toHaveTextContent('正在综合工具结果。');
+    // 有运行记录的回答把思考放进过程区，不再单独渲染思考面板。
+    expect(screen.queryByTestId('reasoning-content')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Agent 运行过程' })).toHaveTextContent('正在综合工具结果。');
   });
 
   it('renders degraded web_search notice without rendering an empty sources panel', () => {
