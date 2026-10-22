@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  ArrowRightLeft,
   Bot,
   BrainCircuit,
   CheckCircle2,
@@ -268,6 +269,7 @@ function trajectoryCellIcon(cell: TrajectoryCellModel): LucideIcon {
     case 'tool': return getToolMeta(cell.toolName ?? '').icon;
     case 'subtool': return RotateCcw;
     case 'compacted': return PackageOpen;
+    case 'model_fallback': return ArrowRightLeft;
   }
 }
 

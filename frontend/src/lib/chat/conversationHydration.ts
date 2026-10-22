@@ -8,8 +8,10 @@ import type {
   AgentProgressState,
   AgentRunState,
   AgentRunStatus,
+  AgentStepState,
   AgentToolDigest,
   LimitReachedReason,
+  ToolCallState,
 } from '@/types/agentRun';
 import { parseTimestamp } from '@/lib/utils/parseTimestamp';
 import { normalizeContextUsage } from '@/lib/chat/contextUsage';
@@ -36,6 +38,22 @@ interface ServerAgentRunSummary {
   total_tool_calls?: number | null;
   limit_reason?: LimitReachedReason | null;
   progress?: ServerAgentProgressSnapshot | null;
+  steps?: ServerAgentRunStep[] | null;
+}
+
+interface ServerAgentRunStep {
+  step_number: number;
+  tool_calls?: ServerAgentRunToolCall[] | null;
+}
+
+interface ServerAgentRunToolCall {
+  tool_call_id: string;
+  tool_name: string;
+  arguments?: Record<string, unknown> | null;
+  status: string;
+  duration_ms?: number | null;
+  error?: string | null;
+  repair_state?: string | null;
 }
 
 interface ServerAgentProgressSnapshot {
@@ -170,10 +188,42 @@ function buildAgentRunState(
     config: normalizeAgentRunConfig(config),
     totalSteps: serverRun.total_steps ?? 0,
     totalToolCalls: serverRun.total_tool_calls ?? 0,
-    steps: [],
+    steps: (serverRun.steps ?? []).map(step => buildHistoryStep(serverRun.run_id, step)),
     limitReachedReason: serverRun.limit_reason ?? undefined,
     lastSequence: Number.MAX_SAFE_INTEGER,
     ...progressPatch,
+  };
+}
+
+/**
+ * 历史步骤只有工具调用，没有挂上的内容块和绝对时间：调用起点记 0、终点记耗时，相减即耗时。
+ */
+function buildHistoryStep(runId: string, step: ServerAgentRunStep): AgentStepState {
+  return {
+    stepId: `${runId}:step:${step.step_number}`,
+    stepNumber: step.step_number,
+    status: 'completed',
+    toolCalls: (step.tool_calls ?? []).map(buildHistoryToolCall),
+    contentBlockIds: [],
+    startedAt: 0,
+  };
+}
+
+function buildHistoryToolCall(call: ServerAgentRunToolCall): ToolCallState {
+  const status = call.status === 'success' || call.status === 'failed' || call.status === 'degraded'
+    ? call.status
+    : 'failed';
+  return {
+    toolCallId: call.tool_call_id,
+    toolName: call.tool_name,
+    arguments: call.arguments ?? {},
+    status,
+    ...(call.repair_state === 'awaiting_choice'
+      ? { resultSummary: { kind: 'tool', truncated: false, repair_state: 'awaiting_choice' as const } }
+      : {}),
+    ...(call.error ? { error: call.error } : {}),
+    startedAt: 0,
+    ...(typeof call.duration_ms === 'number' ? { completedAt: call.duration_ms } : {}),
   };
 }
 

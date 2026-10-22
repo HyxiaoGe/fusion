@@ -921,6 +921,64 @@ describe('conversationHydration', () => {
     });
   });
 
+  it('强刷后按步骤恢复工具调用，地名待确认不算失败', () => {
+    const chat = buildChatFromServerConversation({
+      id: 'chat-steps',
+      title: 'Server chat',
+      model_id: 'deepseek-chat',
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text', id: 'blk_a1', text: '回答' }],
+          created_at: '2026-10-22T08:00:02Z',
+          agent_run: {
+            run_id: 'run-1',
+            status: 'completed',
+            steps: [
+              {
+                step_number: 1,
+                tool_calls: [
+                  { tool_call_id: 'call-1', tool_name: 'web_search', arguments: { query: '北京天气' }, status: 'success', duration_ms: 1200 },
+                  { tool_call_id: 'call-2', tool_name: 'url_read', arguments: { url: 'https://a.example' }, status: 'failed', error: '读取超时' },
+                ],
+              },
+              {
+                step_number: 2,
+                tool_calls: [
+                  { tool_call_id: 'call-3', tool_name: 'weather_forecast', status: 'degraded', repair_state: 'awaiting_choice' },
+                  { tool_call_id: 'call-4', tool_name: 'future_tool', status: 'unknown_status' },
+                ],
+              },
+            ],
+          },
+        } as any,
+      ],
+    });
+
+    const steps = chat.messages[0].agent_run?.steps ?? [];
+    expect(steps.map(step => [step.stepNumber, step.status, step.contentBlockIds])).toEqual([
+      [1, 'completed', []],
+      [2, 'completed', []],
+    ]);
+    expect(steps[0].toolCalls[0]).toEqual({
+      toolCallId: 'call-1',
+      toolName: 'web_search',
+      arguments: { query: '北京天气' },
+      status: 'success',
+      startedAt: 0,
+      completedAt: 1200,
+    });
+    expect(steps[0].toolCalls[1]).toMatchObject({ status: 'failed', error: '读取超时' });
+    expect(steps[0].toolCalls[1]).not.toHaveProperty('completedAt');
+    expect(steps[1].toolCalls[0]).toMatchObject({
+      status: 'degraded',
+      arguments: {},
+      resultSummary: { repair_state: 'awaiting_choice' },
+    });
+    expect(steps[1].toolCalls[1].status).toBe('failed');
+  });
+
   it('hydrates agent progress snapshot from assistant messages', () => {
     const chat = buildChatFromServerConversation({
       id: 'chat-7',

@@ -15,6 +15,7 @@ from app.db.models import (
     ConversationKnowledgeBase,
     File,
     Notification,
+    ToolCallLog,
     message_order_sequence,
 )
 from app.db.models import Conversation as ConversationModel
@@ -23,7 +24,9 @@ from app.db.models import SocialAccount as SocialAccountModel
 from app.db.models import User as UserModel
 from app.db.notification_repository import NotificationRepository
 from app.schemas.chat import (
+    AgentRunStepSummary,
     AgentRunSummary,
+    AgentRunToolCallSummary,
     Conversation,
     Message,
     Usage,
@@ -32,6 +35,11 @@ from app.schemas.content_block_registry import deserialize_content_blocks
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
+
+# 历史工具调用只带一句话错误，完整原因在轨迹详情里看。
+_TOOL_ERROR_PREVIEW_CHARS = 200
+# 与 services/stream/place_choice.py 同值；数据层不反向依赖服务层。
+_AMBIGUOUS_LOCATION_ERROR_CODE = "ambiguous_location"
 
 
 class UserRepository:
@@ -854,6 +862,7 @@ class ConversationRepository:
             else []
         )
         snapshots_by_run_id = {snapshot.run_id: snapshot for snapshot in snapshots}
+        steps_by_run_id = self._agent_run_steps(run_ids)
 
         summaries: dict[str, AgentRunSummary] = {}
         for row in rows:
@@ -866,8 +875,56 @@ class ConversationRepository:
                 total_tool_calls=row.total_tool_calls or 0,
                 limit_reason=row.limit_reason if row.status == "limit_reached" else None,
                 progress=snapshot.state if snapshot else None,
+                steps=steps_by_run_id.get(row.id, []),
             )
         return summaries
+
+    def _agent_run_steps(self, run_ids: list[str]) -> dict[str, list[AgentRunStepSummary]]:
+        """从工具调用日志还原每步的调用；只取展示需要的列，不加载工具输出。"""
+        if not run_ids:
+            return {}
+        rows = (
+            self.db.query(
+                ToolCallLog.trace_id,
+                ToolCallLog.step_number,
+                ToolCallLog.tool_call_id,
+                ToolCallLog.tool_name,
+                ToolCallLog.input_params,
+                ToolCallLog.status,
+                ToolCallLog.duration_ms,
+                ToolCallLog.error_message,
+                ToolCallLog.output_data["error_code"].as_string().label("error_code"),
+            )
+            .filter(
+                ToolCallLog.trace_id.in_(run_ids),
+                ToolCallLog.tool_call_id.isnot(None),
+                ToolCallLog.step_number.isnot(None),
+            )
+            .order_by(ToolCallLog.trace_id, ToolCallLog.step_number, ToolCallLog.created_at, ToolCallLog.id)
+            .all()
+        )
+        steps_by_run_id: dict[str, list[AgentRunStepSummary]] = {}
+        for row in rows:
+            steps = steps_by_run_id.setdefault(row.trace_id, [])
+            if not steps or steps[-1].step_number != row.step_number:
+                steps.append(AgentRunStepSummary(step_number=row.step_number))
+            awaiting_choice = row.status == "failed" and row.error_code == _AMBIGUOUS_LOCATION_ERROR_CODE
+            steps[-1].tool_calls.append(
+                AgentRunToolCallSummary(
+                    tool_call_id=row.tool_call_id,
+                    tool_name=row.tool_name,
+                    arguments=row.input_params if isinstance(row.input_params, dict) else {},
+                    status="degraded" if awaiting_choice else row.status,
+                    duration_ms=row.duration_ms,
+                    error=(
+                        row.error_message[:_TOOL_ERROR_PREVIEW_CHARS]
+                        if row.error_message and not awaiting_choice
+                        else None
+                    ),
+                    repair_state="awaiting_choice" if awaiting_choice else None,
+                )
+            )
+        return steps_by_run_id
 
 
 class FileRepository:

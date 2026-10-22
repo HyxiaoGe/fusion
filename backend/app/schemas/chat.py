@@ -1070,6 +1070,24 @@ class Usage(BaseModel):
 # ============================================================
 
 
+class AgentRunToolCallSummary(BaseModel):
+    """历史回答里的一次工具调用，与实时 tool_call 事件同口径：参数为日志里已脱敏的入参。"""
+
+    tool_call_id: str
+    tool_name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    status: str
+    duration_ms: Optional[int] = None
+    error: Optional[str] = None
+    # 地名多候选待确认，与实时 tool_call_completed 一样记为 degraded 并带此标记，不算故障。
+    repair_state: Optional[Literal["awaiting_choice"]] = None
+
+
+class AgentRunStepSummary(BaseModel):
+    step_number: int
+    tool_calls: List[AgentRunToolCallSummary] = Field(default_factory=list)
+
+
 class AgentRunSummary(BaseModel):
     """assistant 消息最近一次 agent run 摘要，用于前端恢复终态和继续执行入口"""
 
@@ -1080,6 +1098,8 @@ class AgentRunSummary(BaseModel):
     total_tool_calls: int = 0
     limit_reason: Optional[Literal["max_steps", "max_tool_calls", "timeout", "output_length"]] = None
     progress: Optional[Dict[str, Any]] = None
+    # 只含发起过工具调用的步骤，按步骤序号排列；刷新后过程区据此还原每一步调用了什么。
+    steps: List[AgentRunStepSummary] = Field(default_factory=list)
 
 
 # ============================================================

@@ -242,6 +242,27 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["block_id"], "blk-tool-preamble")
         self.assertEqual(payload["step_id"], step_id)
 
+    async def test_model_fallback_belongs_to_the_step_being_retried(self):
+        writer = AsyncMock()
+        em = AgentEventEmitter(
+            run_id="r1",
+            trace_id="r1",
+            conversation_id="c1",
+            task_id="task-1",
+            redis_writer=writer,
+        )
+        step_id = await em.step_started(step_number=2)
+
+        await em.model_fallback(failed_model="gemini-4-argon", fallback_model=None, reason="circuit_open")
+
+        payload = writer.append_chunk.await_args.args[3]
+        self.assertEqual(payload["type"], "model_fallback")
+        self.assertEqual(payload["step_id"], step_id)
+        self.assertEqual(
+            (payload["failed_model"], payload["fallback_model"], payload["reason"]),
+            ("gemini-4-argon", None, "circuit_open"),
+        )
+
     async def test_run_level_events_have_step_id_none_even_with_active_step(self):
         """run_failed/interrupted/limit_reached/completed 不能继承 _current_step_id"""
         writer = AsyncMock()

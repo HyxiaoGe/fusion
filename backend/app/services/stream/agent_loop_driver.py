@@ -52,7 +52,9 @@ async def run_agent_loop(
 
         step_number, step_context = await _start_next_step(state=state, runtime=runtime)
         if state.active_model_id is None and model_circuit_breaker.is_open(runtime.model_id):
-            runtime = _switch_to_fallback_model(runtime, db=db, state=state, messages=messages, reason="circuit_open")
+            runtime = await _switch_to_fallback_model(
+                runtime, db=db, state=state, messages=messages, reason="circuit_open"
+            )
         try:
             round_result = await _run_round(
                 messages=messages,
@@ -66,7 +68,9 @@ async def run_agent_loop(
             # 每次回答只换一次模型，备用模型也不可用时照常失败。
             if state.active_model_id is not None:
                 raise
-            runtime = _switch_to_fallback_model(runtime, db=db, state=state, messages=messages, reason=error.reason)
+            runtime = await _switch_to_fallback_model(
+                runtime, db=db, state=state, messages=messages, reason=error.reason
+            )
             try:
                 round_result = await _run_round(
                     messages=messages,
@@ -240,7 +244,7 @@ def _record_model_unavailable(model_id: str, reason: str) -> None:
     model_circuit_breaker.record_failure(model_id, reason)
 
 
-def _switch_to_fallback_model(
+async def _switch_to_fallback_model(
     runtime: AgentLoopRuntime,
     *,
     db,
@@ -269,6 +273,7 @@ def _switch_to_fallback_model(
             resolved = None
     if fallback_model_id is None or resolved is None:
         MODEL_FALLBACK_TOTAL.labels(model=runtime.model_id, fallback="none", reason=reason).inc()
+        await runtime.emitter.model_fallback(failed_model=runtime.model_id, fallback_model=None, reason=reason)
         runtime.warning_fn(
             "原模型本轮不可用且没有可换的备用模型，原模型限时再试: "
             f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, model_id={runtime.model_id}, "
@@ -277,6 +282,7 @@ def _switch_to_fallback_model(
         return runtime
     litellm_model, provider, litellm_kwargs = resolved
     MODEL_FALLBACK_TOTAL.labels(model=runtime.model_id, fallback=fallback_model_id, reason=reason).inc()
+    await runtime.emitter.model_fallback(failed_model=runtime.model_id, fallback_model=fallback_model_id, reason=reason)
     runtime.warning_fn(
         "原模型本轮不可用，本次回答改用备用模型: "
         f"conv_id={runtime.conversation_id}, run_id={runtime.run_id}, "

@@ -1181,3 +1181,58 @@ it('请求详情只显示对应 started 的实际指纹，旧请求不推断', a
   expect(buildTrajectoryNodeDetailModel(base, null).summaryFields.some(item => item.label === field.label)).toBe(false);
   expect(buildTrajectoryNodeDetailModel({ ...base, llmRoundId: 'old' }, null).diagnostics.some(item => item.label === field.label)).toBe(false);
 });
+
+it('换模型事件按发生位置投影为一行，挑不到备用时如实写限时重试', () => {
+  const run = runSummary('fallback-run', { message_id: 'assistant-1', turn_message_id: 'user-1' });
+  const projection = projectTrajectoryCells(input({
+    messages: [message('user-1', 'user'), message('assistant-1', 'assistant')],
+    runs: [run],
+    runSummariesById: { 'fallback-run': run },
+    selectedRunId: 'fallback-run',
+    snapshotsByRunId: {
+      'fallback-run': {
+        snapshotRequestId: 'snapshot-fallback',
+        run,
+        spans: [],
+        completeness: {
+          status: 'complete',
+          degraded_reason: null,
+          event_count: 3,
+          expected_last_sequence: 2,
+          loaded_event_count: 3,
+          first_sequence: 0,
+          last_sequence: 2,
+        },
+        truncated: false,
+        durableLastSequence: 2,
+        events: [
+          event('fallback-run', 0, 'run_started'),
+          event('fallback-run', 1, 'model_fallback', {
+            stepId: 'step-1',
+            payload: { failed_model: 'mimo-v2.6-flash', fallback_model: 'deepseek-chat', reason: 'first_output_timeout' },
+          }),
+          event('fallback-run', 2, 'model_fallback', {
+            stepId: 'step-2',
+            payload: { failed_model: 'deepseek-chat', fallback_model: null, reason: 'http_503' },
+          }),
+        ],
+      },
+    },
+  }));
+
+  const fallbacks = projection.cells.filter(cell => cell.type === 'model_fallback');
+  expect(fallbacks.map(cell => getTrajectoryCellPresentation(cell))).toEqual([
+    expect.objectContaining({
+      kindLabel: '换模型',
+      summary: 'mimo-v2.6-flash → deepseek-chat · 首字超时',
+      statusLabel: '已切换',
+      tone: 'warn',
+    }),
+    expect.objectContaining({
+      summary: 'deepseek-chat 没有可换的备用模型，限时重试 · 服务商返回 503',
+      statusLabel: '重试原模型',
+    }),
+  ]);
+  const runCell = projection.cells.find(cell => cell.type === 'run');
+  expect(runCell?.sourceSequences).not.toContain(1);
+});

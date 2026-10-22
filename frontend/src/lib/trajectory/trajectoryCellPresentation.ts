@@ -240,7 +240,30 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
         durationMs: null,
         tone: 'neutral',
       };
+    case 'model_fallback': {
+      const failed = cell.failedModel ?? '原模型';
+      const reason = modelFallbackReasonLabel(cell.reason);
+      return {
+        kindLabel: '换模型',
+        summary: cell.fallbackModel
+          ? `${failed} → ${cell.fallbackModel} · ${reason}`
+          : `${failed} 没有可换的备用模型，限时重试 · ${reason}`,
+        statusLabel: cell.fallbackModel ? '已切换' : '重试原模型',
+        durationMs: null,
+        tone: 'warn',
+      };
+    }
   }
+}
+
+function modelFallbackReasonLabel(reason: string | null): string {
+  if (!reason) return '原因未知';
+  if (reason === 'first_output_timeout') return '首字超时';
+  if (reason === 'stream_idle_timeout') return '输出中途卡住';
+  if (reason === 'circuit_open') return '近期连续失败，已熔断';
+  if (reason === 'network_error') return '网络错误';
+  const status = /^http_(\d{3})$/.exec(reason);
+  return status ? `服务商返回 ${status[1]}` : reason;
 }
 
 function statusTone(status: string): TrajectoryCellPresentation['tone'] {

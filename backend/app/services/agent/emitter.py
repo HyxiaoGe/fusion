@@ -233,6 +233,17 @@ class AgentEventEmitter:
         )
         self._current_step_id = None
 
+    async def model_fallback(self, *, failed_model: str, fallback_model: str | None, reason: str) -> None:
+        await self._emit(
+            ev.ModelFallback(
+                type="model_fallback",
+                failed_model=failed_model,
+                fallback_model=fallback_model,
+                reason=reason,
+                **self._envelope(),
+            )
+        )
+
     async def run_limit_reached(self, *, reason: str) -> None:
         await self._emit(
             ev.RunLimitReached(

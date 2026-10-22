@@ -52,6 +52,7 @@ _EVENT_FIELDS: dict[str, frozenset[str]] = {
     "run_interrupted": frozenset({"reason"}),
     "run_failed": frozenset({"error_code", "message"}),
     "run_completed": frozenset({"total_steps", "total_tool_calls", "finish_reason"}),
+    "model_fallback": frozenset({"failed_model", "fallback_model", "reason"}),
     "llm_round_started": frozenset(
         {
             "llm_round_id",

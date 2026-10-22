@@ -35,6 +35,7 @@ const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
   run_interrupted: ['reason'],
   run_failed: ['error_code', 'message'],
   run_completed: ['total_steps', 'total_tool_calls', 'finish_reason'],
+  model_fallback: ['failed_model', 'fallback_model', 'reason'],
   llm_round_started: [
     'llm_round_id', 'round_index', 'model', 'provider', 'system_prompt_fingerprint',
     'context_visibility', 'tool_names',

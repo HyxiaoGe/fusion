@@ -156,6 +156,15 @@ export interface CompactedCell extends TrajectoryCellBase {
   removedToolTransactions: number;
 }
 
+/** 原模型本轮不可用后换成备用模型；fallbackModel 为空表示挑不到备用、原模型限时再试。 */
+export interface ModelFallbackCell extends TrajectoryCellBase {
+  type: 'model_fallback';
+  runId: string;
+  failedModel: string | null;
+  fallbackModel: string | null;
+  reason: string | null;
+}
+
 export type TrajectoryCell =
   | UserCell
   | MessageCell
@@ -165,7 +174,8 @@ export type TrajectoryCell =
   | ToolCell
   | SubtoolCell
   | LlmRoundCell
-  | CompactedCell;
+  | CompactedCell
+  | ModelFallbackCell;
 
 export interface TrajectoryRunJoin {
   runId: string;
@@ -822,6 +832,19 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
       continue;
     }
 
+    if (item.eventType === 'model_fallback') {
+      cells.push({
+        ...detailBase(runCell, source, item.sequence),
+        key: `run:${detail.run.runId}:model_fallback:${item.sequence}`,
+        type: 'model_fallback',
+        runId: detail.run.runId,
+        failedModel: stringValue(item.payload.failed_model),
+        fallbackModel: stringValue(item.payload.fallback_model),
+        reason: stringValue(item.payload.reason),
+      });
+      continue;
+    }
+
     if (item.eventType.startsWith('tool_call_') && item.toolCallId) {
       const existing = tools.get(item.toolCallId);
       if (existing) {
@@ -930,6 +953,7 @@ function numberValue(value: unknown): number | null {
 
 function isSpecializedProjectableEvent(item: NormalizedTrajectoryEvent): boolean {
   if (item.eventType.startsWith('llm_round_')) return true;
+  if (item.eventType === 'model_fallback') return true;
   if (item.eventType === 'plan_snapshot' || item.eventType === 'plan_step_updated') return true;
   if (item.eventType === 'system_prompt_prepared'
     || item.eventType === 'context_status_updated'

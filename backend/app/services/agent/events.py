@@ -120,6 +120,15 @@ class RunCompleted(AgentEventBase):
     finish_reason: Literal["stop", "limit_reached", "incomplete"]
 
 
+class ModelFallback(AgentEventBase):
+    """原模型本轮不可用，本次回答剩余轮次改用备用模型；挑不到备用时 fallback_model 为空，原模型限时再试。"""
+
+    type: Literal["model_fallback"]
+    failed_model: str
+    fallback_model: str | None = None
+    reason: str
+
+
 class LLMRoundStarted(AgentEventBase):
     type: Literal["llm_round_started"]
     llm_round_id: str
