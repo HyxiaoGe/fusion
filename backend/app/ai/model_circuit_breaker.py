@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.core.logger import app_logger as logger
+from app.core.metrics import MODEL_CIRCUIT_OPENED_TOTAL
 
 # 近 7 天首字超时成簇出现（同一模型几分钟内 2~3 次），连续 2 次即判定为服务商侧故障。
 MODEL_CIRCUIT_FAILURE_THRESHOLD = 2
@@ -73,6 +74,7 @@ class ModelCircuitBreaker:
             # 半开试探失败也走这里：连续失败数未清零，直接重新计时。
             state.opened_at = self.clock()
             failures = state.consecutive_failures
+        MODEL_CIRCUIT_OPENED_TOTAL.labels(model=model_id).inc()
         logger.warning(
             "模型熔断打开: model_id=%s consecutive_failures=%s reason=%s cooldown_s=%g",
             model_id,

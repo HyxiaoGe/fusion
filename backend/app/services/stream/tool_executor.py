@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import backoff
 
 from app.core.logger import app_logger as logger
+from app.core.metrics import observe_tool_call
 from app.services.agent.emitter import AgentEventEmitter
 from app.services.agent.progress_digest import build_evidence_items, build_tool_result_digest
 from app.services.agent.trajectory_payload import is_cancellation_terminal_event
@@ -976,7 +977,15 @@ async def execute_tool_batch(
             reusable_groups.setdefault(signature, []).append((index, tool_call))
 
     async def execute_indexed(index: int, tool_call: dict) -> tuple[int, ToolExecutionRecord]:
-        return index, await execute_one_tool_call(request, tool_call)
+        record = await execute_one_tool_call(request, tool_call)
+        observe_tool_call(
+            tool_name=record.tool_name,
+            known=record.handler is not None,
+            status=record.result.status,
+            reused=record.reused,
+            duration_ms=record.result.duration_ms,
+        )
+        return index, record
 
     async def execute_amap_products() -> list[tuple[int, ToolExecutionRecord]]:
         records = []

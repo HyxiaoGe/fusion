@@ -540,6 +540,8 @@ services:
       - MILVUS_TIMEOUT_SECONDS=${MILVUS_TIMEOUT_SECONDS}
       - MILVUS_DOCKER_NETWORK=${MILVUS_DOCKER_NETWORK}
       - ENABLE_DOCS=false
+      # 指标只在 Docker 网络内供 Prometheus 抓取，不发布宿主机端口。
+      - METRICS_PORT=9464
     deploy:
       resources:
         limits:

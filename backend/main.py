@@ -37,7 +37,8 @@ from app.core.config import (
     KNOWLEDGE_SEARCH_PROFILE_CONCURRENCY,
     settings,
 )
-from app.core.logger import app_logger
+from app.core.logger import app_logger, log_context
+from app.core.metrics import start_metrics_server
 from app.core.redis import close_redis, get_redis_pool, init_redis
 from app.db.database import SessionLocal
 from app.schemas.knowledge import KNOWLEDGE_SEARCH_MAX_BASES_PER_REQUEST
@@ -214,6 +215,7 @@ async def lifespan(app: FastAPI):
     await start_scheduler()
     await litellm_health.start()
     await recover_pending_suggested_questions()
+    start_metrics_server(settings.METRICS_PORT)
 
     yield
 
@@ -246,7 +248,8 @@ app_logger.info(f"正在启动 {settings.APP_NAME} v{settings.APP_VERSION}")
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request.state.request_id = generate_request_id()
-    response = await call_next(request)
+    with log_context(request_id=request.state.request_id):
+        response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
 
@@ -254,7 +257,9 @@ async def add_request_id(request: Request, call_next):
 @app.middleware("http")
 async def prevent_admin_audit_caching(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/admin", "/api/models", "/api/notifications", "/api/changelogs", "/api/memories")):
+    if request.url.path.startswith(
+        ("/api/admin", "/api/models", "/api/notifications", "/api/changelogs", "/api/memories")
+    ):
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["Pragma"] = "no-cache"
     return response

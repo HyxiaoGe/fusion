@@ -1,5 +1,7 @@
 import unittest
 
+from prometheus_client import REGISTRY
+
 from app.ai.model_circuit_breaker import ModelCircuitBreaker
 
 
@@ -14,6 +16,16 @@ class ModelCircuitBreakerTests(unittest.TestCase):
         self.breaker.record_failure("m", "first_output_timeout")
         self.assertTrue(self.breaker.is_open("m"))
         self.assertFalse(self.breaker.is_open("other"))
+
+    def test_open_transition_is_counted(self):
+        def opened():
+            return REGISTRY.get_sample_value("fusion_model_circuit_opened_total", {"model": "counted"}) or 0
+
+        before = opened()
+        self.breaker.record_failure("counted", "http_500")
+        self.assertEqual(opened(), before)
+        self.breaker.record_failure("counted", "http_500")
+        self.assertEqual(opened(), before + 1)
 
     def test_success_between_failures_resets_the_count(self):
         self.breaker.record_failure("m", "http_500")

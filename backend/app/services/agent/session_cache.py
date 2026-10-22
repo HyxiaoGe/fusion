@@ -14,6 +14,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.logger import app_logger as logger
+from app.core.metrics import AGENT_RUNS_TOTAL
 from app.db.database import SessionLocal
 from app.db.models import AgentSession, AgentStep, AgentSystemPromptSnapshot, Conversation
 from app.utils.time import utc_now
@@ -558,3 +559,4 @@ def _write_session_status(
             row.total_duration_ms = total_duration_ms
         enqueue_run_notification(session, row)
         session.commit()
+    AGENT_RUNS_TOTAL.labels(status=status).inc()
