@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { localTimeOfEvent, resetServerClockForTest } from '@/lib/chat/serverClock';
 
 const {
   fetchWithAuthMock,
@@ -1862,6 +1863,39 @@ describe('reconnectStream — 新 envelope 协议', () => {
     });
     expect(onRunStarted).toHaveBeenCalledTimes(1);
     expect(result.entryId).toBe('1234-5');
+  });
+
+  it('重连先收到 server_clock，回放的旧事件按服务端时刻换算本机时间，不推进游标', async () => {
+    resetServerClockForTest();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const receivedAt = Date.now();
+    const serverNow = receivedAt / 1000 + 5; // 服务端比本机快 5 秒
+    fetchWithAuthMock.mockResolvedValue(
+      createStreamResponse([
+        envelope('server_clock', { ts: serverNow }),
+        'id: 1234-7\n',
+        agentEvent('step_started', { step_number: 1, step_id: 's1', ts: serverNow - 190 }, 3, 'r1'),
+        envelope('done', {}),
+        'data: [DONE]\n\n',
+      ]),
+    );
+    const onStepStarted = vi.fn();
+    const result = await reconnectStream('c', '0', {
+      onReady: vi.fn(),
+      onStepStarted,
+      onReasoning: vi.fn(),
+      onAnswering: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+    expect(onStepStarted).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('未知 chunk_type'), 'server_clock');
+    expect(result.entryId).toBe('1234-7');
+    // 第 1 步是 190 秒前开始的，不是收到回放的此刻。
+    const startedAt = localTimeOfEvent(serverNow - 190)!;
+    expect(Math.abs(Date.now() - startedAt - 190_000)).toBeLessThan(1_000);
+    warn.mockRestore();
+    resetServerClockForTest();
   });
 
   it('reconnectStream 也做 sequence dedup（每次调用 new Map）', async () => {

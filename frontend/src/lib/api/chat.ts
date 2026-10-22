@@ -18,6 +18,7 @@ import type {
 import type { ContentBlock, SuggestedQuestionsStatus } from '@/types/conversation';
 import type { ContextUsage } from '@/types/conversation';
 import { normalizeContextUsage, type ContextUsagePhase } from '@/lib/chat/contextUsage';
+import { noteServerTime } from '@/lib/chat/serverClock';
 import {
   normalizeSseTrajectoryEvent,
   type NormalizedTrajectoryEvent,
@@ -845,6 +846,7 @@ async function parseSseEnvelopeStream(
               break;
             }
             lastSequenceByRun.set(trajectoryEvent.runId, trajectoryEvent.sequence);
+            if (typeof ev.ts === 'number') noteServerTime(ev.ts * 1000);
             dispatchAgentEvent(ev, trajectoryEvent);
             break;
           }
@@ -863,6 +865,12 @@ async function parseSseEnvelopeStream(
           case 'preparing':
             callbacks.onPreparing?.();
             break;
+          case 'server_clock': {
+            // 重连回放前的服务端当前时间，用来校准本机计时；不推进游标、不进业务状态。
+            const ts = (envelope.data as { ts?: unknown } | null)?.ts;
+            if (typeof ts === 'number') noteServerTime(ts * 1000);
+            break;
+          }
           case 'done':
             dispatchedDone = true;
             callbacks.onDone({

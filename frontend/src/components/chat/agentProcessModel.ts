@@ -1,6 +1,7 @@
 import { RUN_STATUS_TREATMENT } from '@/lib/agent/statusTreatment';
 import { getToolErrorDisplay } from '@/lib/agent/toolErrorDisplay';
 import { historyStepId } from '@/lib/chat/conversationHydration';
+import { toLocalTime } from '@/lib/chat/serverClock';
 import type { AgentModelFallback, AgentRunState, ToolCallState } from '@/types/agentRun';
 import type { ContentBlock } from '@/types/conversation';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
@@ -104,10 +105,9 @@ export function highestPriorityIssue(run: AgentRunState): string | null {
   if (runFailure) return runFailure;
 
   const calls = run.steps.flatMap(step => step.toolCalls);
-  const failed = calls.find(call => call.status === 'failed');
-  if (failed) {
-    return boundedIssue(getToolErrorDisplay(failed.toolName, failed.status, failed.error)) ?? '工具执行失败';
-  }
+  // 只说失败了几次：用某个工具的失败原因当整轮问题，模型重试成功后会读成整件事失败了；具体原因在对应行里。
+  const failedCount = calls.filter(call => call.status === 'failed').length;
+  if (failedCount > 0) return `${failedCount} 次调用失败`;
   if (run.steps.some(step => step.status === 'failed')) return '执行步骤失败';
 
   const degraded = calls.find(call => call.status === 'degraded' && !isAwaitingChoice(call));
@@ -138,11 +138,11 @@ export function runDurationMs(run: AgentRunState, now: number, summary?: Traject
   // 历史步骤的起点记为 0，不是真实时间，算不出整轮耗时。
   const starts = run.steps
     .filter(step => Number.isFinite(step.startedAt) && step.startedAt > 0);
-  // 生成中优先用本机记下的第 1 步起点对本机时钟计时；拿服务端起点减本机 now 会带上两边时钟差。
-  // 只有中途刷新、本机没见到第 1 步时，才退回服务端起点。
+  // 步骤起点是事件的服务端时刻换成的本机时间，可以直接对本机 now 计时。
+  // 只有中途刷新、本机没见到第 1 步时，才退回摘要里的服务端起点，同样先换成本机时间。
   if (run.status === 'running' && !starts.some(step => step.stepNumber === 1) && ownSummary) {
     const startedAt = Date.parse(ownSummary.started_at);
-    if (Number.isFinite(startedAt)) return Math.max(0, now - startedAt);
+    if (Number.isFinite(startedAt)) return Math.max(0, now - toLocalTime(startedAt));
   }
   if (starts.length === 0) return null;
 

@@ -393,6 +393,7 @@ async def reconnect_stream(
             message_id=message_id,
             task_id=task_id,
             last_entry_id=last_entry_id,
+            emit_server_clock=True,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

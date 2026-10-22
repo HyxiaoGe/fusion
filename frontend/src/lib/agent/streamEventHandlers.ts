@@ -34,6 +34,7 @@ import type {
 import type { ContentBlock, KnowledgeEvidenceBlock } from '@/types/conversation';
 import { normalizeContentBlock } from '@/lib/chat/contentBlockRegistry';
 import { isStructuredToolResultBlock } from '@/lib/chat/structuredToolResults';
+import { localTimeOfEvent } from '@/lib/chat/serverClock';
 import {
   mapWireAgentPlan,
   mapWireAgentPlanItem,
@@ -128,6 +129,7 @@ export function createAgentStreamEventHandlers({
         stepId: ev.step_id,
         stepNumber: ev.step_number,
         sequence: ev.sequence,
+        at: localTimeOfEvent(ev.ts),
       }));
     },
     onLlmRoundStarted: ev => {
@@ -174,6 +176,7 @@ export function createAgentStreamEventHandlers({
         toolName: ev.tool_name,
         arguments: ev.arguments,
         sequence: ev.sequence,
+        at: localTimeOfEvent(ev.ts),
       }));
     },
     onToolCallDelta: ev => {
@@ -202,6 +205,7 @@ export function createAgentStreamEventHandlers({
         resultSummary: ev.result_summary as unknown as ToolCallResultSummary | undefined,
         error: ev.error ?? null,
         sequence: ev.sequence,
+        at: localTimeOfEvent(ev.ts),
       }));
     },
     onStepCompleted: ev => {
@@ -214,6 +218,7 @@ export function createAgentStreamEventHandlers({
         stepId: ev.step_id,
         toolCallCount: ev.tool_call_count,
         sequence: ev.sequence,
+        at: localTimeOfEvent(ev.ts),
       }));
     },
     onModelFallback: ev => {
@@ -251,6 +256,7 @@ export function createAgentStreamEventHandlers({
         status: 'interrupted',
         reason: ev.reason,
         sequence: ev.sequence,
+        at: localTimeOfEvent(ev.ts),
       }));
     },
     onRunFailed: ev => {
@@ -263,6 +269,7 @@ export function createAgentStreamEventHandlers({
         status: 'failed',
         failure: { code: ev.error_code, message: ev.message },
         sequence: ev.sequence,
+        at: localTimeOfEvent(ev.ts),
       }));
     },
     onRunCompleted: ev => {

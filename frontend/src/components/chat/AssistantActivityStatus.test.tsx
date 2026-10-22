@@ -337,6 +337,33 @@ describe('AssistantActivityStatus', () => {
     expect(screen.queryByText('本轮回答未使用搜索结果')).toBeNull();
   });
 
+  it('过程区已列出调用成败时不再挂工具问题提示', () => {
+    const { container } = render(
+      <AssistantActivityStatus
+        toolIssuesInProcess
+        activity={baseActivity({
+          kind: 'completed',
+          issue: {
+            kind: 'failed',
+            toolKind: 'other',
+            toolName: 'generate_image',
+            title: '工具未取得可用结果',
+            detail: '本轮回答未使用该工具结果',
+            call: {
+              toolCallId: 'img-1',
+              toolName: 'generate_image',
+              arguments: { prompt: '柴犬' },
+              status: 'failed',
+              startedAt: 1,
+            },
+          },
+        })}
+      />,
+    );
+
+    expect(container.innerHTML).toBe('');
+  });
+
   it('renders nothing for normal completed state without issue', () => {
     const { container } = render(<AssistantActivityStatus activity={baseActivity({ kind: 'completed' })} />);
 
