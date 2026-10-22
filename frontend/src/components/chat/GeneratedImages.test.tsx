@@ -25,7 +25,7 @@ const block: GeneratedImageBlock = {
   height: 1264,
   prompt: '一只红狐狸',
   aspect_ratio: '2:3',
-  model: 'doubao-seedream-4-5',
+  model: 'doubao-seedream-5-0-flash',
 };
 
 function call(overrides: Partial<ToolCallState>): ToolCallState {
@@ -75,7 +75,7 @@ describe('GeneratedImages', () => {
     const image = await screen.findByAltText('一只红狐狸');
     expect(getFileUrlMock).toHaveBeenCalledWith('file-1', 'processed');
     expect(image).toHaveAttribute('src', '/api/files/file-1/content?variant=processed&token=t');
-    expect(screen.getByText('本次生图由 豆包 Seedream 4.5 提供')).toBeInTheDocument();
+    expect(screen.getByText('本次生图由 豆包 Seedream 5.0 Flash 提供')).toBeInTheDocument();
     expect(screen.queryByText('一只红狐狸')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '查看描述' }));

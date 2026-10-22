@@ -6,13 +6,23 @@ const GENERATE_IMAGE_TOOL_NAME = 'generate_image';
 const MAX_DISPLAY_WIDTH = 640;
 const MAX_DISPLAY_HEIGHT = 560;
 
+// 与 image-service 的 SUPPORTED_MODELS 对齐；表里没有的模型原样显示 ID。
 const MODEL_DISPLAY_NAMES: Record<string, string> = {
+  'doubao-seedream-5-0-pro': '豆包 Seedream 5.0 Pro',
+  'doubao-seedream-5-0-flash': '豆包 Seedream 5.0 Flash',
+  'doubao-seedream-5-0-lite': '豆包 Seedream 5.0 Lite',
+  'doubao-seedream-4-5': '豆包 Seedream 4.5',
+  'doubao-seedream-4-0': '豆包 Seedream 4.0',
+  'gemini-nano-banana-2.1': 'Nano Banana 2.1',
+  'nano-banana-pro-preview': 'Nano Banana Pro',
+  'gemini-3.1-flash-image': 'Gemini 3.1 Flash Image',
   'gemini-3.1-flash-image-preview': 'Gemini 3.1 Flash Image',
+  'gemini-3-pro-image': 'Gemini 3 Pro Image',
   'gemini-3-pro-image-preview': 'Gemini 3 Pro Image',
   'gemini-2.5-flash-image': 'Gemini 2.5 Flash Image',
   'gemini-2.5-flash-image-preview': 'Gemini 2.5 Flash Image',
-  'doubao-seedream-4-5': '豆包 Seedream 4.5',
-  'doubao-seedream-4-0': '豆包 Seedream 4.0',
+  'qwen-image-3.0-pro': '通义 Qwen-Image 3.0 Pro',
+  'qwen-image-3.0': '通义 Qwen-Image 3.0',
 };
 
 export type PendingImageStatus = 'running' | 'failed' | 'interrupted';

@@ -101,8 +101,9 @@ button.processRowButton:focus-visible { outline: 2px solid var(--info); outline-
 .processStatus[data-tone="warn"] { background: var(--warn-bg); color: var(--warn); }
 .processStatus[data-tone="danger"] { background: var(--danger-bg); color: var(--danger); }
 .processRowDetail { margin: 2px 0 8px 29px; padding: 8px 10px; border-left: 2px solid var(--aux-edge); max-height: none; overflow: visible; }
-.processField { display: grid; grid-template-columns: minmax(64px, max-content) 1fr; gap: 12px; font-size: 12px; line-height: 1.6; }
-.processField + .processField { margin-top: 4px; }
+/* 参数名共用一列，按最长的名字定宽，各行的值对齐。 */
+.processFields { display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr); gap: 4px 12px; font-size: 12px; line-height: 1.6; }
+.processField { display: contents; }
 .processField dt { color: var(--muted-foreground); }
 .processField dd { margin: 0; min-width: 0; color: var(--fg-secondary); overflow-wrap: anywhere; white-space: pre-wrap; }
 .fade { position: absolute; bottom: 12px; left: 12px; right: 12px; height: 20px; background: linear-gradient(to top, var(--background), transparent); pointer-events: none; }
