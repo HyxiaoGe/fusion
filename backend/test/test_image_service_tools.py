@@ -15,6 +15,7 @@ from app.services.mcp.image_service_tools import (  # noqa: E402
     MCP_CALL_TIMEOUT_SECONDS,
     ImageGenerationError,
     build_generate_image_definition,
+    closest_aspect_ratio,
     parse_generate_image_text,
 )
 from app.services.stream.tool_executor import AGENT_TOOL_TIMEOUT, _handler_timeout_seconds  # noqa: E402
@@ -23,6 +24,7 @@ from test.test_mcp_agent_tools import FakeClientManager, FakeDb, FakeRepository,
 
 ENDPOINT = "http://192.168.1.11:8090/mcp"
 IMAGE_NAME = "4ce9c7606275acf72358b93aabf8a8e5b90ed5431254fcda3718caf60f0f8d55.jpeg"
+SOURCE_URL = f"http://image-service.dev.seanfield.org/static/images/{IMAGE_NAME}"
 SUCCESS_TEXT = (
     f"Generated image: http://image-service.dev.seanfield.org/static/images/{IMAGE_NAME}\n"
     "Model: gemini-3.1-flash-image-preview\nCached: False\nID: 7ca2c0c7-4477-456c-8a3c-76960859f1bf"
@@ -93,7 +95,20 @@ class StoreRecorder:
         return {"file_id": "file-1", "mime_type": "image/jpeg", "width": 1024, "height": 1024}
 
 
-def load_image_tools(rows, client, *, store=None, conversation_id="conv-1", user_id="user-1"):
+class SourceLoader:
+    def __init__(self, result=None, error=None):
+        self.calls = []
+        self.result = result
+        self.error = error
+
+    async def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.result
+
+
+def load_image_tools(rows, client, *, store=None, loader=None, conversation_id="conv-1", user_id="user-1"):
     repository = FakeRepository(rows)
     return load_mcp_agent_tools(
         object(),
@@ -105,6 +120,7 @@ def load_image_tools(rows, client, *, store=None, conversation_id="conv-1", user
         concurrency_limiter=McpAgentToolConcurrencyLimiter(global_limit=4),
         circuit_breaker=McpAgentServerCircuitBreaker(failure_threshold=3, cooldown_seconds=30),
         store_generated_image=store or StoreRecorder(),
+        load_generated_image=loader or SourceLoader(),
     )
 
 
@@ -133,10 +149,10 @@ class ImageServiceToolLoadingTests(unittest.TestCase):
 
 
 class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
-    def build_handler(self, *, text=SUCCESS_TEXT, server=None, store=None, client=None):
+    def build_handler(self, *, text=SUCCESS_TEXT, server=None, store=None, client=None, loader=None):
         client = client or TimeoutAwareClientManager(result={"content": [{"type": "text", "text": text}]})
         store = store or StoreRecorder()
-        tool_set = load_image_tools([build_image_row()], client, store=store)
+        tool_set = load_image_tools([build_image_row()], client, store=store, loader=loader)
         handler = tool_set.handlers["generate_image"]
         server = server or FakeImageServer()
         handler.http_client_factory = server.factory
@@ -158,6 +174,7 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.calls[0]["conversation_id"], "conv-1")
         self.assertEqual(store.calls[0]["user_id"], "user-1")
         self.assertEqual(store.calls[0]["content"], b"jpeg-bytes")
+        self.assertEqual(store.calls[0]["source_url"], SOURCE_URL)
 
         block = handler.build_content_block(result, "blk_1", "log_1")
         self.assertEqual(block.type, "generated_image")
@@ -165,10 +182,13 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(block.model, "gemini-3.1-flash-image-preview")
         self.assertEqual(block.tool_call_log_id, "log_1")
 
+        # 模型拿到图片编号用于之后编辑，拿不到任何图片地址。
         context = handler.format_llm_context(result)
         self.assertNotIn("http", context)
-        self.assertNotIn("file-1", context)
         self.assertNotIn(IMAGE_NAME, context)
+        self.assertIn("Image id: file-1", context)
+        self.assertIn("never show it to the user", context)
+        self.assertIn("what was drawn", context)
 
     async def test_failures_are_reported_without_block_or_url(self):
         cases = {
@@ -201,6 +221,10 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"prompt": "x", "quality": "ultra"},
             {"prompt": "x", "quality": True},
             {"prompt": "x", "model": "doubao-seedream-5-0-pro"},
+            {"prompt": "x", "source_image_id": 5},
+            {"prompt": "x", "source_image_id": "../file-1"},
+            {"prompt": "x", "source_image_id": "x" * 65},
+            {"prompt": "x", "reference_images": [SOURCE_URL]},
         ):
             with self.subTest(args=args):
                 self.assertTrue(handler.validate_arguments(args))
@@ -375,6 +399,97 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(handler.supports_automatic_retry)
         self.assertEqual(_handler_timeout_seconds(handler), EXECUTION_TIMEOUT_SECONDS)
         self.assertEqual(_handler_timeout_seconds(FakeToolHandler()), AGENT_TOOL_TIMEOUT)
+
+
+    async def test_edit_sends_stored_source_url_and_keeps_original_shape(self):
+        loader = SourceLoader({"source_url": SOURCE_URL, "width": 768, "height": 1376})
+        handler, client, store, _ = self.build_handler(loader=loader)
+
+        result = await handler.execute({"prompt": "把背景换成夜景，其余保持不变", "source_image_id": " file-0 "})
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(loader.calls, [{"file_id": "file-0", "user_id": "user-1", "conversation_id": "conv-1"}])
+        self.assertEqual(client.calls[0][2]["reference_images"], [SOURCE_URL])
+        self.assertEqual(client.calls[0][2]["aspect_ratio"], "9:16")
+        self.assertNotIn("source_image_id", client.calls[0][2])
+        self.assertEqual(result.data["source_image_id"], "file-0")
+        self.assertEqual(result.data["aspect_ratio"], "9:16")
+        self.assertEqual(store.calls[0]["source_url"], SOURCE_URL)
+        context = handler.format_llm_context(result)
+        self.assertIn("what was changed", context)
+        self.assertIn("Image id: file-1", context)
+
+    async def test_edit_respects_explicit_aspect_ratio(self):
+        loader = SourceLoader({"source_url": SOURCE_URL, "width": 768, "height": 1376})
+        handler, client, *_ = self.build_handler(loader=loader)
+
+        await handler.execute({"prompt": "裁成横版", "source_image_id": "file-0", "aspect_ratio": "16:9"})
+
+        self.assertEqual(client.calls[0][2]["aspect_ratio"], "16:9")
+
+    async def test_unavailable_source_fails_before_remote_call_without_spending_an_image(self):
+        cases = {
+            "source_image_unavailable": SourceLoader(None),
+            "source_image_lookup_failed": SourceLoader(error=RuntimeError("db down")),
+        }
+        for code, loader in cases.items():
+            with self.subTest(code):
+                handler, client, *_ = self.build_handler(loader=loader)
+                handler.max_images_per_run = 1
+
+                failed = await handler.execute({"prompt": "改成蓝色", "source_image_id": "file-9"})
+                new_image = await handler.execute({"prompt": "a fox"})
+
+                self.assertEqual(failed.status, "failed")
+                self.assertEqual(failed.data["error_code"], code)
+                self.assertEqual(new_image.status, "success")
+                self.assertEqual(len(client.calls), 1)
+                self.assertNotIn("reference_images", client.calls[0][2])
+        unavailable, *_ = self.build_handler(loader=SourceLoader(None))
+        failed = await unavailable.execute({"prompt": "改成蓝色", "source_image_id": "file-9"})
+        context = unavailable.format_llm_context(failed)
+        self.assertIn("cannot be edited directly", context)
+        self.assertIn("Do not call again with the same id", context)
+
+    async def test_image_without_usable_service_url_is_not_offered_for_editing(self):
+        client = self.structured_client(
+            {
+                "ok": True,
+                "image_url": f"/static/images/{IMAGE_NAME}",
+                "model": "doubao-seedream-5-0-flash",
+                "id": "gen-4",
+            },
+            text=SUCCESS_TEXT,
+        )
+        handler, _, store, _ = self.build_handler(client=client)
+
+        result = await handler.execute({"prompt": "a fox"})
+
+        self.assertEqual(result.status, "success")
+        self.assertIsNone(store.calls[0]["source_url"])
+        self.assertFalse(result.data["editable"])
+        self.assertNotIn("Image id", handler.format_llm_context(result))
+
+    def test_definition_offers_source_image_id(self):
+        properties = build_generate_image_definition()["function"]["parameters"]["properties"]
+
+        self.assertEqual(properties["source_image_id"]["type"], "string")
+        self.assertIn("generated earlier in this conversation", properties["source_image_id"]["description"])
+        self.assertNotIn("reference_images", properties)
+
+    def test_closest_aspect_ratio_follows_source_shape(self):
+        cases = {
+            (1024, 1024): "1:1",
+            (768, 1376): "9:16",
+            (1376, 768): "16:9",
+            (1200, 1000): "5:4",
+            (2560, 1080): "21:9",
+            (0, 100): "1:1",
+            (None, 100): "1:1",
+        }
+        for (width, height), expected in cases.items():
+            with self.subTest(width=width, height=height):
+                self.assertEqual(closest_aspect_ratio(width, height), expected)
 
 
 class ParseGenerateImageTextTests(unittest.TestCase):

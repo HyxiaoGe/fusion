@@ -2,13 +2,18 @@
 
 image-service 是部署在内网的自建 MCP，``generate_image`` 返回一段文本，其中的图片地址
 只在内网可达且为 HTTP，不能交给模型或浏览器。这里按服务端点的内网地址下载图片，
-转存到 Fusion 文件存储，再以 ``generated_image`` 块展示；模型只拿到成功或失败的事实。
+转存到 Fusion 文件存储，再以 ``generated_image`` 块展示；模型只拿到成功或失败的事实，
+以及用于在同一会话里继续编辑的图片编号（Fusion 文件 ID）。
+
+编辑时由服务端按编号查回该图在 image-service 里的原图地址，作为参考图交回服务；
+模型拿不到也传不进任何图片地址。
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,7 +38,9 @@ IMAGE_SERVICE_REMOTE_TOOL_NAME = "generate_image"
 ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
 # image-service 的画质档：standard 为 Seedream 5.0 Flash，high 为 Seedream 5.0 Pro；省略时用服务默认模型。
 IMAGE_QUALITIES = ("standard", "high")
-_ALLOWED_ARGUMENTS = frozenset({"prompt", "aspect_ratio", "style", "regenerate", "reference_subject", "quality"})
+_ALLOWED_ARGUMENTS = frozenset(
+    {"prompt", "aspect_ratio", "style", "regenerate", "reference_subject", "quality", "source_image_id"}
+)
 # image-service 结构化错误码（P0 设计 §2.1）；不认识的码按通用上游失败处理。
 KNOWN_ERROR_CODES = frozenset({
     "invalid_params",
@@ -50,6 +57,9 @@ KNOWN_ERROR_CODES = frozenset({
 MAX_PROMPT_CHARS = 1_000
 MAX_STYLE_CHARS = 60
 MAX_REFERENCE_SUBJECT_CHARS = 80
+# 要编辑的图片编号即 Fusion 文件 ID（UUID）。
+_SOURCE_IMAGE_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
+MAX_SOURCE_URL_CHARS = 512
 # image-service 找参考图的结果状态；none_accepted 与 search_failed 时照常出图，但没有参考图，外观可能和真品不同。
 REFERENCE_SEARCH_STATUSES = frozenset({"found", "cached", "none_accepted", "search_failed", "skipped"})
 # 生图有真实费用：同一 run 最多生成的张数。
@@ -69,6 +79,7 @@ _IMAGE_PATH = re.compile(r"^/static/images/[A-Za-z0-9_-]{1,128}\.(?:png|jpe?g|we
 _IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
 
 StoreImageFn = Callable[..., Any]
+LoadSourceImageFn = Callable[..., Any]
 
 
 @dataclass(frozen=True)
@@ -116,6 +127,8 @@ class GeneratedImageOutcome:
     grounding_used: bool = False
     reference_search_status: str | None = None
     reference_image_count: int = 0
+    # image-service 里的原图完整地址，之后编辑这张图时原样交回；取不到时这张图不能继续编辑。
+    source_url: str | None = None
 
 
 def is_image_service_row(row: Any) -> bool:
@@ -161,6 +174,11 @@ def build_generate_image_definition() -> dict[str, Any]:
                         "enum": list(IMAGE_QUALITIES),
                         "description": render_runtime_prompt("image_service.quality"),
                     },
+                    "source_image_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "description": render_runtime_prompt("image_service.source_image_id"),
+                    },
                 },
                 "required": ["prompt"],
                 "additionalProperties": False,
@@ -202,8 +220,14 @@ def parse_generate_image_payload(payload: Any) -> GeneratedImageOutcome:
     """优先读 image-service 的结构化结果；旧版本只有文本时按文本协议解析。"""
     structured = payload.get("structuredContent") if isinstance(payload, dict) else None
     if not isinstance(structured, dict) or not isinstance(structured.get("ok"), bool):
-        image_path, model = parse_generate_image_text(_payload_text(payload))
-        return GeneratedImageOutcome(image_path=image_path, model=model)
+        text = _payload_text(payload)
+        image_path, model = parse_generate_image_text(text)
+        match = _GENERATED_LINE.search(text)
+        return GeneratedImageOutcome(
+            image_path=image_path,
+            model=model,
+            source_url=_source_url(match.group(1) if match else None),
+        )
     if not structured["ok"]:
         error = structured.get("error") if isinstance(structured.get("error"), dict) else {}
         code = error.get("code")
@@ -223,7 +247,34 @@ def parse_generate_image_payload(payload: Any) -> GeneratedImageOutcome:
         grounding_used=structured.get("grounding_used") is True,
         reference_search_status=_reference_search_status(structured.get("reference_search")),
         reference_image_count=_reference_image_count(structured.get("reference_images_used")),
+        source_url=_source_url(structured.get("image_url")),
     )
+
+
+def _source_url(url: Any) -> str | None:
+    """image-service 返回的原图地址；只记它静态目录下的图片，异常地址只是不能再编辑，不影响本次出图。"""
+    if not isinstance(url, str) or len(url) > MAX_SOURCE_URL_CHARS:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.netloc or parts.query or parts.fragment:
+        return None
+    return url if _IMAGE_PATH.fullmatch(parts.path) else None
+
+
+def closest_aspect_ratio(width: Any, height: Any) -> str:
+    """编辑时沿用原图形状：取支持的比例里与原图最接近的一个。"""
+    if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
+        return "1:1"
+    target = math.log(width / height)
+
+    def distance(ratio: str) -> float:
+        w, h = ratio.split(":")
+        return abs(math.log(int(w) / int(h)) - target)
+
+    return min(ASPECT_RATIOS, key=distance)
 
 
 def _reference_search_status(value: Any) -> str | None:
@@ -283,6 +334,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
         remote_executor: Any,
         remote_definition_sha256: str,
         store_image: StoreImageFn,
+        load_source_image: LoadSourceImageFn,
         http_client_factory: Callable[[], httpx.AsyncClient] | None = None,
         max_images_per_run: int = MAX_IMAGES_PER_RUN,
     ) -> None:
@@ -290,6 +342,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
         self.remote_executor = remote_executor
         self.remote_definition_sha256 = remote_definition_sha256
         self.store_image = store_image
+        self.load_source_image = load_source_image
         self.http_client_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=False, trust_env=False)
         )
@@ -319,6 +372,23 @@ class ImageGenerationToolHandler(BaseToolHandler):
             arguments = _normalized_arguments(args)
         except ImageGenerationError as error:
             return self._failed(error.code, started_at)
+        source_image_id = _source_image_id(args)
+        if source_image_id is not None:
+            # 查不到原图不占本轮生图次数。
+            try:
+                source = await self.load_source_image(
+                    file_id=source_image_id,
+                    user_id=self.binding.user_id,
+                    conversation_id=self.binding.conversation_id,
+                )
+            except Exception as error:  # noqa: BLE001 — 查库故障如实报失败，不中断本轮
+                logger.warning("查找待编辑生成图失败: error_type=%s", type(error).__name__)
+                return self._failed("source_image_lookup_failed", started_at)
+            if not source:
+                return self._failed("source_image_unavailable", started_at)
+            arguments["reference_images"] = [source["source_url"]]
+            if "aspect_ratio" not in args:
+                arguments["aspect_ratio"] = closest_aspect_ratio(source.get("width"), source.get("height"))
         async with self._lock:
             if self._attempts >= self.max_images_per_run:
                 return self._failed("run_image_limit_reached", started_at)
@@ -338,6 +408,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 user_id=self.binding.user_id,
                 conversation_id=self.binding.conversation_id,
                 filename=outcome.image_path.rsplit("/", 1)[-1],
+                source_url=outcome.source_url,
             )
         except McpClientError as error:
             return self._failed(error.code, started_at)
@@ -372,6 +443,8 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 "reference_subject": arguments.get("reference_subject"),
                 "reference_search_status": outcome.reference_search_status,
                 "reference_image_count": outcome.reference_image_count,
+                "source_image_id": source_image_id,
+                "editable": outcome.source_url is not None,
             },
         )
 
@@ -459,6 +532,8 @@ class ImageGenerationToolHandler(BaseToolHandler):
             "image_service.success_context",
             reference_subject=data.get("reference_subject"),
             reference_search_status=data.get("reference_search_status"),
+            edited=bool(data.get("source_image_id")),
+            image_id=data.get("file_id") if data.get("editable") else None,
         )
 
     def _build_result_summary(self, result: ToolResult) -> dict:
@@ -486,6 +561,7 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
     quality = args.get("quality")
     if quality is not None and quality not in IMAGE_QUALITIES:
         raise ImageGenerationError("invalid_arguments")
+    _source_image_id(args)
     # 主力/备用模型由 image-service 的 DEFAULT_MODEL / DEFAULT_FALLBACK_MODEL 决定，便于切换。
     arguments: dict[str, Any] = {
         "prompt": prompt.strip(),
@@ -509,6 +585,16 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
         if reference_subject.strip():
             arguments["reference_subject"] = reference_subject.strip()
     return arguments
+
+
+def _source_image_id(args: dict) -> str | None:
+    """要编辑的图片编号；只校验格式，归属由服务端查库确认。"""
+    value = args.get("source_image_id")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not _SOURCE_IMAGE_ID.fullmatch(value.strip()):
+        raise ImageGenerationError("invalid_arguments")
+    return value.strip()
 
 
 def _payload_text(payload: Any) -> str:

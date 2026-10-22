@@ -27,7 +27,7 @@ const EMPTY_PENDING: PendingImageGeneration[] = [];
 // 流式结束时消息会从流式视图切到持久化视图，卡片随之重挂载；
 // 缓存签名地址让重挂载直接复用已加载的图片，不再闪回点阵。
 const signedUrlCache = new Map<string, string>();
-const KNOWN_FAILURE_CODES = new Set(['content_filtered', 'upstream_timeout', 'generation_in_progress']);
+const KNOWN_FAILURE_CODES = new Set(['content_filtered', 'upstream_timeout', 'generation_in_progress', 'source_image_unavailable']);
 
 function toFileBlock(block: GeneratedImageBlock): FileBlock {
   return {

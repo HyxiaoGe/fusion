@@ -922,6 +922,7 @@ def load_mcp_agent_tools(
     circuit_breaker: McpAgentServerCircuitBreaker | None = None,
     flyai_client: FlyAiTravelAdapterClient | None = None,
     store_generated_image: Callable[..., Any] | None = None,
+    load_generated_image: Callable[..., Any] | None = None,
     qweather_client: QWeatherClient | None = None,
     quota_state_reader: Callable[[str, frozenset[str]], frozenset[str]] = read_exhausted_quota_groups,
 ) -> McpAgentToolSet:
@@ -1006,6 +1007,7 @@ def load_mcp_agent_tools(
                     user_id=user_id,
                     conversation_id=conversation_id,
                     store_generated_image=store_generated_image or _store_generated_image,
+                    load_generated_image=load_generated_image or _load_generated_image,
                 )
             continue
         if official_amap:
@@ -1238,6 +1240,7 @@ def _append_image_service_tool(
     user_id: str,
     conversation_id: str,
     store_generated_image: Callable[..., Any],
+    load_generated_image: Callable[..., Any],
 ) -> None:
     snapshots = {snapshot["name"]: snapshot for snapshot in _iter_authorized_snapshots(row)}
     snapshot = snapshots.get(IMAGE_SERVICE_REMOTE_TOOL_NAME)
@@ -1262,6 +1265,7 @@ def _append_image_service_tool(
         remote_executor=remote_executor,
         remote_definition_sha256=remote_definition_sha256,
         store_image=store_generated_image,
+        load_source_image=load_generated_image,
     )
     audit_bindings.append(binding.to_audit_dict())
 
@@ -1274,6 +1278,19 @@ async def _store_generated_image(**kwargs: Any) -> dict[str, Any]:
         return await FileService(db, session_factory=SessionLocal).store_generated_image(**kwargs)
     finally:
         db.close()
+
+
+async def _load_generated_image(**kwargs: Any) -> dict[str, Any] | None:
+    from app.services.file_service import FileService
+
+    def lookup() -> dict[str, Any] | None:
+        db = SessionLocal()
+        try:
+            return FileService(db, session_factory=SessionLocal).generated_image_source(**kwargs)
+        finally:
+            db.close()
+
+    return await asyncio.to_thread(lookup)
 
 
 def _iter_authorized_snapshots(row) -> list[dict[str, Any]]:

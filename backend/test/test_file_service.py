@@ -828,6 +828,30 @@ class StoreGeneratedImageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored["mime_type"], "image/jpeg")
         self.assertEqual((stored["width"], stored["height"]), (1024, 768))
         self.assertEqual(stored["file_id"], kwargs["file_record"]["id"])
+        self.assertIsNone(kwargs["file_record"]["processing_result"])
+
+    async def test_records_service_source_for_later_edits(self):
+        with patch("app.services.file_service.ConversationRepository") as repo_class:
+            repo_class.return_value.get_by_id.return_value = SimpleNamespace(id="conv-1")
+            await self.service.store_generated_image(
+                content=b"jpeg",
+                mime_type="image/jpeg",
+                user_id="user-1",
+                conversation_id="conv-1",
+                filename="a.jpeg",
+                source_url="http://image-service.example/static/images/a.jpeg",
+            )
+
+        record = self.service._commit_new_file_with_upload_fences.await_args.kwargs["file_record"]
+        self.assertEqual(
+            record["processing_result"],
+            {
+                "generated_by": "image-service",
+                "source_url": "http://image-service.example/static/images/a.jpeg",
+                "conversation_id": "conv-1",
+            },
+        )
+
 
     async def test_rejects_foreign_conversation_and_bad_content_before_storage(self):
         with patch("app.services.file_service.ConversationRepository") as repo_class:
@@ -854,6 +878,57 @@ class StoreGeneratedImageTests(unittest.IsolatedAsyncioTestCase):
                     content=b"jpeg", mime_type="image/jpeg", user_id="user-1", conversation_id="conv-1", filename="a"
                 )
         self.service._detach_file_upload_lifecycles.assert_called_once_with(["lifecycle"])
+
+class GeneratedImageSourceTests(unittest.TestCase):
+    def setUp(self):
+        with patch("app.services.file_service.get_storage", return_value=MagicMock()):
+            self.service = FileService(MagicMock())
+        self.service.file_repo = MagicMock()
+
+    def file(self, **result):
+        processing_result = {
+            "generated_by": "image-service",
+            "source_url": "http://image-service.example/static/images/a.jpeg",
+            "conversation_id": "conv-1",
+            **result,
+        }
+        return SimpleNamespace(processing_result=processing_result, width=768, height=1376)
+
+    def test_returns_source_of_own_generated_image_in_same_conversation(self):
+        self.service.file_repo.get_file_by_id.return_value = self.file()
+
+        source = self.service.generated_image_source(file_id="file-1", user_id="user-1", conversation_id="conv-1")
+
+        self.service.file_repo.get_file_by_id.assert_called_once_with("file-1", "user-1")
+        self.assertEqual(
+            source,
+            {"source_url": "http://image-service.example/static/images/a.jpeg", "width": 768, "height": 1376},
+        )
+
+    def test_rejects_other_conversation_uploads_and_missing_files(self):
+        cases = {
+            "other_conversation": self.file(conversation_id="conv-2"),
+            "uploaded_or_legacy": SimpleNamespace(processing_result=None, width=1, height=1),
+            "parsed_upload": SimpleNamespace(processing_result={"status": "success"}, width=1, height=1),
+            "missing": None,
+        }
+        for name, record in cases.items():
+            with self.subTest(name):
+                self.service.file_repo.get_file_by_id.return_value = record
+                self.assertIsNone(
+                    self.service.generated_image_source(file_id="file-1", user_id="user-1", conversation_id="conv-1")
+                )
+
+    def test_requires_user_and_conversation(self):
+        for kwargs in (
+            dict(file_id="file-1", user_id="", conversation_id="conv-1"),
+            dict(file_id="file-1", user_id="user-1", conversation_id=""),
+            dict(file_id="", user_id="user-1", conversation_id="conv-1"),
+        ):
+            with self.subTest(kwargs=kwargs):
+                self.assertIsNone(self.service.generated_image_source(**kwargs))
+        self.service.file_repo.get_file_by_id.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
