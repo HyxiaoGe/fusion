@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.models import (
+    AgentEvent,
     AgentProgressSnapshot,
     AgentSession,
     ConversationFile,
@@ -24,6 +25,7 @@ from app.db.models import SocialAccount as SocialAccountModel
 from app.db.models import User as UserModel
 from app.db.notification_repository import NotificationRepository
 from app.schemas.chat import (
+    AgentRunModelFallbackSummary,
     AgentRunStepSummary,
     AgentRunSummary,
     AgentRunToolCallSummary,
@@ -863,6 +865,7 @@ class ConversationRepository:
         )
         snapshots_by_run_id = {snapshot.run_id: snapshot for snapshot in snapshots}
         steps_by_run_id = self._agent_run_steps(run_ids)
+        fallbacks_by_run_id = self._agent_run_model_fallbacks(run_ids)
 
         summaries: dict[str, AgentRunSummary] = {}
         for row in rows:
@@ -876,8 +879,45 @@ class ConversationRepository:
                 limit_reason=row.limit_reason if row.status == "limit_reached" else None,
                 progress=snapshot.state if snapshot else None,
                 steps=steps_by_run_id.get(row.id, []),
+                model_fallbacks=fallbacks_by_run_id.get(row.id, []),
             )
         return summaries
+
+    def _agent_run_model_fallbacks(self, run_ids: list[str]) -> dict[str, list[AgentRunModelFallbackSummary]]:
+        """从事件账本还原换备用模型；step_started 只用来把 step_id 换成步骤序号。"""
+        if not run_ids:
+            return {}
+        rows = (
+            self.db.query(AgentEvent.run_id, AgentEvent.event_type, AgentEvent.step_id, AgentEvent.payload)
+            .filter(
+                AgentEvent.run_id.in_(run_ids),
+                AgentEvent.event_type.in_(("step_started", "model_fallback")),
+            )
+            .order_by(AgentEvent.run_id, AgentEvent.sequence)
+            .all()
+        )
+        step_numbers: dict[tuple[str, str], int] = {}
+        fallbacks_by_run_id: dict[str, list[AgentRunModelFallbackSummary]] = {}
+        for row in rows:
+            payload = row.payload if isinstance(row.payload, dict) else {}
+            if row.event_type == "step_started":
+                step_number = payload.get("step_number")
+                if row.step_id and isinstance(step_number, int):
+                    step_numbers[(row.run_id, row.step_id)] = step_number
+                continue
+            failed_model, reason = payload.get("failed_model"), payload.get("reason")
+            if not isinstance(failed_model, str) or not isinstance(reason, str):
+                continue
+            fallback_model = payload.get("fallback_model")
+            fallbacks_by_run_id.setdefault(row.run_id, []).append(
+                AgentRunModelFallbackSummary(
+                    step_number=step_numbers.get((row.run_id, row.step_id)) if row.step_id else None,
+                    failed_model=failed_model,
+                    fallback_model=fallback_model if isinstance(fallback_model, str) else None,
+                    reason=reason,
+                )
+            )
+        return fallbacks_by_run_id
 
     def _agent_run_steps(self, run_ids: list[str]) -> dict[str, list[AgentRunStepSummary]]:
         """从工具调用日志还原每步的调用；只取展示需要的列，不加载工具输出。"""

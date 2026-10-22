@@ -1,5 +1,6 @@
 import { RUN_STATUS_TREATMENT } from '@/lib/agent/statusTreatment';
 import { getToolErrorDisplay } from '@/lib/agent/toolErrorDisplay';
+import { historyStepId } from '@/lib/chat/conversationHydration';
 import type { AgentModelFallback, AgentRunState, ToolCallState } from '@/types/agentRun';
 import type { ContentBlock } from '@/types/conversation';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
@@ -60,7 +61,8 @@ export function buildAgentProcessRows(
     const lastStep = Math.max(thinking.length, ...run.steps.map(step => step.stepNumber));
     for (let number = 1; number <= lastStep; number += 1) {
       const step = stepsByNumber.get(number);
-      if (step) pushFallbacks(step.stepId);
+      // 历史只返回有工具调用的步骤；没有工具的步骤上的换模型记录按合成 id 对上。
+      pushFallbacks(step?.stepId ?? historyStepId(run.runId, number));
       const block = thinking[number - 1];
       if (block) pushThinking(block);
       if (step) pushTools(step.toolCalls);
@@ -120,13 +122,14 @@ export function highestPriorityIssue(run: AgentRunState): string | null {
 }
 
 export function runDurationMs(run: AgentRunState, now: number, summary?: TrajectoryRunSummary): number | null {
-  // 历史消息的步骤没有绝对时间，优先复用同一 Run 的已加载摘要。
-  if (summary?.run_id === run.runId) {
-    if (typeof summary.duration_ms === 'number' && Number.isFinite(summary.duration_ms) && summary.duration_ms >= 0) {
-      return summary.duration_ms;
+  const ownSummary = summary?.run_id === run.runId ? summary : undefined;
+  // 历史消息的步骤没有绝对时间，优先复用同一 Run 的已加载摘要；起止都是服务端时间才可相减。
+  if (ownSummary) {
+    if (typeof ownSummary.duration_ms === 'number' && Number.isFinite(ownSummary.duration_ms) && ownSummary.duration_ms >= 0) {
+      return ownSummary.duration_ms;
     }
-    const startedAt = Date.parse(summary.started_at);
-    const endedAt = summary.ended_at ? Date.parse(summary.ended_at) : run.status === 'running' ? now : NaN;
+    const startedAt = Date.parse(ownSummary.started_at);
+    const endedAt = ownSummary.ended_at ? Date.parse(ownSummary.ended_at) : NaN;
     if (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt >= startedAt) {
       return endedAt - startedAt;
     }
@@ -134,11 +137,16 @@ export function runDurationMs(run: AgentRunState, now: number, summary?: Traject
 
   // 历史步骤的起点记为 0，不是真实时间，算不出整轮耗时。
   const starts = run.steps
-    .map(step => step.startedAt)
-    .filter(value => Number.isFinite(value) && value > 0);
+    .filter(step => Number.isFinite(step.startedAt) && step.startedAt > 0);
+  // 生成中优先用本机记下的第 1 步起点对本机时钟计时；拿服务端起点减本机 now 会带上两边时钟差。
+  // 只有中途刷新、本机没见到第 1 步时，才退回服务端起点。
+  if (run.status === 'running' && !starts.some(step => step.stepNumber === 1) && ownSummary) {
+    const startedAt = Date.parse(ownSummary.started_at);
+    if (Number.isFinite(startedAt)) return Math.max(0, now - startedAt);
+  }
   if (starts.length === 0) return null;
 
-  const startedAt = Math.min(...starts);
+  const startedAt = Math.min(...starts.map(step => step.startedAt));
   const completed = run.steps
     .map(step => step.completedAt)
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));

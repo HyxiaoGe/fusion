@@ -111,6 +111,19 @@ describe('buildAgentProcessRows', () => {
     });
     expect(buildAgentProcessRows([], agentRun).map(row => row.kind)).toEqual(['fallback', 'tool', 'fallback']);
   });
+
+  it('历史换模型记录挂在没有工具调用的步骤上时仍排在该步思考之前', () => {
+    // 历史只返回有工具调用的步骤：第 2 步只有思考，换模型记录按合成步骤 id 对上。
+    const agentRun = run({
+      steps: [step(1, { stepId: 'run-1:step:1', toolCalls: [call({ toolCallId: 'a' })] })],
+      modelFallbacks: [
+        { stepId: 'run-1:step:2', failedModel: 'mimo', fallbackModel: 'deepseek-chat', reason: 'first_output_timeout' },
+      ],
+    });
+    const blocks = [thinking('t1', '一'), thinking('t2', '二')];
+    expect(buildAgentProcessRows(blocks, agentRun).map(row => row.kind === 'fallback' ? 'fallback' : row.id))
+      .toEqual(['t1', 'a', 'fallback', 't2']);
+  });
 });
 
 describe('AgentProcess', () => {
@@ -232,6 +245,19 @@ describe('AgentProcess', () => {
       <AgentProcess run={historical} rows={buildAgentProcessRows([], historical)} thinkingStreaming={false} isVisible={false} onToggle={vi.fn()} trajectoryStatus="complete" runSummary={summary({ run_id: 'run-2' })} />,
     );
     expect(screen.getByRole('button', { name: /已完成/ })).not.toHaveTextContent('用时');
+  });
+
+  it('运行中本机见过第 1 步时按本机起点计时，不受服务端时钟差影响', () => {
+    vi.useFakeTimers();
+    const now = Date.parse('2026-08-26T02:28:10.000Z');
+    vi.setSystemTime(now);
+    // 本机 7 秒前开始第 1 步；服务端起点比本机快 5 秒，按它算会少 5 秒。
+    const live = run({ status: 'running', steps: [step(1, { startedAt: now - 7_000, completedAt: undefined, status: 'running' })] });
+    renderProcess(live, {
+      trajectoryStatus: 'recording',
+      runSummary: summary({ status: 'running', duration_ms: null, ended_at: null, started_at: '2026-08-26T02:28:08.000Z' }),
+    });
+    expect(screen.getByRole('region', { name: 'Agent 运行过程' })).toHaveTextContent('处理中用时 7 秒');
   });
 
   it('运行中按服务端起点持续计时', () => {

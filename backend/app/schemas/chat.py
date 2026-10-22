@@ -1088,6 +1088,16 @@ class AgentRunStepSummary(BaseModel):
     tool_calls: List[AgentRunToolCallSummary] = Field(default_factory=list)
 
 
+class AgentRunModelFallbackSummary(BaseModel):
+    """历史回答里的一次换备用模型，与实时 model_fallback 事件同口径。"""
+
+    # 所在步骤序号；事件没挂在步骤上时为空。
+    step_number: Optional[int] = None
+    failed_model: str
+    fallback_model: Optional[str] = None
+    reason: str
+
+
 class AgentRunSummary(BaseModel):
     """assistant 消息最近一次 agent run 摘要，用于前端恢复终态和继续执行入口"""
 
@@ -1100,6 +1110,8 @@ class AgentRunSummary(BaseModel):
     progress: Optional[Dict[str, Any]] = None
     # 只含发起过工具调用的步骤，按步骤序号排列；刷新后过程区据此还原每一步调用了什么。
     steps: List[AgentRunStepSummary] = Field(default_factory=list)
+    # 按发生顺序；刷新后过程区据此还原「已换备用模型」。
+    model_fallbacks: List[AgentRunModelFallbackSummary] = Field(default_factory=list)
 
 
 # ============================================================

@@ -1,6 +1,7 @@
 import type { Conversation, Message } from '@/types/conversation';
 import type {
   AgentEvidenceItem,
+  AgentModelFallback,
   AgentPlanItemKind,
   AgentPlanItemStatus,
   AgentPlanMode,
@@ -39,6 +40,14 @@ interface ServerAgentRunSummary {
   limit_reason?: LimitReachedReason | null;
   progress?: ServerAgentProgressSnapshot | null;
   steps?: ServerAgentRunStep[] | null;
+  model_fallbacks?: ServerAgentModelFallback[] | null;
+}
+
+interface ServerAgentModelFallback {
+  step_number?: number | null;
+  failed_model: string;
+  fallback_model?: string | null;
+  reason: string;
 }
 
 interface ServerAgentRunStep {
@@ -189,10 +198,16 @@ function buildAgentRunState(
     totalSteps: serverRun.total_steps ?? 0,
     totalToolCalls: serverRun.total_tool_calls ?? 0,
     steps: (serverRun.steps ?? []).map(step => buildHistoryStep(serverRun.run_id, step)),
+    modelFallbacks: (serverRun.model_fallbacks ?? []).map(fallback => buildHistoryModelFallback(serverRun.run_id, fallback)),
     limitReachedReason: serverRun.limit_reason ?? undefined,
     lastSequence: Number.MAX_SAFE_INTEGER,
     ...progressPatch,
   };
+}
+
+/** 历史步骤没有实时 step_id，按运行与步骤序号合成；换模型记录用同一口径挂到步骤上。 */
+export function historyStepId(runId: string, stepNumber: number): string {
+  return `${runId}:step:${stepNumber}`;
 }
 
 /**
@@ -200,12 +215,21 @@ function buildAgentRunState(
  */
 function buildHistoryStep(runId: string, step: ServerAgentRunStep): AgentStepState {
   return {
-    stepId: `${runId}:step:${step.step_number}`,
+    stepId: historyStepId(runId, step.step_number),
     stepNumber: step.step_number,
     status: 'completed',
     toolCalls: (step.tool_calls ?? []).map(buildHistoryToolCall),
     contentBlockIds: [],
     startedAt: 0,
+  };
+}
+
+function buildHistoryModelFallback(runId: string, fallback: ServerAgentModelFallback): AgentModelFallback {
+  return {
+    stepId: typeof fallback.step_number === 'number' ? historyStepId(runId, fallback.step_number) : null,
+    failedModel: fallback.failed_model,
+    fallbackModel: fallback.fallback_model ?? null,
+    reason: fallback.reason,
   };
 }
 

@@ -979,6 +979,38 @@ describe('conversationHydration', () => {
     expect(steps[1].toolCalls[1].status).toBe('failed');
   });
 
+  it('hydrates model fallbacks onto the synthesized history step ids', () => {
+    const chat = buildChatFromServerConversation({
+      id: 'chat-fallback',
+      title: 'Server chat',
+      model_id: 'mimo-v2.6-flash',
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: [{ type: 'text', id: 'blk_a1', text: '回答' }],
+          created_at: '2026-10-22T08:00:02Z',
+          agent_run: {
+            run_id: 'run-1',
+            status: 'completed',
+            steps: [{ step_number: 1, tool_calls: [{ tool_call_id: 'call-1', tool_name: 'load_skill', status: 'success' }] }],
+            model_fallbacks: [
+              { step_number: 1, failed_model: 'mimo-v2.6-flash', fallback_model: 'deepseek-chat', reason: 'first_output_timeout' },
+              { step_number: null, failed_model: 'deepseek-chat', reason: 'http_503' },
+            ],
+          },
+        } as any,
+      ],
+    });
+
+    const agentRun = chat.messages[0].agent_run;
+    expect(agentRun?.modelFallbacks).toEqual([
+      { stepId: 'run-1:step:1', failedModel: 'mimo-v2.6-flash', fallbackModel: 'deepseek-chat', reason: 'first_output_timeout' },
+      { stepId: null, failedModel: 'deepseek-chat', fallbackModel: null, reason: 'http_503' },
+    ]);
+    expect(agentRun?.steps[0].stepId).toBe('run-1:step:1');
+  });
+
   it('hydrates agent progress snapshot from assistant messages', () => {
     const chat = buildChatFromServerConversation({
       id: 'chat-7',
