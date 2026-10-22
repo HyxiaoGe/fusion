@@ -214,8 +214,8 @@ function GeneratedImageCard({
       <figcaption className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
         <div className="flex min-w-0 items-center gap-1">
           {providedBy ? (
-            // 竖图卡片窄，模型名放不下时换行，不截断。
-            <span className="min-w-0 flex-1 break-words">{providedBy}</span>
+            // 竖图卡片窄，模型名放不下时均衡换行，不截断，也不让末尾单字落到第二行。
+            <span className="min-w-0 flex-1 break-words [text-wrap:balance]">{providedBy}</span>
           ) : <span className="flex-1" />}
           <button
             type="button"
