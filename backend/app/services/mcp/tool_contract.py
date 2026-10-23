@@ -133,15 +133,19 @@ def _sanitize_schema_node(schema: Any, *, depth: int) -> dict[str, Any]:
 
     properties = schema.get("properties")
     if isinstance(properties, Mapping):
+        required = schema.get("required")
+        required_names = {name for name in required if isinstance(name, str)} if isinstance(required, list) else set()
         safe_properties: dict[str, Any] = {}
         for name, value in list(properties.items())[:64]:
             if not isinstance(name, str) or not _SCHEMA_PROPERTY_NAME_PATTERN.fullmatch(name):
                 continue
-            safe_properties[name] = _sanitize_schema_node(value, depth=depth + 1)
+            safe_property = _sanitize_schema_node(value, depth=depth + 1)
+            if name not in required_names:
+                safe_property = _without_null_branch(safe_property)
+            safe_properties[name] = safe_property
         sanitized["type"] = "object"
         sanitized["properties"] = safe_properties
 
-        required = schema.get("required")
         if isinstance(required, list):
             safe_required = [name for name in required if isinstance(name, str) and name in safe_properties]
             if safe_required:
@@ -207,6 +211,22 @@ def _sanitize_schema_node(schema: Any, *, depth: int) -> dict[str, Any]:
             sanitized["const"] = const
 
     return sanitized
+
+
+def _without_null_branch(schema: dict[str, Any]) -> dict[str, Any]:
+    """可选字段去掉 anyOf 里的 null 分支：不传即为空，语义不变。
+
+    Python 服务的 Optional[...] 会生成 anyOf:[X, null]，实测 mimo 在这种形状下会把数组
+    序列化成 JSON 字符串传参（6/6），改成直接公告 X 后全部传成数组（6/6）。
+    """
+
+    branches = schema.get("anyOf")
+    if set(schema) != {"anyOf"} or not isinstance(branches, list):
+        return schema
+    non_null = [branch for branch in branches if branch != {"type": "null"}]
+    if not non_null or len(non_null) == len(branches):
+        return schema
+    return non_null[0] if len(non_null) == 1 else {"anyOf": non_null}
 
 
 def _sanitize_enum(value: Any) -> list[Any]:

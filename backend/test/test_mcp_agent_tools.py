@@ -1218,6 +1218,50 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
             [],
         )
 
+    def test_optional_nullable_fields_are_announced_without_null_branch(self):
+        row = build_row(
+            discovered_tools=[
+                {
+                    "name": "search/docs",
+                    "description": "热榜",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "platforms": {
+                                "anyOf": [
+                                    {"type": "array", "items": {"type": "string", "enum": ["weibo", "zhihu"]}},
+                                    {"type": "null"},
+                                ],
+                                "default": None,
+                            },
+                            "date_range": {
+                                "anyOf": [{"type": "string"}, {"type": "object"}, {"type": "null"}],
+                                "default": None,
+                            },
+                            "cursor": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        },
+                        "required": ["cursor"],
+                    },
+                }
+            ]
+        )
+        client = FakeClientManager()
+        handler = self.build_handler(row, client)
+
+        properties = handler.input_schema["properties"]
+        self.assertEqual(
+            properties["platforms"],
+            {"type": "array", "items": {"type": "string", "enum": ["weibo", "zhihu"]}},
+        )
+        self.assertEqual(properties["date_range"], {"anyOf": [{"type": "string"}, {"type": "object"}]})
+        # 必填字段的 null 是模型可传的合法取值，保持原样。
+        self.assertEqual(properties["cursor"], {"anyOf": [{"type": "string"}, {"type": "null"}]})
+        self.assertEqual(
+            handler.validate_arguments({"cursor": None, "platforms": '["weibo"]'}),
+            [{"field": "platforms", "code": "type"}],
+        )
+        self.assertEqual(handler.validate_arguments({"cursor": None, "platforms": ["weibo"]}), [])
+
     def test_validates_any_of_one_of_and_all_of_without_branch_error_text(self):
         row = build_row(
             discovered_tools=[
