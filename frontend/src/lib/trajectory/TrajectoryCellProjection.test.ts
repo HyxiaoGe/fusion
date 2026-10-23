@@ -1168,7 +1168,7 @@ it('请求详情只显示对应 started 的实际指纹，旧请求不推断', a
   await i18n.changeLanguage('zh-CN');
   const base: Extract<TrajectoryCell, { type: 'assistant_request' }> = {
     key: 'request', type: 'assistant_request', runId: 'r', userMessageId: null, assistantMessageId: null,
-    completenessSources: ['live-tail'], sourceSequences: [0], llmRoundId: 'selected', stepId: null, toolNames: [], updatedPlan: false, roundIndex: 1, requestIndex: 1,
+    completenessSources: ['live-tail'], sourceSequences: [0], llmRoundId: 'selected', stepId: null, toolNames: [], toolLabels: {}, updatedPlan: false, roundIndex: 1, requestIndex: 1,
     model: null, provider: null, status: 'completed', reasoningPreview: null,
     inputTokens: null, outputTokens: null, reasoningTokens: null, durationMs: null, ttftMs: null, detailAvailable: true,
     events: [event('r', 0, 'system_prompt_prepared', { payload: { fingerprint: 'a'.repeat(64) } }),
@@ -1236,7 +1236,7 @@ it('换模型事件按发生位置投影为一行，挑不到备用时如实写�
   expect(runCell?.sourceSequences).not.toContain(1);
 });
 
-  it('工具调用挂到同一 step 内最近的模型轮次，并带上开始事件的参数', () => {
+  it('工具调用挂到同一 step 内最近的模型轮次，并带上开始事件的参数和可读名', () => {
     const run = runSummary('rounds', { llm_round_count: 2 });
     const roundEvent = (sequence: number, eventType: string, roundId: string, stepId: string) => event(
       'rounds', sequence, eventType, { stepId, payload: { llm_round_id: roundId, round_index: sequence } },
@@ -1248,9 +1248,13 @@ it('换模型事件按发生位置投影为一行，挑不到备用时如实写�
       roundEvent(0, 'llm_round_started', 'round-1', 'step-1'),
       roundEvent(1, 'llm_round_completed', 'round-1', 'step-1'),
       toolEvent(2, 'tool_call_started', 'call-a', { tool_name: 'web_search', arguments: { query: '杭州' } }),
-      toolEvent(3, 'tool_call_started', 'call-b', { tool_name: 'search_trains', arguments: { argument_count: 3 } }),
+      toolEvent(3, 'tool_call_started', 'call-b', {
+        tool_name: 'mcp_KjRUUI0x',
+        tool_label: '腾讯地图 / placeSearchNearby',
+        arguments: { argument_count: 3 },
+      }),
       toolEvent(4, 'tool_call_completed', 'call-a', { tool_name: 'web_search', status: 'success' }),
-      toolEvent(5, 'tool_call_completed', 'call-b', { tool_name: 'search_trains', status: 'success' }),
+      toolEvent(5, 'tool_call_completed', 'call-b', { tool_name: 'mcp_KjRUUI0x', status: 'success' }),
       roundEvent(6, 'llm_round_started', 'round-2', 'step-2'),
     ];
     const projection = projectTrajectoryCells(input({
@@ -1282,17 +1286,17 @@ it('换模型事件按发生位置投影为一行，挑不到备用时如实写�
       (cell): cell is Extract<TrajectoryCell, { type: 'assistant_request' }> => cell.type === 'assistant_request',
     );
     const tools = cells.filter((cell): cell is Extract<TrajectoryCell, { type: 'tool' }> => cell.type === 'tool');
-    expect(rounds.map(round => [round.llmRoundId, round.stepId, round.toolNames])).toEqual([
-      ['round-1', 'step-1', ['web_search', 'search_trains']],
-      ['round-2', 'step-2', []],
+    expect(rounds.map(round => [round.llmRoundId, round.stepId, round.toolNames, round.toolLabels])).toEqual([
+      ['round-1', 'step-1', ['web_search', 'mcp_KjRUUI0x'], { mcp_KjRUUI0x: '腾讯地图 / placeSearchNearby' }],
+      ['round-2', 'step-2', [], {}],
     ]);
-    expect(tools.map(tool => [tool.toolCallId, tool.llmRoundKey, tool.arguments])).toEqual([
-      ['call-a', rounds[0].key, { query: '杭州' }],
-      ['call-b', rounds[0].key, { argument_count: 3 }],
+    expect(tools.map(tool => [tool.toolCallId, tool.llmRoundKey, tool.arguments, tool.toolLabel])).toEqual([
+      ['call-a', rounds[0].key, { query: '杭州' }, null],
+      ['call-b', rounds[0].key, { argument_count: 3 }, '腾讯地图 / placeSearchNearby'],
     ]);
   });
 
-  it('模型每次改计划单独成行并挂到发起它的模型轮次，进度快照只刷新最近一版', () => {
+  it('模型每次改计划单独成行并挂到发起它的模型轮次，进度快照只刷新最近一版，旧版标为已取代', () => {
     const run = runSummary('planned', { llm_round_count: 2 });
     const items = (first: string, second: string) => [
       { id: 'a', title: '确定路线', status: first },
@@ -1340,9 +1344,9 @@ it('换模型事件按发生位置投影为一行，挑不到备用时如实写�
     );
     const plans = cells.filter((cell): cell is Extract<TrajectoryCell, { type: 'plan' }> => cell.type === 'plan');
     expect(rounds.map(round => round.updatedPlan)).toEqual([true, true]);
-    expect(plans.map(cell => [cell.llmRoundKey, cell.revision, cell.sourceSequences])).toEqual([
-      [rounds[0].key, 2, [2, 3]],
-      [rounds[1].key, 4, [5, 6]],
+    expect(plans.map(cell => [cell.llmRoundKey, cell.revision, cell.sourceSequences, cell.superseded])).toEqual([
+      [rounds[0].key, 2, [2, 3], true],
+      [rounds[1].key, 4, [5, 6], false],
     ]);
     expect(trajectoryPlanItems(plans[0].payload).map(item => item.status)).toEqual(['completed', 'pending']);
   });

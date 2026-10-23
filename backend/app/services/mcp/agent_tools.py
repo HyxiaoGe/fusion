@@ -563,6 +563,10 @@ class McpAgentToolHandler(BaseToolHandler):
         return self.binding.alias
 
     @property
+    def display_label(self) -> str:
+        return self.binding.tool_label
+
+    @property
     def sse_event_prefix(self) -> str:
         return "mcp"
 

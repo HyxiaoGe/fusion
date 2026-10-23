@@ -244,7 +244,7 @@ function toolIdentity(runId: string, toolCallId: string): string {
 
 function tableSummary(cell: TrajectoryCell, summary: string): string {
   if (cell.type === 'tool') {
-    return [trajectoryToolLabel(cell.toolName), toolArgumentSummary(cell)].filter(Boolean).join(' · ');
+    return [trajectoryToolLabel(cell.toolName, cell.toolLabel), toolArgumentSummary(cell)].filter(Boolean).join(' · ');
   }
   return summary;
 }

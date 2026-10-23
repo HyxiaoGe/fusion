@@ -51,6 +51,7 @@ function toolCell(toolCallId = 'tool-1'): Extract<TrajectoryCell, { type: 'tool'
     toolCallId,
     stepId: 'step-1',
     toolName: 'web_search',
+    toolLabel: null,
     arguments: null,
     llmRoundKey: null,
     status: 'success',
@@ -74,6 +75,7 @@ function attemptCell(
     toolCallId,
     toolAttemptId,
     toolName: 'web_search',
+    toolLabel: null,
     llmRoundKey: null,
     attemptIndex,
     status: 'success',
@@ -93,6 +95,7 @@ function llmCell(): Extract<TrajectoryCell, { type: 'assistant_request' }> {
     llmRoundId: 'round-1',
     stepId: null,
     toolNames: [],
+    toolLabels: {},
     updatedPlan: false,
     roundIndex: 1,
     requestIndex: 4,
@@ -333,7 +336,7 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(within(summary).queryByText('模式')).not.toBeInTheDocument();
   });
 
-  it('打开 Tool 即请求详情，摘要内嵌调用与结果预览，载荷和结果页签复用同一响应', async () => {
+  it('打开 Tool 即请求详情，摘要内嵌调用预览、不放结果，载荷和结果页签复用同一响应', async () => {
     getTrajectoryToolNodeDetailMock.mockResolvedValue(detail('available'));
     const { rerender } = renderPanel({
       ...toolCell(),
@@ -350,7 +353,8 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(summary).toHaveTextContent('正在加载');
     expect(await within(summary).findByText('上海天气')).toBeInTheDocument();
     expect(within(summary).getByText('queryText')).toBeInTheDocument();
-    expect(within(summary).getByText(/"temperatureC": 28/)).toBeInTheDocument();
+    expect(within(summary).queryByText(/temperatureC/)).not.toBeInTheDocument();
+    expect(within(summary).queryByRole('button', { name: '查看完整结果' })).not.toBeInTheDocument();
     expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1);
 
     fireEvent.click(within(panel).getByRole('button', { name: '查看完整载荷' }));
@@ -368,24 +372,7 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(getTrajectoryToolNodeDetailMock).toHaveBeenCalledTimes(1);
   });
 
-  it('工具结果预览展示工具自己的返回，不展示发给模型的工具消息，超长时截断', async () => {
-    const response = detail('available');
-    response.detail = {
-      ...response.detail!,
-      result: { note: `工具返回${'长'.repeat(700)}` },
-      observation: { schema_version: 1, status: 'available', text: '事实边界提示：以下内容来自工具', original_chars: 900, generated_round_index: 1, redacted_fields: [], truncated_fields: [] },
-    };
-    getTrajectoryToolNodeDetailMock.mockResolvedValue(response);
-    renderPanel();
-
-    const summary = screen.getByRole('tabpanel', { name: '摘要' });
-    const preview = await within(summary).findByText(/工具返回长/);
-    expect(preview.textContent?.endsWith('…')).toBe(true);
-    expect(preview.textContent?.length).toBeLessThan(700);
-    expect(summary).not.toHaveTextContent('事实边界提示');
-  });
-
-  it('调用参数用中文名，搜索来源显示成标题和网址列表，完整来源和原始返回在结果页', async () => {
+  it('调用参数用中文名，搜索来源和原始返回只在结果页', async () => {
     const response = detail('available');
     response.detail = {
       ...response.detail!,
@@ -407,15 +394,13 @@ describe('TrajectoryNodeDetailPanel', () => {
     expect(await within(summary).findByText('搜索词')).toBeInTheDocument();
     expect(within(summary).getByText('最新动态')).toBeInTheDocument();
     expect(within(summary).getByText('context_source_limit')).toBeInTheDocument();
-    expect(within(summary).getByRole('link', { name: '西湖游船班次 1' }))
-      .toHaveAttribute('href', 'https://news.example.com/articles/0?ref=very-long-tracking-parameter');
-    expect(within(summary).getAllByRole('link')).toHaveLength(5);
-    expect(summary).toHaveTextContent('共 6 条');
-    expect(summary).not.toHaveTextContent('"sources"');
+    expect(within(summary).queryByRole('link')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: '结果' }));
     const result = screen.getByRole('tabpanel', { name: '结果' });
     expect(within(result).getAllByRole('link')).toHaveLength(6);
+    expect(within(result).getByRole('link', { name: '西湖游船班次 1' }))
+      .toHaveAttribute('href', 'https://news.example.com/articles/0?ref=very-long-tracking-parameter');
     expect(within(result).getByText('来源正文 6')).toBeInTheDocument();
     expect(within(result).getByText('原始返回')).toBeInTheDocument();
     expect(within(result).getByText(/"result_count": 6/)).not.toBeVisible();
@@ -426,7 +411,7 @@ describe('TrajectoryNodeDetailPanel', () => {
     renderPanel();
 
     const summary = screen.getByRole('tabpanel', { name: '摘要' });
-    expect(await within(summary).findAllByText('该运行生成时尚未记录详情')).toHaveLength(2);
+    expect(await within(summary).findByText('该运行生成时尚未记录详情')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: '载荷' }));
     expect(screen.getByText('该运行生成时尚未记录 Payload/Result')).toBeInTheDocument();
   });
@@ -641,7 +626,7 @@ describe('TrajectoryNodeDetailPanel', () => {
     const round = { ...llmCell(), updatedPlan: true };
     const plan: Extract<TrajectoryCell, { type: 'plan' }> = {
       key: 'run:run-1:plan:plan-1:23', type: 'plan', runId: 'run-1', userMessageId: 'user-1', assistantMessageId: 'assistant-1',
-      completenessSources: ['durable-snapshot'], sourceSequences: [23], planId: 'plan-1', revision: 1, llmRoundKey: round.key,
+      completenessSources: ['durable-snapshot'], sourceSequences: [23], planId: 'plan-1', revision: 1, llmRoundKey: round.key, superseded: false,
       payload: { items: [{ id: 'step-1', title: '确定路线', status: 'running' }, { id: 'step-2', title: '查询天气', status: 'pending' }] },
     };
     renderPanel(round, [plan]);
@@ -654,7 +639,7 @@ describe('TrajectoryNodeDetailPanel', () => {
   it('计划详情列出每一步及状态', () => {
     renderPanel({
       key: 'run:run-1:plan:plan-1:23', type: 'plan', runId: 'run-1', userMessageId: 'user-1', assistantMessageId: 'assistant-1',
-      completenessSources: ['durable-snapshot'], sourceSequences: [23], planId: 'plan-1', revision: 4, llmRoundKey: null,
+      completenessSources: ['durable-snapshot'], sourceSequences: [23], planId: 'plan-1', revision: 4, llmRoundKey: null, superseded: false,
       payload: { items: [
         { id: 'step-1', title: '确定路线', status: 'completed' },
         { id: 'step-2', title: '编排行程', status: 'running', summary: '先排大理段' },
@@ -671,6 +656,25 @@ describe('TrajectoryNodeDetailPanel', () => {
       '1.确定路线已完成',
       '2.编排行程先排大理段进行中',
       '3.生成文档等待中',
+    ]);
+  });
+
+  it('被后续版本取代的计划只列步骤，不显示当时的状态', () => {
+    renderPanel({
+      key: 'run:run-1:plan:plan-1:10', type: 'plan', runId: 'run-1', userMessageId: 'user-1', assistantMessageId: 'assistant-1',
+      completenessSources: ['durable-snapshot'], sourceSequences: [10], planId: 'plan-1', revision: 1, llmRoundKey: null, superseded: true,
+      payload: { items: [
+        { id: 'step-1', title: '确定路线', status: 'running' },
+        { id: 'step-2', title: '编排行程', status: 'pending' },
+      ] },
+    });
+
+    const summary = screen.getByRole('tabpanel', { name: '摘要' });
+    expect(summary).toHaveTextContent('状态已更新');
+    expect(summary).toHaveTextContent('之后又更新过');
+    expect(within(summary).getAllByRole('listitem').map(step => step.textContent)).toEqual([
+      '1.确定路线',
+      '2.编排行程',
     ]);
   });
 

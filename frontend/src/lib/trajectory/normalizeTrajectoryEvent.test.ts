@@ -298,6 +298,30 @@ describe('normalizeTrajectoryEvent', () => {
     expect(normalized?.payload).not.toBe(payload);
   });
 
+  it('工具开始事件保留服务端给的可读工具名', () => {
+    const normalized = normalizeSseTrajectoryEvent({
+      type: 'tool_call_started',
+      schema_version: 1,
+      run_id: 'run-1',
+      parent_run_id: null,
+      step_id: 'step-1',
+      parent_step_id: null,
+      tool_call_id: 'tool-1',
+      sequence: 1,
+      trace_id: 'trace-1',
+      ts: Date.parse(timestamp) / 1000,
+      tool_name: 'mcp_KjRUUI0xYTwb2twa',
+      tool_label: '腾讯地图 / placeSearchNearby',
+      arguments: { keyword: '西湖' },
+    });
+
+    expect(normalized?.payload).toEqual({
+      tool_name: 'mcp_KjRUUI0xYTwb2twa',
+      tool_label: '腾讯地图 / placeSearchNearby',
+      arguments: { keyword: '西湖' },
+    });
+  });
+
   it('保留 LLM 完成事件的推理 Token，同时丢弃未声明字段', () => {
     const normalized = normalizeSseTrajectoryEvent({
       type: 'llm_round_completed',

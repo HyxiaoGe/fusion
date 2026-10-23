@@ -9,6 +9,7 @@ import {
   formatTrajectoryDuration,
   formatTrajectoryStatus,
   getTrajectoryCellPresentation,
+  trajectoryToolLabel,
 } from './trajectoryCellPresentation';
 
 export interface TrajectoryNodeDiagnostic {
@@ -141,12 +142,12 @@ function safeSpanToolLabel(cell: TrajectoryCell, span: TrajectorySpan): string |
     span.kind === 'tool'
     && cell.type === 'tool'
     && span.span_id === `tool:${cell.toolCallId}`
-  ) return getToolMeta(cell.toolName ?? '').label;
+  ) return trajectoryToolLabel(cell.toolName, cell.toolLabel);
   if (
     span.kind === 'tool_attempt'
     && cell.type === 'subtool'
     && span.span_id === `tool_attempt:${cell.toolAttemptId}`
-  ) return getToolMeta(cell.toolName ?? '').label;
+  ) return trajectoryToolLabel(cell.toolName, cell.toolLabel);
   return null;
 }
 

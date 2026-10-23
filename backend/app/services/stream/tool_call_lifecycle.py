@@ -25,6 +25,7 @@ class ToolCallEmitter(Protocol):
         tool_name: str,
         arguments: dict,
         plan_item_id: str | None = None,
+        tool_label: str | None = None,
     ) -> None:
         """发送工具调用开始事件。"""
 
@@ -69,6 +70,7 @@ async def emit_tool_call_started(
     tool_name: str,
     arguments: dict,
     plan_item_id: str | None = None,
+    tool_label: str | None = None,
 ) -> None:
     if emitter is None:
         return
@@ -79,6 +81,8 @@ async def emit_tool_call_started(
     )
     if plan_item_id is not None:
         kwargs["plan_item_id"] = plan_item_id
+    if tool_label is not None:
+        kwargs["tool_label"] = tool_label
     await emitter.tool_call_started(**kwargs)
 
 
@@ -175,6 +179,7 @@ async def execute_tool_with_lifecycle(
     result_summary_builder: ResultSummaryBuilder,
     emitter: ToolCallEmitter | None,
     plan_item_id: str | None = None,
+    tool_label: str | None = None,
 ) -> ToolResult:
     if emitter is None:
         return await execute(target, args)
@@ -185,6 +190,7 @@ async def execute_tool_with_lifecycle(
         tool_name=tool_name,
         arguments=args,
         plan_item_id=plan_item_id,
+        tool_label=tool_label,
     )
     attempt = await run_tool_attempt(target=target, args=args, execute=execute)
     await complete_tool_lifecycle(

@@ -68,6 +68,7 @@ class StepStarted(AgentEventBase):
 class ToolCallStarted(AgentEventBase):
     type: Literal["tool_call_started"]
     tool_name: str
+    tool_label: str | None = None
     arguments: dict[str, Any]
     plan_item_id: str | None = None
 

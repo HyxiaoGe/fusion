@@ -86,6 +86,7 @@ function toolCell(runId: string, userMessageId: string, sequence: number): Traje
     toolCallId: `tool-${runId}`,
     stepId: 'step-1',
     toolName: 'web_search',
+    toolLabel: null,
     arguments: null,
     llmRoundKey: null,
     status: 'success',
@@ -105,6 +106,7 @@ function planCell(runId: string, userMessageId: string): TrajectoryCell {
     planId: 'plan-1',
     revision: 1,
     llmRoundKey: null,
+    superseded: false,
     payload: {},
   };
 }
@@ -121,6 +123,7 @@ function subtoolCell(runId: string, userMessageId: string): TrajectoryCell {
     toolCallId: `tool-${runId}`,
     toolAttemptId: 'attempt-1',
     toolName: 'web_search',
+    toolLabel: null,
     llmRoundKey: null,
     attemptIndex: 0,
     status: 'success',

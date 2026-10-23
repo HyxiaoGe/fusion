@@ -31,7 +31,7 @@ const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
   // 留着只会让实时与持久化比对必然不一致。
   run_started: ['conversation_id', 'message_id', 'task_id', 'model', 'capability_resolution'],
   step_started: ['step_number'],
-  tool_call_started: ['tool_name', 'plan_item_id', 'arguments'],
+  tool_call_started: ['tool_name', 'tool_label', 'plan_item_id', 'arguments'],
   tool_call_delta: ['tool_name'],
   tool_call_completed: ['tool_name', 'status', 'duration_ms', 'plan_item_id'],
   step_completed: ['step_number', 'tool_call_count', 'duration_ms'],

@@ -78,8 +78,6 @@ const PENDING_RETRY_DEADLINE_MS = 7_000;
 const PENDING_MAX_REQUESTS = 7;
 const EMPTY_RELATED_CELLS: readonly TrajectoryCell[] = [];
 const SUMMARY_PAYLOAD_FIELDS = 6;
-const SUMMARY_TEXT_CHARS = 600;
-const SUMMARY_LINKS = 5;
 
 export function TrajectoryNodeDetailPanel({
   conversationId,
@@ -568,14 +566,9 @@ function SummarySection({
         </div>
       )}
       {cell.type === 'tool' && (
-        <>
-          <SummaryBlock title="调用" actionLabel="查看完整载荷" onOpen={() => onSelectSection('payload')}>
-            <ToolCallPreview toolName={cell.toolName} detail={detail} />
-          </SummaryBlock>
-          <SummaryBlock title="结果" actionLabel="查看完整结果" onOpen={() => onSelectSection('result')}>
-            <ToolResultPreview detail={detail} />
-          </SummaryBlock>
-        </>
+        <SummaryBlock title="调用" actionLabel="查看完整载荷" onOpen={() => onSelectSection('payload')}>
+          <ToolCallPreview toolName={cell.toolName} detail={detail} />
+        </SummaryBlock>
       )}
       {cell.type === 'assistant_request' && (
         <SummaryBlock
@@ -600,18 +593,23 @@ function PlanStepList({ cell }: { cell: Extract<TrajectoryCell, { type: 'plan' }
   const items = trajectoryPlanItems(cell.payload);
   if (items.length === 0) return <SummaryNotice text="计划没有步骤" />;
   return (
-    <ol aria-label="计划步骤" className="space-y-1.5 text-sm">
-      {items.map((item, index) => (
-        <li key={item.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-baseline gap-2">
-          <span className="text-xs tabular-nums text-muted-foreground">{index + 1}.</span>
-          <span className="min-w-0 break-words text-foreground">
-            {item.title}
-            {item.summary && <span className="block text-xs text-muted-foreground">{item.summary}</span>}
-          </span>
-          <span className={cn('text-xs', PLAN_STATUS_TONE[item.status])}>{item.statusLabel}</span>
-        </li>
-      ))}
-    </ol>
+    <div className="min-w-0 space-y-2">
+      {cell.superseded && <SummaryNotice text="这是模型当时写下的计划，之后又更新过；最新进度看最后一版计划。" />}
+      <ol aria-label="计划步骤" className="space-y-1.5 text-sm">
+        {items.map((item, index) => (
+          <li key={item.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-baseline gap-2">
+            <span className="text-xs tabular-nums text-muted-foreground">{index + 1}.</span>
+            <span className="min-w-0 break-words text-foreground">
+              {item.title}
+              {item.summary && <span className="block text-xs text-muted-foreground">{item.summary}</span>}
+            </span>
+            {!cell.superseded && (
+              <span className={cn('text-xs', PLAN_STATUS_TONE[item.status])}>{item.statusLabel}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
@@ -697,33 +695,6 @@ function ToolCallPreview({ toolName, detail }: { toolName: string | null; detail
   );
 }
 
-/** 摘要页展示工具自己的返回；发给模型的工具消息带有本应用追加的说明，放在结果页。 */
-function ToolResultPreview({ detail }: { detail: SummaryDetailState }) {
-  const notice = summaryDetailNotice(detail);
-  if (notice) return <SummaryNotice text={notice} />;
-  const result = detail.response ? remoteSectionValue(detail.response, 'result') : null;
-  if (!result || Object.keys(result).length === 0) return <SummaryNotice text="没有返回内容" />;
-  const links = resultLinks(result);
-  if (links) {
-    return (
-      <div className="min-w-0 space-y-1.5">
-        <ResultLinkList links={links.slice(0, SUMMARY_LINKS)} />
-        {links.length > SUMMARY_LINKS && <SummaryNotice text={`共 ${links.length} 条`} />}
-      </div>
-    );
-  }
-  const document = resultDocument(result);
-  if (document) {
-    return (
-      <div className="min-w-0 space-y-1.5">
-        <ResultLinkList links={[document]} />
-        {document.excerpt && <ClippedText text={document.excerpt} />}
-      </div>
-    );
-  }
-  return <ClippedText text={JSON.stringify(result, null, 2)} />;
-}
-
 interface ResultLink {
   title: string;
   url: string;
@@ -744,11 +715,6 @@ function resultLinks(result: Record<string, unknown>): ResultLink[] | null {
   return null;
 }
 
-/** 单篇读取结果（标题 + 正文）。 */
-function resultDocument(result: Record<string, unknown>): ResultLink | null {
-  return typeof result.content === 'string' ? toResultLink(result) : null;
-}
-
 function toResultLink(record: Record<string, unknown>): ResultLink | null {
   const title = typeof record.title === 'string' ? record.title.trim() : '';
   const url = [record.url, record.page_url].find(
@@ -761,7 +727,7 @@ function toResultLink(record: Record<string, unknown>): ResultLink | null {
   return { title, url, excerpt: excerpt?.trim() ?? null };
 }
 
-function ResultLinkList({ links, withExcerpt = false }: { links: readonly ResultLink[]; withExcerpt?: boolean }) {
+function ResultLinkList({ links }: { links: readonly ResultLink[] }) {
   return (
     <ol className="min-w-0 space-y-1.5 text-sm">
       {links.map((link, index) => (
@@ -775,7 +741,7 @@ function ResultLinkList({ links, withExcerpt = false }: { links: readonly Result
             {link.title}
           </a>
           <span className="block truncate text-xs text-muted-foreground">{hostLabel(link.url)}</span>
-          {withExcerpt && link.excerpt && (
+          {link.excerpt && (
             <p className="mt-0.5 line-clamp-3 break-words text-xs text-muted-foreground">{link.excerpt}</p>
           )}
         </li>
@@ -842,7 +808,7 @@ function LlmRoundPreview({
         <ul aria-label="本轮发起的工具调用" className="space-y-1 text-xs">
           {tools.map(tool => (
             <li key={tool.toolCallId} className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 font-medium text-foreground">{trajectoryToolLabel(tool.toolName)}</span>
+              <span className="shrink-0 font-medium text-foreground">{trajectoryToolLabel(tool.toolName, tool.toolLabel)}</span>
               <span className="truncate text-muted-foreground">
                 {[formatTrajectoryStatus(tool.status), formatTrajectoryDuration(toolDurationMs(tool))]
                   .filter(Boolean)
@@ -876,15 +842,6 @@ function roundToolCells(
 function toolDurationMs(cell: Extract<TrajectoryCell, { type: 'tool' }>): number | null {
   const duration = cell.events.findLast(event => event.eventType === 'tool_call_completed')?.payload.duration_ms;
   return typeof duration === 'number' ? duration : null;
-}
-
-function ClippedText({ text }: { text: string }) {
-  const clipped = text.length > SUMMARY_TEXT_CHARS;
-  return (
-    <pre className="max-h-48 overflow-hidden whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-2.5 text-xs text-foreground">
-      {clipped ? `${text.slice(0, SUMMARY_TEXT_CHARS)}…` : text}
-    </pre>
-  );
 }
 
 function formatPayloadValue(value: unknown): string {
@@ -1058,7 +1015,7 @@ function RemoteDetailSection({
         <p className="text-sm text-muted-foreground">{t('trajectory.toolDetail.legacySummary')}</p>
       )}
       {toolSection === 'result' && <h3 className="text-sm font-semibold">{t('trajectory.observation.toolReturn')}</h3>}
-      {links && <ResultLinkList links={links} withExcerpt />}
+      {links && <ResultLinkList links={links} />}
       {value === null ? (
         <p className="text-sm text-muted-foreground">该部分未提供</p>
       ) : links ? (
@@ -1116,15 +1073,15 @@ function ContextVisibilitySection({
 }) {
   const { t } = useTranslation();
   if (!visibility || visibility.before_count === 0) return null;
-  const toolNames = new Map(relatedCells.flatMap(related => (
-    related.type === 'tool' ? [[related.toolCallId, related.toolName] as const] : []
+  const toolLabels = new Map(relatedCells.flatMap(related => (
+    related.type === 'tool'
+      ? [[related.toolCallId, trajectoryToolLabel(related.toolName, related.toolLabel)] as const]
+      : []
   )));
   const describe = (ids: readonly string[]) => {
     const counts = new Map<string, number>();
     for (const id of ids) {
-      const label = toolNames.has(id)
-        ? trajectoryToolLabel(toolNames.get(id) ?? null)
-        : t('trajectory.contextVisibility.unknownTool');
+      const label = toolLabels.get(id) ?? t('trajectory.contextVisibility.unknownTool');
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
     return [...counts].map(([label, count]) => (count > 1 ? `${label}×${count}` : label)).join('、');
