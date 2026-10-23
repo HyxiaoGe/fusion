@@ -193,6 +193,8 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                     "arguments_schema_invalid",
                 )
                 self.assertTrue(records[0].result.data["local_preflight"])
+                # 超出资源上限的参数不记录原文。
+                self.assertEqual(handler.log.await_args.kwargs["input_params"], {})
 
         handler.execute.assert_not_awaited()
 
@@ -542,6 +544,36 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(results_by_id["invalid"].data["argument_errors"], ["query:required"])
                 self.assertEqual(results_by_id["valid"].status, "success")
                 handler.execute.assert_awaited_once_with({"query": "MCP"}, ANY)
+
+    async def test_schema_rejected_arguments_are_recorded_for_diagnosis(self):
+        class SchemaAwareHandler(FakeToolHandler):
+            tool_name = "mcp_schema_record"
+            supports_automatic_retry = False
+
+            def validate_arguments(self, args):
+                return [] if isinstance(args.get("platforms"), list) else [{"field": "platforms", "code": "any_of"}]
+
+        handler = SchemaAwareHandler()
+        handler.execute = AsyncMock()
+        handler.log = AsyncMock()
+        handler._build_result_summary = MagicMock(return_value={"kind": "external_tool", "truncated": False})
+
+        records = await execute_tools_parallel(
+            [{"id": "invalid", "name": handler.tool_name, "arguments": '{"platforms":"weibo","limit":20}'}],
+            "conv-1",
+            "user-1",
+            "model-1",
+            "openai",
+            tool_handlers={handler.tool_name: handler},
+            runtime_context=SimpleNamespace(step_number=1),
+        )
+
+        self.assertEqual(records[0].result.data["argument_errors"], ["platforms:any_of"])
+        handler.execute.assert_not_awaited()
+        self.assertEqual(
+            handler.log.await_args.kwargs["input_params"],
+            {"platforms": "weibo", "limit": 20},
+        )
 
     async def test_unverified_remote_argument_failure_is_not_turned_into_argument_errors(self):
         class RemoteHandler(FakeToolHandler):
