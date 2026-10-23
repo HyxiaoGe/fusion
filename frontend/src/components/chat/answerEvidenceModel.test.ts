@@ -344,6 +344,50 @@ describe('deriveAnswerEvidence', () => {
     expect(evidence?.candidateItems).toEqual([]);
   });
 
+  it('运行状态只保留 12 条证据时，被挤掉的工具来源按正文编号判定', () => {
+    const toolBlocks: DataSourceBlock[] = Array.from({ length: 15 }, (_, offset) => {
+      const citationIndex = offset + 1;
+      return {
+        type: 'data_source',
+        id: `tool-block-${citationIndex}`,
+        schema_version: 1,
+        category: 'tool',
+        provider: 'trendradar',
+        label: '热榜资讯',
+        source_refs: [{
+          kind: 'tool',
+          evidence_id: `ev-tool-${citationIndex}`,
+          citation_index: citationIndex,
+          title: '热榜资讯 / search_news',
+          provider: 'trendradar',
+        }],
+      };
+    });
+    // 正文引用了 1–13，运行状态按上限只留下最新的 2–13。
+    const agentEvidence = Array.from({ length: 12 }, (_, offset) => ({
+      id: `ev-tool-${offset + 2}`,
+      kind: 'tool' as const,
+      status: 'used' as const,
+      title: '热榜资讯 / search_news',
+      claim: '',
+      citationIndex: offset + 2,
+      usedByFinalAnswer: true,
+    }));
+
+    const evidence = deriveAnswerEvidence({
+      toolBlocks,
+      agentEvidence,
+      answerText: Array.from({ length: 13 }, (_, offset) => `第 ${offset + 1} 条[${offset + 1}]。`).join(''),
+      searchSources: [],
+      urlBlocks: [],
+    });
+
+    expect(evidence?.usedItems?.map(item => item.citationIndex)).toEqual(
+      Array.from({ length: 13 }, (_, offset) => offset + 1),
+    );
+    expect(evidence?.candidateItems?.map(item => item.citationIndex)).toEqual([14, 15]);
+  });
+
   it('按稳定 citation_index 排序多轮搜索与读取来源，并按 evidence_id 去重', () => {
     const evidence = deriveAnswerEvidence({
       sourceRefs: [
