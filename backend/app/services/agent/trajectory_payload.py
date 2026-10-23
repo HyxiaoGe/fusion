@@ -45,7 +45,7 @@ _COMMON_FIELDS = frozenset(
 _EVENT_FIELDS: dict[str, frozenset[str]] = {
     "run_started": frozenset({"conversation_id", "message_id", "task_id", "model", "tools", "capability_resolution"}),
     "step_started": frozenset({"step_number"}),
-    "tool_call_started": frozenset({"tool_name", "plan_item_id", "arguments"}),
+    "tool_call_started": frozenset({"tool_name", "tool_label", "plan_item_id", "arguments"}),
     "tool_call_delta": frozenset({"tool_name"}),
     "tool_call_completed": frozenset({"tool_name", "status", "duration_ms", "plan_item_id"}),
     "step_completed": frozenset({"step_number", "tool_call_count", "duration_ms"}),

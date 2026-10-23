@@ -53,6 +53,7 @@ EVENT_FIELDS = {
     "step_started": {"step_number": 1},
     "tool_call_started": {
         "tool_name": "web_search",
+        "tool_label": "腾讯地图 / placeSearchNearby",
         "arguments": {"query": "完整工具输入"},
         "plan_item_id": "plan-item-1",
     },
@@ -285,7 +286,7 @@ EVENT_FIELDS = {
 EVENT_ALLOWED_FIELDS = {
     "run_started": {"conversation_id", "message_id", "task_id", "model", "tools", "capability_resolution"},
     "step_started": {"step_number"},
-    "tool_call_started": {"tool_name", "plan_item_id", "arguments"},
+    "tool_call_started": {"tool_name", "tool_label", "plan_item_id", "arguments"},
     "tool_call_delta": {"tool_name"},
     "tool_call_completed": {"tool_name", "status", "duration_ms", "plan_item_id"},
     "step_completed": {"step_number", "tool_call_count", "duration_ms"},

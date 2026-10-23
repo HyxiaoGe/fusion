@@ -1293,7 +1293,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_execute_tools_parallel_with_emitter_keeps_events_log_and_record(self):
         """emitter 路径仍发工具事件、写日志，并返回命名记录。"""
-        handler = MagicMock()
+        handler = MagicMock(display_label=None)
         handler.sanitize_input_params_for_event.side_effect = lambda args: args
         handler.tool_name = "web_search"
         handler.execute = AsyncMock(return_value=ToolResult(status="success"))
@@ -1336,6 +1336,38 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handler.log.await_args.kwargs["tool_call_id"], "call-1")
         self.assertEqual(handler.log.await_args.kwargs["trace_id"], "trace-1")
         self.assertEqual(handler.log.await_args.kwargs["step_number"], 2)
+
+    async def test_execute_tools_parallel_started_event_carries_handler_display_label(self):
+        """MCP 工具名是哈希别名，开始事件带上 handler 给的可读名供轨迹显示。"""
+        handler = MagicMock(display_label="腾讯地图 / placeSearchNearby")
+        handler.sanitize_input_params_for_event.side_effect = lambda args: args
+        handler.tool_name = "mcp_KjRUUI0xYTwb2twa"
+        handler.supports_automatic_retry = False
+        handler.execute = AsyncMock(return_value=ToolResult(status="success"))
+        handler.log = AsyncMock()
+        handler._build_result_summary.return_value = {"kind": "mcp", "truncated": False}
+        emitter = AsyncMock()
+        tool_call = {"id": "call-1", "name": "mcp_KjRUUI0xYTwb2twa", "arguments": {"keyword": "西湖"}}
+
+        with patch("app.services.tool_handlers.get_handler", return_value=handler):
+            await execute_tools_parallel(
+                [tool_call],
+                conversation_id="conv-1",
+                user_id="user-1",
+                model_id="gpt-4",
+                provider="openai",
+                trace_id="trace-1",
+                step_number=1,
+                message_id="assistant-1",
+                emitter=emitter,
+            )
+
+        emitter.tool_call_started.assert_awaited_once_with(
+            tool_call_id="call-1",
+            tool_name="mcp_KjRUUI0xYTwb2twa",
+            arguments={"keyword": "西湖"},
+            tool_label="腾讯地图 / placeSearchNearby",
+        )
 
     async def test_execute_tools_parallel_retries_handler_but_writes_one_log_for_logical_call(self):
         handler = AsyncMock()
@@ -1506,7 +1538,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
 
         order = []
 
-        handler = MagicMock()
+        handler = MagicMock(display_label=None)
         handler.sanitize_input_params_for_event.side_effect = lambda args: args
         handler.tool_name = "web_search"
         handler.execute = AsyncMock()

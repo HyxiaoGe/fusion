@@ -258,6 +258,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         self.assertEqual(binding["server_id"], "server-enabled")
         self.assertEqual(binding["remote_tool_name"], "search/docs")
         self.assertEqual(binding["tool_label"], "Microsoft Learn / search/docs")
+        self.assertEqual(tool_set.handlers[alias].display_label, "Microsoft Learn / search/docs")
         self.assertEqual(
             binding["definition_sha256"],
             hashlib.sha256(

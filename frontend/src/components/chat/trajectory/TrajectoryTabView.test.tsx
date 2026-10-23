@@ -792,8 +792,8 @@ describe('TrajectoryTabView', () => {
       { wrapper: wrapper(store) },
     );
 
-    const toolA = await screen.findByRole('option', { name: /外部工具，tool_0/ });
-    const toolB = screen.getByRole('option', { name: /外部工具，tool_1/ });
+    const toolA = await screen.findByRole('option', { name: /，tool_0，/ });
+    const toolB = screen.getByRole('option', { name: /，tool_1，/ });
     fireEvent.click(toolA);
     expect(toolA).toHaveAttribute('aria-selected', 'true');
 
@@ -893,7 +893,7 @@ describe('TrajectoryTabView', () => {
     table.scrollTop = 0;
     fireEvent.scroll(table);
     await waitFor(() => expect(screen.getByRole('button', { name: '继续跟随' })).toBeInTheDocument());
-    const firstTool = await screen.findByRole('option', { name: /外部工具，tool_0/ });
+    const firstTool = await screen.findByRole('option', { name: /，tool_0，/ });
     fireEvent.click(firstTool);
     expect(within(screen.getByLabelText('轨迹节点详情')).getByText('tool:tool-0'))
       .toBeInTheDocument();
@@ -950,7 +950,7 @@ describe('TrajectoryTabView', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建范围' }));
     const search = screen.getByRole('searchbox', { name: '搜索轨迹记录' });
     fireEvent.change(search, { target: { value: 'tool' } });
-    const selectedTool = (await screen.findAllByRole('option', { name: /外部工具，tool_\d+/ }))[0];
+    const selectedTool = (await screen.findAllByRole('option', { name: /，tool_\d+，/ }))[0];
     fireEvent.click(selectedTool);
     const selectedSpanId = within(screen.getByLabelText('轨迹节点详情'))
       .getByText(/^tool:tool-\d+$/).textContent;

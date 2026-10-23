@@ -41,6 +41,7 @@ function attemptCell(attemptIndex: number | null): Extract<TrajectoryCell, { typ
     toolCallId: 'tool-1',
     toolAttemptId: 'attempt-1',
     toolName: 'web_search',
+    toolLabel: null,
     llmRoundKey: null,
     attemptIndex,
     status: 'success',
@@ -118,14 +119,35 @@ describe('轨迹单元格展示', () => {
     [['completed', 'running', 'pending'], '3 个步骤 · 完成 1/3 · 进行中：第 2 步', '进行中', 'info'],
     [['completed', 'skipped'], '2 个步骤 · 全部完成', '已完成', 'success'],
     [['completed', 'failed'], '2 个步骤 · 完成 1/2', '有步骤失败', 'danger'],
+    [['completed', 'pending'], '2 个步骤 · 完成 1/2', '进行中', 'info'],
     [['blocked', 'pending'], '2 个步骤 · 完成 0/2', '有步骤受阻', 'warn'],
     [['pending'], '1 个步骤 · 完成 0/1', '待执行', 'neutral'],
   ] as const)('计划行按步骤状态汇总进度 %j', (statuses, summary, statusLabel, tone) => {
     const presentation = getTrajectoryCellPresentation({
       key: 'run:run-1:plan:plan-1:2', type: 'plan', runId: 'run-1', userMessageId: 'user-1', assistantMessageId: 'assistant-1',
-      completenessSources: ['durable-snapshot'], sourceSequences: [2], planId: 'plan-1', revision: 1, llmRoundKey: null,
+      completenessSources: ['durable-snapshot'], sourceSequences: [2], planId: 'plan-1', revision: 1, llmRoundKey: null, superseded: false,
       payload: { items: statuses.map((status, index) => ({ id: `s${index}`, title: `第 ${index + 1} 步`, status })) },
     });
     expect(presentation).toMatchObject({ kindLabel: '计划', summary, statusLabel, tone });
+  });
+
+  it('被后续版本取代的计划不再显示当时的步骤进度', () => {
+    const presentation = getTrajectoryCellPresentation({
+      key: 'run:run-1:plan:plan-1:2', type: 'plan', runId: 'run-1', userMessageId: 'user-1', assistantMessageId: 'assistant-1',
+      completenessSources: ['durable-snapshot'], sourceSequences: [2], planId: 'plan-1', revision: 1, llmRoundKey: null, superseded: true,
+      payload: { items: [{ id: 'a', title: '确定路线', status: 'running' }, { id: 'b', title: '查询天气', status: 'pending' }] },
+    });
+    expect(presentation).toMatchObject({ kindLabel: '计划', summary: '2 个步骤', statusLabel: '已更新', tone: 'neutral' });
+  });
+
+  it('MCP 工具用服务端给的可读名，内置工具仍用登记的中文名', () => {
+    const tool = (toolName: string, toolLabel: string | null) => getTrajectoryCellPresentation({
+      key: `tool:${toolName}`, type: 'tool', runId: 'run-1', userMessageId: 'user-1', assistantMessageId: 'assistant-1',
+      completenessSources: ['durable-snapshot'], sourceSequences: [1], toolCallId: 'call-1', stepId: 'step-1',
+      toolName, toolLabel, arguments: null, llmRoundKey: null, status: 'success', events: [],
+    });
+    expect(tool('mcp_KjRUUI0x', '腾讯地图 / placeSearchNearby').kindLabel).toBe('腾讯地图 / placeSearchNearby');
+    expect(tool('web_search', '不该覆盖').kindLabel).toBe('搜索');
+    expect(tool('mcp_KjRUUI0x', null).kindLabel).toBe('mcp_KjRUUI0x');
   });
 });

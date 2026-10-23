@@ -174,12 +174,14 @@ class AgentEventEmitter:
         tool_name: str,
         arguments: dict[str, Any],
         plan_item_id: str | None = None,
+        tool_label: str | None = None,
     ) -> None:
         sanitized = sanitize_arguments(tool_name, arguments)
         await self._emit(
             ev.ToolCallStarted(
                 type="tool_call_started",
                 tool_name=tool_name,
+                tool_label=tool_label,
                 arguments=sanitized,
                 plan_item_id=plan_item_id,
                 **self._envelope(tool_call_id=tool_call_id),

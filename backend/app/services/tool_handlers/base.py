@@ -90,6 +90,11 @@ class BaseToolHandler(ABC):
         """工具名称，用于日志和注册"""
 
     @property
+    def display_label(self) -> str | None:
+        """工具名本身不可读时（如 MCP 哈希别名）给轨迹显示的名称；内置工具由前端登记中文名。"""
+        return None
+
+    @property
     @abstractmethod
     def sse_event_prefix(self) -> str:
         """SSE 事件前缀，如 'search' → search_start/search_complete"""

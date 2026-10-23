@@ -88,6 +88,7 @@ function toolCell(
     toolCallId: key,
     stepId: 'step-1',
     toolName: 'web_search',
+    toolLabel: null,
     arguments: null,
     llmRoundKey: null,
     status: 'success',
@@ -123,6 +124,7 @@ function attemptCell(
     toolCallId,
     toolAttemptId: key,
     toolName: 'web_search',
+    toolLabel: null,
     llmRoundKey: null,
     attemptIndex,
     status,
@@ -145,6 +147,7 @@ function llmRoundCell(
     llmRoundId: key,
     stepId: 'step-1',
     toolNames: [],
+    toolLabels: {},
     updatedPlan: false,
     roundIndex: 1,
     requestIndex: 1,
@@ -434,6 +437,7 @@ describe('trajectoryTableModel', () => {
       cells: [
         llmRoundCell('round-1', {
           toolNames: ['web_search', 'web_search', 'url_read', 'mcp_docs_lookup'],
+          toolLabels: { mcp_docs_lookup: 'Context7 / query-docs' },
           reasoningPreview: '先搜两遍再读原文',
         }),
         {
@@ -444,6 +448,7 @@ describe('trajectoryTableModel', () => {
         {
           ...toolCell('tool-2'),
           toolName: 'mcp_docs_lookup',
+          toolLabel: 'Context7 / query-docs',
           arguments: { topic: 'x' },
           llmRoundKey: 'round-1',
         },
@@ -452,9 +457,9 @@ describe('trajectoryTableModel', () => {
     });
 
     expect(rows.map(row => [row.key, row.summary, row.depth])).toEqual([
-      ['round-1', '调用 4 个工具：搜索×2、读取、mcp_docs_lookup · 先搜两遍再读原文', 0],
+      ['round-1', '调用 4 个工具：搜索×2、读取、Context7 / query-docs · 先搜两遍再读原文', 0],
       ['tool-1', '搜索 · 北京天气', 1],
-      ['tool-2', 'mcp_docs_lookup', 1],
+      ['tool-2', 'Context7 / query-docs', 1],
       ['round-2', '输出回答', 0],
     ]);
     // 最后一轮不重复回答正文；模型名与协议名不进摘要。

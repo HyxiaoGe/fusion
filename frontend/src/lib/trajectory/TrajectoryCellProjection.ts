@@ -97,6 +97,8 @@ export interface PlanCell extends TrajectoryCellBase {
   revision: number | null;
   /** 更新计划的那一轮模型请求；不是模型更新的计划为 null。 */
   llmRoundKey: string | null;
+  /** 模型之后又改过计划，这一版的步骤状态停在被取代的那一刻。 */
+  superseded: boolean;
   payload: Record<string, unknown>;
 }
 
@@ -114,6 +116,8 @@ export interface ToolCell extends TrajectoryCellBase {
   toolCallId: string;
   stepId: string | null;
   toolName: string | null;
+  /** 服务端给的可读名（MCP 工具名是哈希别名）；内置工具为 null，由前端登记中文名。 */
+  toolLabel: string | null;
   /** tool_call_started 携带的有界参数摘要；没有开始事件时为 null。 */
   arguments: Record<string, unknown> | null;
   /** 发起这次调用的模型轮次（同一 step 内最近的一轮）。 */
@@ -128,6 +132,7 @@ export interface SubtoolCell extends TrajectoryCellBase {
   toolCallId: string | null;
   toolAttemptId: string;
   toolName: string | null;
+  toolLabel: string | null;
   llmRoundKey: string | null;
   attemptIndex: number | null;
   status: string;
@@ -141,6 +146,8 @@ export interface LlmRoundCell extends TrajectoryCellBase {
   stepId: string | null;
   /** 本轮发起的工具调用名，按调用顺序。 */
   toolNames: string[];
+  /** 本轮工具中带服务端可读名的，按工具名索引。 */
+  toolLabels: Record<string, string>;
   /** 本轮调用了 update_plan。 */
   updatedPlan: boolean;
   roundIndex: number | null;
@@ -762,6 +769,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           llmRoundId,
           stepId: item.stepId,
           toolNames: [],
+          toolLabels: {},
           updatedPlan: false,
           roundIndex,
           requestIndex: roundIndex === null ? null : detail.requestOffset + roundIndex,
@@ -794,6 +802,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
         existing.revision = numberValue(item.payload.revision);
         existing.payload = item.payload;
       } else {
+        if (existing) existing.superseded = true;
         const round = modelUpdate && item.stepId ? latestRoundByStep.get(item.stepId) : undefined;
         if (round) round.updatedPlan = true;
         const cell: PlanCell = {
@@ -804,6 +813,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           planId,
           revision: numberValue(item.payload.revision),
           llmRoundKey: round?.key ?? null,
+          superseded: false,
           payload: item.payload,
         };
         latestPlans.set(planId, cell);
@@ -872,6 +882,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
         updateEventBackedCell(existing, item, source);
         existing.events.push(item);
         existing.toolName = stringValue(item.payload.tool_name) ?? existing.toolName;
+        existing.toolLabel = stringValue(item.payload.tool_label) ?? existing.toolLabel;
         existing.arguments = toolArguments(item) ?? existing.arguments;
         existing.status = toolStatus(item, existing.status);
       } else {
@@ -883,6 +894,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           toolCallId: item.toolCallId,
           stepId: item.stepId,
           toolName: stringValue(item.payload.tool_name),
+          toolLabel: stringValue(item.payload.tool_label),
           arguments: toolArguments(item),
           llmRoundKey: item.stepId ? latestRoundByStep.get(item.stepId)?.key ?? null : null,
           status: toolStatus(item, 'running'),
@@ -911,6 +923,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           toolCallId: item.toolCallId,
           toolAttemptId: attemptId,
           toolName: stringValue(item.payload.tool_name),
+          toolLabel: item.toolCallId ? tools.get(item.toolCallId)?.toolLabel ?? null : null,
           llmRoundKey: item.toolCallId ? tools.get(item.toolCallId)?.llmRoundKey ?? null : null,
           attemptIndex: numberValue(item.payload.attempt_index),
           status: toolStatus(item, 'running'),
@@ -925,7 +938,9 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
   const roundsByKey = new Map([...llmRounds.values()].map(round => [round.key, round]));
   for (const tool of tools.values()) {
     const round = tool.llmRoundKey ? roundsByKey.get(tool.llmRoundKey) : undefined;
-    if (round && tool.toolName) round.toolNames.push(tool.toolName);
+    if (!round || !tool.toolName) continue;
+    round.toolNames.push(tool.toolName);
+    if (tool.toolLabel) round.toolLabels[tool.toolName] = tool.toolLabel;
   }
 
   return cells;

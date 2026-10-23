@@ -530,6 +530,7 @@ async def emit_budget_result(
         tool_name=handler.tool_name,
         arguments=_sanitize_event_arguments(handler, args),
         plan_item_id=tool_call.get("plan_item_id"),
+        tool_label=handler.display_label,
     )
     await emit_tool_call_result(
         request.emitter,
@@ -565,6 +566,7 @@ async def execute_tool_handler(*, request: ToolExecutionBatchRequest, tool_call:
         result_summary_builder=handler._build_result_summary,
         emitter=request.emitter,
         plan_item_id=tool_call.get("plan_item_id"),
+        tool_label=handler.display_label,
     )
 
 

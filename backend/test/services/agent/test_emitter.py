@@ -127,6 +127,21 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
         last_args = writer.append_chunk.call_args_list[-1].args
         self.assertEqual(last_args[3]["step_id"], step_id)
 
+    async def test_tool_call_started_carries_display_label(self):
+        writer = AsyncMock()
+        em = AgentEventEmitter(run_id="r1", trace_id="r1", conversation_id="c1", task_id="task-1", redis_writer=writer)
+        await em.tool_call_started(
+            tool_call_id="t1",
+            tool_name="mcp_KjRUUI0xYTwb2twa",
+            arguments={},
+            tool_label="腾讯地图 / placeSearchNearby",
+        )
+        await em.tool_call_started(tool_call_id="t2", tool_name="web_search", arguments={"query": "x"})
+
+        events = [call.args[3] for call in writer.append_chunk.call_args_list]
+        self.assertEqual(events[0]["tool_label"], "腾讯地图 / placeSearchNearby")
+        self.assertIsNone(events[1]["tool_label"])
+
     async def test_tool_call_started_url_read_arguments_use_strict_allowlist(self):
         writer = AsyncMock()
         em = AgentEventEmitter(run_id="r1", trace_id="r1", conversation_id="c1", task_id="task-1", redis_writer=writer)

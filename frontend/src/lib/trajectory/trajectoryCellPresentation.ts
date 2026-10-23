@@ -191,7 +191,7 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
         isSkeleton: !cell.isHydrated,
       };
     case 'plan': {
-      const progress = planProgress(trajectoryPlanItems(cell.payload));
+      const progress = planProgress(trajectoryPlanItems(cell.payload), cell.superseded);
       return {
         kindLabel: '计划',
         summary: progress.summary,
@@ -213,9 +213,8 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
           : 'info',
       };
     case 'tool': {
-      const meta = getToolMeta(cell.toolName ?? '');
       return {
-        kindLabel: meta.label,
+        kindLabel: trajectoryToolLabel(cell.toolName, cell.toolLabel),
         summary: toolArgumentSummary(cell) || '工具调用',
         statusLabel: formatTrajectoryStatus(cell.status),
         durationMs: latestDuration(cell),
@@ -223,10 +222,10 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
       };
     }
     case 'subtool': {
-      const meta = getToolMeta(cell.toolName ?? '');
+      const label = trajectoryToolLabel(cell.toolName, cell.toolLabel);
       return {
         kindLabel: '工具尝试',
-        summary: `${meta.label}${cell.attemptIndex === null ? '' : ` · 第 ${cell.attemptIndex} 次`}`,
+        summary: `${label}${cell.attemptIndex === null ? '' : ` · 第 ${cell.attemptIndex} 次`}`,
         statusLabel: formatTrajectoryStatus(cell.status),
         durationMs: latestDuration(cell),
         tone: statusTone(cell.status),
@@ -285,12 +284,14 @@ export function trajectoryPlanItems(payload: Record<string, unknown>): Trajector
   });
 }
 
-function planProgress(items: readonly TrajectoryPlanItem[]): {
+function planProgress(items: readonly TrajectoryPlanItem[], superseded: boolean): {
   summary: string;
   statusLabel: string | null;
   tone: TrajectoryCellPresentation['tone'];
 } {
   if (items.length === 0) return { summary: '计划没有步骤', statusLabel: null, tone: 'neutral' };
+  // 被后续版本取代的计划，步骤状态停在当时，不再当作当前进度展示。
+  if (superseded) return { summary: `${items.length} 个步骤`, statusLabel: '已更新', tone: 'neutral' };
   const settled = items.filter(item => item.status === 'completed' || item.status === 'skipped').length;
   const running = items.find(item => item.status === 'running');
   const failed = items.some(item => item.status === 'failed');
@@ -305,14 +306,14 @@ function planProgress(items: readonly TrajectoryPlanItem[]): {
   if (failed) return { summary, statusLabel: '有步骤失败', tone: 'danger' };
   if (blocked) return { summary, statusLabel: '有步骤受阻', tone: 'warn' };
   if (settled === items.length) return { summary, statusLabel: '已完成', tone: 'success' };
-  if (running) return { summary, statusLabel: '进行中', tone: 'info' };
+  if (running || settled > 0) return { summary, statusLabel: '进行中', tone: 'info' };
   return { summary, statusLabel: '待执行', tone: 'neutral' };
 }
 
-/** 工具显示名：登记过的用中文名，MCP 等外部工具用原名。 */
-export function trajectoryToolLabel(toolName: string | null): string {
-  if (!toolName) return '工具';
-  return hasToolMeta(toolName) ? getToolMeta(toolName).label : toolName;
+/** 工具显示名：登记过的用中文名，MCP 等外部工具用服务端给的可读名，都没有时用原名。 */
+export function trajectoryToolLabel(toolName: string | null, toolLabel: string | null = null): string {
+  if (toolName && hasToolMeta(toolName)) return getToolMeta(toolName).label;
+  return toolLabel ?? toolName ?? '工具';
 }
 
 /** 工具行的参数摘要（搜索词、网址等）；参数未记录时为空串。 */
@@ -333,7 +334,7 @@ function llmRoundAction(cell: Extract<TrajectoryCell, { type: 'assistant_request
   if (cell.toolNames.length > 0) {
     const counts = new Map<string, number>();
     for (const name of cell.toolNames) {
-      const label = trajectoryToolLabel(name);
+      const label = trajectoryToolLabel(name, cell.toolLabels[name]);
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
     const parts = [...counts].map(([label, count]) => (count > 1 ? `${label}×${count}` : label));
