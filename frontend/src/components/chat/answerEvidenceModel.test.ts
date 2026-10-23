@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentEvidenceItem } from '@/types/agentRun';
-import type { KnowledgeEvidenceBlock, SearchSourceSummary, SourceReference, UrlBlock } from '@/types/conversation';
+import type {
+  DataSourceBlock,
+  KnowledgeEvidenceBlock,
+  SearchSourceSummary,
+  SourceReference,
+  UrlBlock,
+} from '@/types/conversation';
 import { deriveAnswerEvidence } from './answerEvidenceModel';
 
 const searchSources: SearchSourceSummary[] = [
@@ -258,6 +264,84 @@ describe('deriveAnswerEvidence', () => {
 
     expect(evidence?.usedItems?.map(item => item.citationIndex)).toEqual([1]);
     expect(evidence?.candidateItems?.map(item => item.citationIndex)).toEqual([2]);
+  });
+
+  it('工具来源按正文引用编号区分已使用与候选，并与网页编号统一排序', () => {
+    const toolBlocks: DataSourceBlock[] = [2, 3].map((citationIndex) => ({
+      type: 'data_source',
+      id: `tool-block-${citationIndex}`,
+      schema_version: 1,
+      category: 'tool',
+      provider: 'trendradar',
+      label: '热榜资讯',
+      source_refs: [{
+        kind: 'tool',
+        evidence_id: `ev-tool-${citationIndex}`,
+        citation_index: citationIndex,
+        title: '热榜资讯 / get_latest_news',
+        provider: 'trendradar',
+        status: 'success',
+      }],
+    }));
+
+    const evidence = deriveAnswerEvidence({
+      sourceRefs: [{
+        kind: 'search',
+        title: '网页来源',
+        url: 'https://example.com/a',
+        evidence_id: 'ev-web-1',
+        citation_index: 1,
+        status: 'success',
+      }],
+      toolBlocks,
+      answerText: '微博热搜第一是某话题[3]，另见[1]。',
+      searchSources: [],
+      urlBlocks: [],
+    });
+
+    expect(evidence?.usedItems?.map(item => [item.kind, item.citationIndex])).toEqual([
+      ['search_source', 1],
+      ['tool', 3],
+    ]);
+    expect(evidence?.candidateItems?.map(item => [item.kind, item.citationIndex])).toEqual([['tool', 2]]);
+    expect(evidence?.toolCount).toBe(2);
+    expect(evidence?.summary).toContain('工具数据 2 条');
+  });
+
+  it('只有工具来源时按 agent tool evidence 判定已使用', () => {
+    const evidence = deriveAnswerEvidence({
+      toolBlocks: [{
+        type: 'data_source',
+        id: 'tool-block',
+        schema_version: 1,
+        category: 'tool',
+        provider: 'trendradar',
+        label: '热榜资讯',
+        source_refs: [{
+          kind: 'tool',
+          evidence_id: 'ev-tool-1',
+          citation_index: 1,
+          title: '热榜资讯 / get_trending_topics',
+          provider: 'trendradar',
+        }],
+      }],
+      agentEvidence: [{
+        id: 'ev-tool-1',
+        kind: 'tool',
+        status: 'used',
+        title: '热榜资讯 / get_trending_topics',
+        claim: '',
+        usedByFinalAnswer: true,
+      }],
+      answerText: '没有显式编号的回答。',
+      searchSources: [],
+      urlBlocks: [],
+    });
+
+    expect(evidence?.usedItems).toEqual([
+      expect.objectContaining({ kind: 'tool', evidenceId: 'ev-tool-1', domain: '热榜资讯', url: '' }),
+    ]);
+    expect(evidence?.candidateItems).toEqual([]);
   });
 
   it('按稳定 citation_index 排序多轮搜索与读取来源，并按 evidence_id 去重', () => {

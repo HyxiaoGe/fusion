@@ -25,6 +25,12 @@ def stable_web_evidence_id(url: str, *, fallback: str) -> str:
     return f"ev-web-{digest}"
 
 
+def tool_call_evidence_id(tool_call_log_id: str) -> str:
+    """外部工具调用作为来源时的稳定标识；每次调用一条，流式编号与落库块共用。"""
+    digest = hashlib.sha256(tool_call_log_id.encode("utf-8")).hexdigest()[:16]
+    return f"ev-tool-{digest}"
+
+
 def build_search_source_evidence_item(source: Any, *, tool_call_id: str, source_index: int) -> dict[str, Any]:
     url = _source_value(source, "url") or ""
     evidence_url = url

@@ -950,18 +950,36 @@ class VideoResultsBlock(BaseModel):
     tool_call_log_id: str = Field(default="", max_length=160)
 
 
+class ToolSourceReference(BaseModel):
+    """一次外部工具调用作为回答来源的定位；只记工具身份，不复制返回内容。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["tool"] = "tool"
+    evidence_id: str = Field(min_length=1, max_length=160)
+    citation_index: Optional[int] = Field(default=None, ge=1)
+    title: str = Field(min_length=1, max_length=160)
+    provider: str = Field(min_length=1, max_length=40)
+    status: Literal["success"] = "success"
+
+
 class DataSourceBlock(BaseModel):
-    """本轮某次外部数据工具调用的服务商署名；只记来源，不持久化远端返回内容。"""
+    """本轮某次外部数据工具调用的服务商署名；只记来源，不持久化远端返回内容。
+
+    map：按端点域名认定的地图服务商，回答下方署名；tool：其余 MCP 工具。
+    两类都带一条可引用来源，回答里的 [n] 能指回这次调用。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["data_source"]
     id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
     schema_version: Literal[1]
-    category: Literal["map"]
+    category: Literal["map", "tool"]
     provider: str = Field(min_length=1, max_length=40)
     label: str = Field(min_length=1, max_length=40)
     tool_call_log_id: str = Field(default="", max_length=160)
+    source_refs: List[ToolSourceReference] = Field(default_factory=list, max_length=1)
 
 
 class ContentFilteredBlock(BaseModel):

@@ -39,7 +39,7 @@ def build_used_final_answer_evidence(
     content_blocks: list[Any],
     answer_text: str,
 ) -> list[dict[str, Any]]:
-    """从最终回答文本里保守识别真正使用过的网页或知识库来源。"""
+    """从最终回答文本里保守识别真正使用过的网页、知识库或外部工具来源。"""
     normalized_answer = (answer_text or "").strip()
     if not normalized_answer:
         return []
@@ -116,6 +116,8 @@ def _source_from_ref(ref: Any) -> _AnswerSource | None:
     title = _value(ref, "title") or ""
     if kind == "knowledge":
         title = _value(ref, "filename") or _value(ref, "knowledge_base_name") or "知识库来源"
+    elif kind == "tool":
+        title = title or _value(ref, "provider") or "工具来源"
     return _source_from_values(
         kind=kind,
         title=title,
@@ -139,7 +141,8 @@ def _source_from_values(
     canonical_url = canonicalize_evidence_url(raw_url)
     evidence_url = canonical_url or raw_url
     is_knowledge = kind == "knowledge"
-    if not evidence_url and not (is_knowledge and explicit_evidence_id):
+    # 知识库与工具来源没有网址，靠稳定 evidence_id 定位。
+    if not evidence_url and not (kind in {"knowledge", "tool"} and explicit_evidence_id):
         return None
 
     domain = _domain(evidence_url)
@@ -239,7 +242,7 @@ def _to_evidence_item(source: _AnswerSource) -> dict[str, Any]:
     evidence_url = source.url or source.canonical_url
     return {
         "id": source.evidence_id,
-        "kind": "knowledge" if source.kind == "knowledge" else "web",
+        "kind": source.kind if source.kind in {"knowledge", "tool"} else "web",
         "status": "used",
         "title": source.title,
         "url": evidence_url or None,

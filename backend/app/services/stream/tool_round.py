@@ -503,7 +503,9 @@ class _CitationRegistry(dict[str, int]):
 
 def _build_search_citation_registry(content_blocks: list[Any]) -> _CitationRegistry:
     search_blocks = [
-        block for block in content_blocks if _value(block, "type") in {"search", "url_read", "knowledge_evidence"}
+        block
+        for block in content_blocks
+        if _value(block, "type") in {"search", "url_read", "knowledge_evidence", "data_source"}
     ]
     sources = [
         source
@@ -533,6 +535,9 @@ def _assign_search_citation_numbers(
     registry: dict[str, int],
     record: ToolExecutionRecord,
 ) -> list[int] | None:
+    citation_sources = getattr(record.handler, "citation_sources", None)
+    if getattr(record.handler, "supports_run_level_citations", False) is True and callable(citation_sources):
+        return _number_sources(registry, record, citation_sources(record.result, record.log_id))
     if record.tool_name not in {"web_search", "url_read", KNOWLEDGE_SEARCH_TOOL_NAME}:
         return None
     if record.result.status != "success":
@@ -635,8 +640,8 @@ def _attach_source_reference_metadata(
 
 
 def _citation_source_key(source: Any) -> str:
-    if _value(source, "kind") == "knowledge":
-        return f"knowledge:{_value(source, 'evidence_id') or ''}"
+    if _value(source, "kind") in {"knowledge", "tool"}:
+        return f"{_value(source, 'kind')}:{_value(source, 'evidence_id') or ''}"
     raw_url = str(_value(source, "url") or "").strip()
     canonical_url = canonicalize_evidence_url(raw_url)
     if canonical_url:

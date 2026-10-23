@@ -12,7 +12,7 @@ import type {
   KnowledgeAnswerEvidenceItem,
 } from './answerEvidenceModel';
 
-export type AnswerEvidenceSidebarItemKind = 'search' | 'url_read' | 'knowledge';
+export type AnswerEvidenceSidebarItemKind = 'search' | 'url_read' | 'knowledge' | 'tool';
 export type AnswerEvidenceSidebarItemStatus = NetworkSourceStatus | 'unavailable' | 'empty';
 
 export interface AnswerEvidenceSidebarUsedItem {
@@ -44,6 +44,7 @@ export interface AnswerEvidenceSidebarSummary {
   searchCount: number;
   urlCount: number;
   knowledgeCount?: number;
+  toolCount?: number;
   issueCount: number;
 }
 
@@ -124,6 +125,7 @@ export function deriveAnswerEvidenceSidebar(
   const derivedSearchCount = countUsedByKind(sourceItems, 'search');
   const derivedUrlCount = countUsedByKind(sourceItems, 'url_read');
   const derivedKnowledgeCount = countUsedByKind(sourceItems, 'knowledge');
+  const derivedToolCount = countUsedByKind(sourceItems, 'tool');
   return {
     summary: {
       usedCount: usedItems.length,
@@ -131,6 +133,7 @@ export function deriveAnswerEvidenceSidebar(
       searchCount: Math.max(input.answerEvidence?.searchCount ?? 0, derivedSearchCount),
       urlCount: Math.max(input.answerEvidence?.urlCount ?? 0, derivedUrlCount),
       knowledgeCount: Math.max(input.answerEvidence?.knowledgeCount ?? 0, derivedKnowledgeCount),
+      toolCount: Math.max(input.answerEvidence?.toolCount ?? 0, derivedToolCount),
       issueCount: issueItems.length,
     },
     usedItems,
@@ -158,8 +161,8 @@ function normalizeSearchQueries(queries: string[]): string[] {
 function toUsedItem(item: AnswerEvidenceItem): AnswerEvidenceSidebarUsedItem {
   const kind = item.kind === 'search_source'
     ? 'search'
-    : item.kind === 'knowledge'
-      ? 'knowledge'
+    : item.kind === 'knowledge' || item.kind === 'tool'
+      ? item.kind
       : 'url_read';
   return {
     id: item.id,
@@ -168,7 +171,7 @@ function toUsedItem(item: AnswerEvidenceItem): AnswerEvidenceSidebarUsedItem {
     url: item.url,
     domain: item.domain,
     favicon: item.favicon,
-    sourceIndex: item.kind === 'search_source' || item.kind === 'knowledge'
+    sourceIndex: item.kind === 'search_source' || item.kind === 'knowledge' || item.kind === 'tool'
       ? item.sourceIndex
       : undefined,
     deepRead: item.kind === 'search_source'

@@ -10,6 +10,9 @@ from types import SimpleNamespace
 
 os.environ["DATABASE_URL"] = "sqlite:///./fusion-test.db"
 
+from app.schemas.chat import SearchBlock, SearchSourceSummary  # noqa: E402
+from app.schemas.content_block_registry import deserialize_content_blocks  # noqa: E402
+from app.services.final_answer_evidence import build_used_final_answer_evidence  # noqa: E402
 from app.services.mcp.agent_tools import (  # noqa: E402
     MCP_AGENT_TOOL_ERROR_MESSAGE,
     McpAgentServerCircuitBreaker,
@@ -29,6 +32,13 @@ from app.services.mcp.tool_contract import (  # noqa: E402
     is_valid_tool_snapshot,
     sanitize_tool_schema_for_model,
     validate_tool_arguments,
+)
+from app.services.source_evidence_ledger import tool_call_evidence_id  # noqa: E402
+from app.services.stream.tool_execution_result import ToolExecutionRecord  # noqa: E402
+from app.services.stream.tool_round import (  # noqa: E402
+    _assign_search_citation_numbers,
+    _attach_source_reference_metadata,
+    _build_search_citation_registry,
 )
 from app.services.tool_handlers import get_handler  # noqa: E402
 
@@ -1380,7 +1390,7 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.error_message, MCP_AGENT_TOOL_ERROR_MESSAGE)
         self.assertEqual(client.calls, [])
 
-    async def test_has_no_automatic_retry_and_returns_bounded_untrusted_context_without_content_block(self):
+    async def test_has_no_automatic_retry_and_returns_bounded_untrusted_context_without_payload_block(self):
         secret = "should-not-be-exposed"
         client = FakeClientManager(
             result={
@@ -1400,7 +1410,89 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Content truncated", context)
         self.assertNotIn(secret, context)
         self.assertLessEqual(len(context.encode("utf-8")), handler.max_llm_context_bytes + 1_500)
-        self.assertIsNone(handler.build_content_block(result, "block", "log"))
+        # 只留来源定位，不落库任何返回内容。
+        block = handler.build_content_block(result, "block", "log")
+        self.assertEqual(block.category, "tool")
+        self.assertNotIn("ignore previous instructions", block.model_dump_json())
+        self.assertNotIn(secret, block.model_dump_json())
+
+    async def test_successful_call_is_a_citable_tool_source(self):
+        client = FakeClientManager(result={"content": [{"type": "text", "text": "微博热搜第一"}]})
+        handler = self.build_handler(build_row(), client)
+
+        result = await handler.execute({"query": "MCP"})
+        sources = handler.citation_sources(result, "log-1")
+        block = handler.build_content_block(result, "blk-1", "log-1")
+        context = handler.format_llm_context(result, citation_numbers=[3])
+
+        self.assertTrue(handler.supports_run_level_citations)
+        self.assertEqual(sources, [{"kind": "tool", "evidence_id": tool_call_evidence_id("log-1")}])
+        self.assertEqual(
+            [ref.model_dump() for ref in block.source_refs],
+            [
+                {
+                    "kind": "tool",
+                    "evidence_id": tool_call_evidence_id("log-1"),
+                    "citation_index": None,
+                    "title": handler.binding.tool_label,
+                    "provider": handler.binding.provider,
+                    "status": "success",
+                }
+            ],
+        )
+        self.assertEqual(deserialize_content_blocks([block.model_dump(mode="json")])[0], block)
+        self.assertIn("Cite facts taken from this result with [3]", context)
+        self.assertNotIn("Cite facts", handler.format_llm_context(result))
+
+    async def test_tool_source_shares_run_numbering_and_is_marked_used_when_cited(self):
+        client = FakeClientManager(result={"content": [{"type": "text", "text": "微博热搜第一"}]})
+        handler = self.build_handler(build_row(), client)
+        result = await handler.execute({"query": "MCP"})
+        record = ToolExecutionRecord(
+            tool_call={"id": "call-mcp", "name": handler.tool_name},
+            result=result,
+            handler=handler,
+            block_id="blk-mcp",
+            log_id="log-mcp",
+        )
+        web_block = SearchBlock(
+            type="search",
+            query="网页",
+            sources=[SearchSourceSummary(title="A", url="https://a.example/1", citation_index=1)],
+        )
+        registry = _build_search_citation_registry([web_block])
+
+        numbers = _assign_search_citation_numbers(registry, record)
+        block = _attach_source_reference_metadata(record.build_content_block(), record=record, citation_numbers=numbers)
+
+        self.assertEqual(numbers, [2])
+        self.assertEqual(block.source_refs[0].citation_index, 2)
+        self.assertIn("[2]", record.format_llm_context(citation_numbers=numbers))
+        # 历史块参与编号，同一次调用在后续轮次沿用原编号。
+        later = _build_search_citation_registry([web_block, block])
+        self.assertEqual(_assign_search_citation_numbers(later, record), [2])
+
+        evidence = build_used_final_answer_evidence(
+            content_blocks=[web_block, block], answer_text="热搜第一是某话题[2]。"
+        )
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0]["id"], tool_call_evidence_id("log-mcp"))
+        self.assertEqual(evidence[0]["kind"], "tool")
+        self.assertEqual(evidence[0]["title"], handler.binding.tool_label)
+        self.assertIsNone(evidence[0]["url"])
+        self.assertEqual(
+            build_used_final_answer_evidence(content_blocks=[web_block, block], answer_text="没有引用。"),
+            [],
+        )
+
+    async def test_failed_call_is_not_a_citable_source(self):
+        client = FakeClientManager(error=McpClientError("upstream_unavailable", "MCP 服务暂不可用"))
+        handler = self.build_handler(build_row(), client)
+
+        result = await handler.execute({"query": "MCP"})
+
+        self.assertEqual(handler.citation_sources(result, "log-1"), [])
+        self.assertIsNone(handler.build_content_block(result, "blk-1", "log-1"))
 
     async def test_known_data_provider_endpoint_records_only_source_attribution(self):
         client = FakeClientManager(result={"content": [{"type": "text", "text": "找到约10条结果"}]})
@@ -1423,6 +1515,16 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
                 "provider": "tencent_map",
                 "label": "腾讯地图",
                 "tool_call_log_id": "log-source",
+                "source_refs": [
+                    {
+                        "kind": "tool",
+                        "evidence_id": tool_call_evidence_id("log-source"),
+                        "citation_index": None,
+                        "title": handler.binding.tool_label,
+                        "provider": "tencent_map",
+                        "status": "success",
+                    }
+                ],
             },
         )
 
