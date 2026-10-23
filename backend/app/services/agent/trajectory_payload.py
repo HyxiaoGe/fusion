@@ -18,6 +18,7 @@ from app.utils.run_capability_contract import CAPABILITY_CONTROL_TOOL_NAMES
 
 MAX_LEDGER_TEXT_LENGTH = 512
 MAX_LEDGER_LIST_ITEMS = 50
+MAX_LEDGER_ARGUMENT_KEYS = 16
 _CANCELLATION_TERMINAL_EVENT_TYPES = frozenset(
     {
         "run_interrupted",
@@ -44,7 +45,7 @@ _COMMON_FIELDS = frozenset(
 _EVENT_FIELDS: dict[str, frozenset[str]] = {
     "run_started": frozenset({"conversation_id", "message_id", "task_id", "model", "tools", "capability_resolution"}),
     "step_started": frozenset({"step_number"}),
-    "tool_call_started": frozenset({"tool_name", "plan_item_id"}),
+    "tool_call_started": frozenset({"tool_name", "plan_item_id", "arguments"}),
     "tool_call_delta": frozenset({"tool_name"}),
     "tool_call_completed": frozenset({"tool_name", "status", "duration_ms", "plan_item_id"}),
     "step_completed": frozenset({"step_number", "tool_call_count", "duration_ms"}),
@@ -198,6 +199,8 @@ _SECRET_PATTERN = re.compile(
     r"(?:bearer\s+)?[^\s,;]+"
 )
 
+_SECRET_KEY_PATTERN = re.compile(r"(?i)(api[_-]?key|authorization|token|password|secret|cookie|credential)")
+
 
 class UnsupportedTrajectoryEventError(ValueError):
     """事件类型尚未定义账本白名单。"""
@@ -335,6 +338,28 @@ def _sanitize_external_tool_names(value: Any) -> list[str]:
     return sanitized[:3]
 
 
+def _sanitize_tool_arguments(value: Any) -> dict[str, Any]:
+    """工具参数摘要：只留顶层标量与标量列表，嵌套对象不入账本。
+
+    emitter 已按工具名做过定向脱敏（url_read 去查询串、外部工具递归脱敏、
+    FlyAI 只留个数）；这里再按账本通用上限约束体积，并对凭据类键名整值打码。
+    完整参数仍只在节点详情里从 ToolCallLog 还原。
+    """
+    if not isinstance(value, Mapping):
+        return {}
+    sanitized: dict[str, Any] = {}
+    for raw_key, item in sorted(value.items(), key=lambda entry: str(entry[0]))[:MAX_LEDGER_ARGUMENT_KEYS]:
+        key = str(raw_key)[:128]
+        if _SECRET_KEY_PATTERN.search(key):
+            sanitized[key] = "[REDACTED]"
+        elif isinstance(item, list):
+            # 列表只留字符串项：数字/布尔转成文本后前后端写法不一致，会被误判为实时与持久化冲突。
+            sanitized[key] = _bounded_list([entry for entry in item if isinstance(entry, str)])
+        elif not isinstance(item, Mapping):
+            sanitized[key] = _sanitize_scalar(item)
+    return sanitized
+
+
 def _sanitize_scalar(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
@@ -349,6 +374,7 @@ _SPECIAL_SANITIZERS: dict[str, Callable[[Any], Any]] = {
     "capability_resolution": _sanitize_capability_resolution,
     "tools": _sanitize_external_tool_names,
     "tool_names": _sanitize_round_tool_names,
+    "arguments": _sanitize_tool_arguments,
 }
 
 

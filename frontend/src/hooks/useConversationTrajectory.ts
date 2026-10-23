@@ -83,6 +83,10 @@ const EMPTY_RUNS: TrajectoryRunSummary[] = [];
 const EMPTY_RUN_SUMMARIES: Record<string, TrajectoryRunSummary> = {};
 const EMPTY_PROVISIONAL_RUN_IDS: string[] = [];
 const EMPTY_SNAPSHOT_MAP: Record<string, TrajectorySnapshotCacheEntry> = {};
+const EMPTY_RECONCILIATION_MAP: Record<string, TrajectoryReconciliationState> = {};
+const EMPTY_RUN_IDS: readonly string[] = [];
+// 一次最多并发水合的可见运行数；视口里通常只有两三个运行，上限防止快速滚动时请求堆积。
+const MAX_VISIBLE_HYDRATIONS = 4;
 const EMPTY_LIVE_EVENT_MAP: Record<string, NormalizedTrajectoryEvent[]> = {};
 // 轨迹定稿重拉的退避间隔，合计约两分钟。
 const SETTLE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000];
@@ -246,6 +250,19 @@ function useFrameBatchedTrajectoryDetail(
       );
 }
 
+function sameSnapshotsExcept(
+  left: Record<string, TrajectorySnapshotCacheEntry>,
+  right: Record<string, TrajectorySnapshotCacheEntry>,
+  excludedRunId: string | null,
+): boolean {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every(runId => (
+    runId in right && (runId === excludedRunId || left[runId] === right[runId])
+  ));
+}
+
 function releaseRequestSubscription(subscription: RequestSubscription | null): void {
   if (!subscription) return;
   const requests = subscription.kind === 'runs'
@@ -277,7 +294,10 @@ function releaseRequestSubscription(subscription: RequestSubscription | null): v
  * 编排会话级轨迹的历史读取：首载 run list，按可见/inspect/终态需要水合单个 run。
  * 网络生命周期只在这里发生，Redux requestId 继续作为迟到响应的最终门禁。
  */
-export function useConversationTrajectory(conversationId: string | null) {
+export function useConversationTrajectory(
+  conversationId: string | null,
+  visibleRunIds: readonly string[] = EMPTY_RUN_IDS,
+) {
   const dispatch = useAppDispatch();
   const store = useStore<RootState>();
   const authScope = useAppSelector(authScopeKey);
@@ -406,11 +426,28 @@ export function useConversationTrajectory(conversationId: string | null) {
       : undefined
   ), [conversationId, selectedRunId, selectedSnapshotRequestId, store]);
   const snapshot = detailEnabled ? batchedDetail.snapshot : passiveSnapshot;
-  const snapshotsByRunId = useMemo(() => (
-    selectedRunId && snapshot
-      ? { [selectedRunId]: snapshot }
-      : EMPTY_SNAPSHOT_MAP
-  ), [selectedRunId, snapshot]);
+  const cachedSnapshotsByRunId = useAppSelector(
+    state => (
+      conversationId && isCurrentAuthScope && detailEnabled
+        ? state.trajectory.byConversationId[conversationId]?.snapshotsByRunId ?? EMPTY_SNAPSHOT_MAP
+        : EMPTY_SNAPSHOT_MAP
+    ),
+    // 所选运行的快照随流式事件变化，由逐帧合批的 snapshot 负责；这里只在其他运行变化时更新。
+    (left, right) => sameSnapshotsExcept(left, right, selectedRunId),
+  );
+  const reconciliationByRunId = useAppSelector(state => (
+    conversationId && isCurrentAuthScope && detailEnabled
+      ? state.trajectory.byConversationId[conversationId]?.reconciliationByRunId
+        ?? EMPTY_RECONCILIATION_MAP
+      : EMPTY_RECONCILIATION_MAP
+  ));
+  // 所选运行沿用逐帧合批的快照，其余已缓存运行直接展开（表格不折叠）。
+  const snapshotsByRunId = useMemo(() => {
+    if (!selectedRunId) return cachedSnapshotsByRunId;
+    const others = { ...cachedSnapshotsByRunId };
+    delete others[selectedRunId];
+    return snapshot ? { ...others, [selectedRunId]: snapshot } : others;
+  }, [cachedSnapshotsByRunId, selectedRunId, snapshot]);
   const liveEventsByRunId = useMemo(() => (
     selectedRunId && detailEnabled
       ? { [selectedRunId]: batchedDetail.liveEvents }
@@ -419,6 +456,7 @@ export function useConversationTrajectory(conversationId: string | null) {
   const consumerIdRef = useRef(Symbol('trajectory-consumer'));
   const runListSubscriptionRef = useRef<RequestSubscription | null>(null);
   const snapshotSubscriptionRef = useRef<RequestSubscription | null>(null);
+  const visibleSnapshotSubscriptionsRef = useRef(new Map<string, RequestSubscription>());
 
   useEffect(() => {
     dispatch(trajectoryAuthScopeChanged({ authScope }));
@@ -526,6 +564,9 @@ export function useConversationTrajectory(conversationId: string | null) {
     targetConversationId: string,
     runId: string,
     purpose: TrajectorySnapshotRequestPurpose,
+    subscribe: (subscription: RequestSubscription) => void = (subscription) => {
+      snapshotSubscriptionRef.current = subscription;
+    },
   ) => {
     const coordinator = requestCoordinator(store, authScope);
     const requestKey = snapshotRequestKey(targetConversationId, runId);
@@ -533,13 +574,13 @@ export function useConversationTrajectory(conversationId: string | null) {
     const existing = coordinator.snapshotRequests.get(requestKey);
     if (existing) {
       existing.subscribers.add(consumerId);
-      snapshotSubscriptionRef.current = {
+      subscribe({
         coordinator,
         key: requestKey,
         requestId: existing.requestId,
         consumerId,
         kind: 'snapshot',
-      };
+      });
       return;
     }
     const requestId = nextRequestId('snapshot');
@@ -553,13 +594,13 @@ export function useConversationTrajectory(conversationId: string | null) {
       dispatch,
     };
     coordinator.snapshotRequests.set(requestKey, activeRequest);
-    snapshotSubscriptionRef.current = {
+    subscribe({
       coordinator,
       key: requestKey,
       requestId,
       consumerId,
       kind: 'snapshot',
-    };
+    });
     dispatch(trajectorySnapshotRequested({
       conversationId: targetConversationId,
       runId,
@@ -703,6 +744,52 @@ export function useConversationTrajectory(conversationId: string | null) {
     selectedSnapshotExists,
     snapshotLruTail,
     store,
+  ]);
+
+  useEffect(() => {
+    const subscriptions = visibleSnapshotSubscriptionsRef.current;
+    return () => {
+      for (const subscription of subscriptions.values()) releaseRequestSubscription(subscription);
+      subscriptions.clear();
+    };
+  }, [authScope, conversationId, store]);
+
+  // 表格不折叠：滚到视口附近的运行按需水合，不一次性加载会话里所有运行的事件。
+  useEffect(() => {
+    if (!conversationId || activeSurface !== 'trajectory') return;
+    const subscriptions = visibleSnapshotSubscriptionsRef.current;
+    let started = 0;
+    for (const runId of visibleRunIds) {
+      if (started >= MAX_VISIBLE_HYDRATIONS) break;
+      if (runId === selectedRunId || !runSummariesById[runId]) continue;
+      const runReconciliation = reconciliationByRunId[runId];
+      const reconciling = runReconciliation?.status === 'reconciling';
+      if (cachedSnapshotsByRunId[runId] && !reconciling) continue;
+      if (runReconciliation?.activeRequestId) continue;
+      if (runReconciliation?.status === 'failed' || runReconciliation?.status === 'unavailable') continue;
+      started += 1;
+      requestSnapshot(
+        conversationId,
+        runId,
+        reconciling ? 'reconcile' : 'hydrate',
+        (subscription) => {
+          const previous = subscriptions.get(runId);
+          if (previous && previous.requestId !== subscription.requestId) {
+            releaseRequestSubscription(previous);
+          }
+          subscriptions.set(runId, subscription);
+        },
+      );
+    }
+  }, [
+    activeSurface,
+    cachedSnapshotsByRunId,
+    conversationId,
+    reconciliationByRunId,
+    requestSnapshot,
+    runSummariesById,
+    selectedRunId,
+    visibleRunIds,
   ]);
 
   const refreshRuns = useCallback((): Promise<RunListRefreshResult> => {

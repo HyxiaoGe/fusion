@@ -88,6 +88,8 @@ function toolCell(
     toolCallId: key,
     stepId: 'step-1',
     toolName: 'web_search',
+    arguments: null,
+    llmRoundKey: null,
     status: 'success',
     events: [{
       runId,
@@ -121,9 +123,42 @@ function attemptCell(
     toolCallId,
     toolAttemptId: key,
     toolName: 'web_search',
+    llmRoundKey: null,
     attemptIndex,
     status,
     events: [],
+  };
+}
+
+function llmRoundCell(
+  key: string,
+  overrides: Partial<Extract<TrajectoryCell, { type: 'assistant_request' }>> = {},
+): Extract<TrajectoryCell, { type: 'assistant_request' }> {
+  return {
+    key,
+    type: 'assistant_request',
+    runId: 'run-1',
+    userMessageId: 'user-1',
+    assistantMessageId: 'run-1-answer',
+    completenessSources: ['durable-snapshot'],
+    sourceSequences: [3],
+    llmRoundId: key,
+    stepId: 'step-1',
+    toolNames: [],
+    roundIndex: 1,
+    requestIndex: 1,
+    model: 'mimo-v2.6-flash',
+    provider: 'openai',
+    status: 'success',
+    reasoningPreview: null,
+    inputTokens: null,
+    outputTokens: null,
+    reasoningTokens: null,
+    durationMs: 900,
+    ttftMs: null,
+    detailAvailable: true,
+    events: [],
+    ...overrides,
   };
 }
 
@@ -161,12 +196,12 @@ describe('trajectoryTableModel', () => {
       },
       {
         key: 'run-1', sourceIndex: 1, turnNumber: 1, attemptNumber: 1,
-        kindLabel: '运行', summary: '2 步 · 1 次工具', statusLabel: '已完成',
+        kindLabel: '运行', summary: '2 步 · 1 次工具', statusLabel: null,
         durationMs: 1250, attemptCount: 0,
       },
       {
         key: 'tool-1', sourceIndex: 2, turnNumber: 1, attemptNumber: null,
-        kindLabel: '工具', summary: '搜索 · web_search · 工具调用', statusLabel: '完成',
+        kindLabel: '工具', summary: '搜索', statusLabel: null,
         durationMs: 80, attemptCount: 0,
       },
       {
@@ -176,7 +211,7 @@ describe('trajectoryTableModel', () => {
       },
       {
         key: 'run-orphan', sourceIndex: 4, turnNumber: null, attemptNumber: 1,
-        kindLabel: '运行', summary: '2 步 · 1 次工具', statusLabel: '已完成',
+        kindLabel: '运行', summary: '2 步 · 1 次工具', statusLabel: null,
         durationMs: 1250, attemptCount: 0,
       },
     ]);
@@ -260,8 +295,9 @@ describe('trajectoryTableModel', () => {
       .toEqual(['user-1']);
     expect(projectTrajectoryTableRows({ cells, searchQuery: 'WEB_SEARCH' }).map(row => row.key))
       .toEqual(['tool-1']);
+    // 成功状态不显示，也就不参与搜索。
     expect(projectTrajectoryTableRows({ cells, searchQuery: '完成' }).map(row => row.key))
-      .toEqual(['run-1', 'tool-1']);
+      .toEqual([]);
     expect(projectTrajectoryTableRows({ cells, searchQuery: 'message' }).map(row => row.key))
       .toEqual(['message-1']);
     expect(projectTrajectoryTableRows({ cells, searchQuery: 'clear' }).map(row => row.key))
@@ -390,5 +426,58 @@ describe('trajectoryTableModel', () => {
     expect(rows[2500]).toMatchObject({ key: 'user-2500', sourceIndex: 2500, turnNumber: 2501 });
     expect(rows[4999]).toMatchObject({ key: 'user-4999', sourceIndex: 4999, turnNumber: 5000 });
     expect(elapsed).toBeLessThanOrEqual(250);
+  });
+
+  it('模型轮次概括本轮工具与思考，工具行挂在轮次下并显示参数摘要', () => {
+    const rows = projectTrajectoryTableRows({
+      cells: [
+        llmRoundCell('round-1', {
+          toolNames: ['web_search', 'web_search', 'url_read', 'mcp_docs_lookup'],
+          reasoningPreview: '先搜两遍再读原文',
+        }),
+        {
+          ...toolCell('tool-1'),
+          arguments: { query: '北京天气' },
+          llmRoundKey: 'round-1',
+        },
+        {
+          ...toolCell('tool-2'),
+          toolName: 'mcp_docs_lookup',
+          arguments: { topic: 'x' },
+          llmRoundKey: 'round-1',
+        },
+        llmRoundCell('round-2', { stepId: 'step-2' }),
+      ],
+    });
+
+    expect(rows.map(row => [row.key, row.summary, row.depth])).toEqual([
+      ['round-1', '调用 4 个工具：搜索×2、读取、mcp_docs_lookup · 先搜两遍再读原文', 0],
+      ['tool-1', '搜索 · 北京天气', 1],
+      ['tool-2', 'mcp_docs_lookup', 1],
+      ['round-2', '输出回答', 0],
+    ]);
+    // 最后一轮不重复回答正文；模型名与协议名不进摘要。
+    expect(rows[3].summary).not.toContain('openai');
+  });
+
+  it('状态列只标出需要留意的状态', () => {
+    const rows = projectTrajectoryTableRows({
+      cells: [
+        toolCell('tool-ok'),
+        { ...toolCell('tool-failed'), status: 'failed' },
+        { ...toolCell('tool-running'), status: 'running' },
+        llmRoundCell('round-1'),
+        runCell('run-1', 'user-1', 1),
+      ],
+    });
+
+    expect(rows.map(row => [row.key, row.statusLabel])).toEqual([
+      ['tool-ok', null],
+      ['tool-failed', '失败'],
+      ['tool-running', '运行中'],
+      ['round-1', null],
+      ['run-1', null],
+    ]);
+    expect(rows[4].trajectoryStatusLabel).toBeNull();
   });
 });

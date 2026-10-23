@@ -21,13 +21,17 @@ export interface NormalizedTrajectoryEvent {
 const SUPPORTED_SCHEMA_VERSIONS = new Set([0, 1]);
 const MAX_LEDGER_TEXT_LENGTH = 512;
 const MAX_LEDGER_LIST_ITEMS = 50;
+const MAX_LEDGER_ARGUMENT_KEYS = 16;
+const SECRET_KEY_PATTERN = /(api[_-]?key|authorization|token|password|secret|cookie|credential)/i;
 const SECRET_PATTERN = /\b(api[_-]?key|authorization|access[_-]?token|token|password|secret)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/gi;
 const ISO_TIMESTAMP_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-](\d{2}):(\d{2}))$/;
 
 const EVENT_PAYLOAD_FIELDS: Record<string, readonly string[]> = {
-  run_started: ['conversation_id', 'message_id', 'task_id', 'model', 'tools', 'capability_resolution'],
+  // 账本里的 tools 只是截断到 3 条的外部工具采样，实时事件却是完整目录；界面不用它，
+  // 留着只会让实时与持久化比对必然不一致。
+  run_started: ['conversation_id', 'message_id', 'task_id', 'model', 'capability_resolution'],
   step_started: ['step_number'],
-  tool_call_started: ['tool_name', 'plan_item_id'],
+  tool_call_started: ['tool_name', 'plan_item_id', 'arguments'],
   tool_call_delta: ['tool_name'],
   tool_call_completed: ['tool_name', 'status', 'duration_ms', 'plan_item_id'],
   step_completed: ['step_number', 'tool_call_count', 'duration_ms'],
@@ -93,7 +97,7 @@ const EVIDENCE_FIELDS = new Set([
   'id', 'kind', 'status', 'title', 'url', 'domain', 'claim', 'snippet',
   'used_by_final_answer', 'citation_index',
 ]);
-const LIST_FIELDS = new Set(['tools', 'key_findings', 'source_refs', 'section_ids']);
+const LIST_FIELDS = new Set(['key_findings', 'source_refs', 'section_ids']);
 // 后端契约里的 package_id 与 reason code 都是服务端生成的短标识符；UI 只校验形状。
 const CAPABILITY_IDENTIFIER_PATTERN = /^[a-z][a-z0-9_]{0,47}$/;
 const CAPABILITY_RESOLUTION_FIELDS = new Set([
@@ -201,6 +205,22 @@ function sanitizeScalar(value: unknown): unknown {
   return value === null || typeof value === 'boolean' || typeof value === 'number'
     ? value
     : boundedText(value);
+}
+
+/** 与后端 _sanitize_tool_arguments 对齐：顶层标量与字符串列表，键按字典序。 */
+function sanitizeToolArguments(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const argumentsSummary: Record<string, unknown> = {};
+  const keys = Object.keys(value).sort().slice(0, MAX_LEDGER_ARGUMENT_KEYS);
+  for (const rawKey of keys) {
+    const item = value[rawKey];
+    const key = rawKey.slice(0, 128);
+    if (SECRET_KEY_PATTERN.test(key)) argumentsSummary[key] = '[REDACTED]';
+    else if (Array.isArray(item)) {
+      argumentsSummary[key] = boundedList(item.filter(entry => typeof entry === 'string'));
+    } else if (!isRecord(item)) argumentsSummary[key] = sanitizeScalar(item);
+  }
+  return argumentsSummary;
 }
 
 function sanitizePlanItem(value: unknown): Record<string, unknown> {
@@ -328,6 +348,7 @@ function sanitizePayload(eventType: string, source: Record<string, unknown>): Re
     else if (field === 'items') payload[field] = sanitizePlanItems(source[field]);
     else if (field === 'item') payload[field] = sanitizePlanItem(source[field]);
     else if (field === 'evidence') payload[field] = sanitizeEvidence(source[field]);
+    else if (field === 'arguments') payload[field] = sanitizeToolArguments(source[field]);
     else if (LIST_FIELDS.has(field)) payload[field] = boundedList(source[field]);
     else payload[field] = sanitizeScalar(source[field]);
   }

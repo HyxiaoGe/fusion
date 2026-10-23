@@ -111,6 +111,10 @@ export interface ToolCell extends TrajectoryCellBase {
   toolCallId: string;
   stepId: string | null;
   toolName: string | null;
+  /** tool_call_started 携带的有界参数摘要；没有开始事件时为 null。 */
+  arguments: Record<string, unknown> | null;
+  /** 发起这次调用的模型轮次（同一 step 内最近的一轮）。 */
+  llmRoundKey: string | null;
   status: string;
   events: NormalizedTrajectoryEvent[];
 }
@@ -121,6 +125,7 @@ export interface SubtoolCell extends TrajectoryCellBase {
   toolCallId: string | null;
   toolAttemptId: string;
   toolName: string | null;
+  llmRoundKey: string | null;
   attemptIndex: number | null;
   status: string;
   events: NormalizedTrajectoryEvent[];
@@ -130,13 +135,15 @@ export interface LlmRoundCell extends TrajectoryCellBase {
   type: 'assistant_request';
   runId: string;
   llmRoundId: string;
+  stepId: string | null;
+  /** 本轮发起的工具调用名，按调用顺序。 */
+  toolNames: string[];
   roundIndex: number | null;
   requestIndex: number | null;
   model: string | null;
   provider: string | null;
   status: string;
   reasoningPreview: string | null;
-  outputPreview: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
   reasoningTokens: number | null;
@@ -524,7 +531,8 @@ function appendRunCells(
     const snapshot = input.snapshotsByRunId[run.runId];
     const liveEvents = input.liveEventsByRunId[run.runId] ?? [];
     const isSelected = input.selectedRunId === run.runId;
-    const detail = isSelected && snapshot
+    // 不折叠：已水合的运行都展开；未水合的运行由表格按可见范围懒加载。
+    const detail = snapshot
       ? createDetailContext(
         run,
         join,
@@ -708,6 +716,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
   const tools = new Map<string, ToolCell>();
   const subtools = new Map<string, SubtoolCell>();
   const llmRounds = new Map<string, LlmRoundCell>();
+  const latestRoundByStep = new Map<string, LlmRoundCell>();
   const llmSummaries = new Map(
     (detail.snapshot.llmRoundSummaries ?? []).map(summary => [summary.llm_round_id, summary]),
   );
@@ -746,13 +755,14 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           type: 'assistant_request',
           runId: detail.run.runId,
           llmRoundId,
+          stepId: item.stepId,
+          toolNames: [],
           roundIndex,
           requestIndex: roundIndex === null ? null : detail.requestOffset + roundIndex,
           model: stringValue(item.payload.model),
           provider: stringValue(item.payload.provider),
           status: llmRoundStatus(item, 'running'),
           reasoningPreview: summary?.reasoning_preview ?? null,
-          outputPreview: summary?.output_preview ?? null,
           inputTokens: numberValue(item.payload.input_tokens),
           outputTokens: numberValue(item.payload.output_tokens),
           reasoningTokens: numberValue(item.payload.reasoning_tokens),
@@ -763,6 +773,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           events: [item],
         };
         llmRounds.set(llmRoundId, cell);
+        if (item.stepId) latestRoundByStep.set(item.stepId, cell);
         cells.push(cell);
       }
       continue;
@@ -851,6 +862,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
         updateEventBackedCell(existing, item, source);
         existing.events.push(item);
         existing.toolName = stringValue(item.payload.tool_name) ?? existing.toolName;
+        existing.arguments = toolArguments(item) ?? existing.arguments;
         existing.status = toolStatus(item, existing.status);
       } else {
         const cell: ToolCell = {
@@ -861,6 +873,8 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           toolCallId: item.toolCallId,
           stepId: item.stepId,
           toolName: stringValue(item.payload.tool_name),
+          arguments: toolArguments(item),
+          llmRoundKey: item.stepId ? latestRoundByStep.get(item.stepId)?.key ?? null : null,
           status: toolStatus(item, 'running'),
           events: [item],
         };
@@ -887,6 +901,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           toolCallId: item.toolCallId,
           toolAttemptId: attemptId,
           toolName: stringValue(item.payload.tool_name),
+          llmRoundKey: item.toolCallId ? tools.get(item.toolCallId)?.llmRoundKey ?? null : null,
           attemptIndex: numberValue(item.payload.attempt_index),
           status: toolStatus(item, 'running'),
           events: [item],
@@ -897,7 +912,21 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
     }
   }
 
+  const roundsByKey = new Map([...llmRounds.values()].map(round => [round.key, round]));
+  for (const tool of tools.values()) {
+    const round = tool.llmRoundKey ? roundsByKey.get(tool.llmRoundKey) : undefined;
+    if (round && tool.toolName) round.toolNames.push(tool.toolName);
+  }
+
   return cells;
+}
+
+function toolArguments(item: NormalizedTrajectoryEvent): Record<string, unknown> | null {
+  if (item.eventType !== 'tool_call_started') return null;
+  const value = item.payload.arguments;
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function detailBase(

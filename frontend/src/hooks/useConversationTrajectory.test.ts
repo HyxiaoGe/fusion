@@ -16,6 +16,7 @@ import trajectoryReducer, {
   trajectoryRunListRequested,
   trajectorySnapshotReceived,
   trajectorySnapshotRequested,
+  MAX_SNAPSHOT_CACHE_SIZE,
 } from '@/redux/slices/trajectorySlice';
 import { ApiError } from '@/types/api';
 import type { TrajectoryRunSummary, TrajectorySnapshot } from '@/types/trajectory';
@@ -583,6 +584,42 @@ describe('useConversationTrajectory', () => {
     );
   });
 
+  it('表格可见的未选中 run 按需水合，失败的不自动重试，聊天页不水合', async () => {
+    const store = createStore();
+    getTrajectoryRunsMock.mockResolvedValue({
+      items: [
+        runSummary('run-old', { started_at: '2026-08-22T01:00:00.000Z' }),
+        runSummary('run-broken', { started_at: '2026-08-22T02:00:00.000Z' }),
+        runSummary('run-new', { started_at: '2026-08-22T03:00:00.000Z' }),
+      ],
+      truncated: false,
+    });
+    getTrajectorySnapshotMock.mockImplementation((_conversationId: string, runId: string) => (
+      runId === 'run-broken' ? Promise.reject(new Error('boom')) : Promise.resolve(snapshot(runId))
+    ));
+    const { result, rerender } = renderHook(
+      ({ visibleRunIds }) => useConversationTrajectory('conversation-a', visibleRunIds),
+      { wrapper: createWrapper(store), initialProps: { visibleRunIds: ['run-old', 'run-broken'] } },
+    );
+    await waitFor(() => expect(result.current.selectedRunId).toBe('run-new'));
+    expect(getTrajectorySnapshotMock).not.toHaveBeenCalled();
+
+    act(() => {
+      store.dispatch(setTrajectoryActiveSurface({
+        conversationId: 'conversation-a',
+        surface: 'trajectory',
+      }));
+    });
+
+    await waitFor(() => expect(Object.keys(result.current.snapshotsByRunId).sort())
+      .toEqual(['run-new', 'run-old']));
+    await waitFor(() => expect(store.getState().trajectory.byConversationId['conversation-a']
+      .reconciliationByRunId['run-broken']?.status).toBe('failed'));
+    rerender({ visibleRunIds: ['run-broken', 'run-old'] });
+    expect(getTrajectorySnapshotMock.mock.calls.map(([, runId]) => runId).sort())
+      .toEqual(['run-broken', 'run-new', 'run-old']);
+  });
+
   it('快速切 run 会 abort 旧请求，忽略不遵守 signal 的迟到成功', async () => {
     const store = createStore();
     const staleRequest = deferred<TrajectorySnapshot>();
@@ -720,7 +757,7 @@ describe('useConversationTrajectory', () => {
 
   it('LRU 驱逐后的 selected run 会重新拉取 snapshot', async () => {
     const store = createStore();
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index <= MAX_SNAPSHOT_CACHE_SIZE; index += 1) {
       store.dispatch(trajectorySnapshotRequested({
         conversationId: 'conversation-a',
         runId: `run-${index}`,

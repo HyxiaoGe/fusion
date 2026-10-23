@@ -486,6 +486,7 @@ describe('buildTrajectoryNodeDetailModel', () => {
       toolCallId: 'tool-1',
       toolAttemptId: 'attempt-sensitive-id',
       toolName: 'web_search',
+      llmRoundKey: null,
       attemptIndex,
       status: 'success',
       events: [
@@ -546,6 +547,7 @@ describe('buildTrajectoryNodeDetailModel', () => {
       toolCallId: 'tool-1',
       toolAttemptId: 'attempt-2',
       toolName: 'web_search',
+      llmRoundKey: null,
       attemptIndex: 1,
       status: 'success',
       events: [],
@@ -581,6 +583,8 @@ describe('buildTrajectoryNodeDetailModel', () => {
       toolCallId: 'tool-1',
       stepId: 'step-1',
       toolName: 'web_search',
+      arguments: null,
+      llmRoundKey: null,
       status: 'success',
       events: [
         event(3, 'tool_call_started', '2026-08-23T00:00:01.000Z', { tool_name: 'web_search' }),
@@ -604,6 +608,7 @@ describe('buildTrajectoryNodeDetailModel', () => {
       toolCallId: 'tool-1',
       toolAttemptId: 'attempt-2',
       toolName: 'web_search',
+      llmRoundKey: null,
       attemptIndex: 1,
       status: 'failed',
       events: [

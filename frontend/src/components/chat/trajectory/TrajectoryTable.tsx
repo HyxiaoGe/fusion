@@ -59,6 +59,8 @@ export interface TrajectoryTableProps {
   ) => void;
   onInspectTargetUnavailable?: (target: TrajectoryInspectTarget) => void;
   onViewportStateChange?: (state: TrajectoryViewportState) => void;
+  /** 挂载区间（含预渲染行）涉及的运行；父组件据此懒加载这些运行的详情。 */
+  onMountedRunIdsChange?: (runIds: readonly string[]) => void;
   className?: string;
   /** 仅供旧 Ledger 兼容层保留既有可访问名称。 */
   ariaLabel?: string;
@@ -90,6 +92,7 @@ export function TrajectoryTable({
   onInspectTargetResolved,
   onInspectTargetUnavailable,
   onViewportStateChange,
+  onMountedRunIdsChange,
   className,
   ariaLabel = '轨迹记录表',
 }: TrajectoryTableProps) {
@@ -99,6 +102,12 @@ export function TrajectoryTable({
   const restoredIdentityRef = useRef<{ key: string | number | null } | null>(null);
   const handledFollowTailRequestRef = useRef<{ key: string | number } | null>(null);
   const suppressedScrollTopRef = useRef<number | null>(null);
+  const previousLayoutRef = useRef<{
+    rows: readonly TrajectoryTableRow[];
+    searchQuery: string;
+    focusedCellKeys: ReadonlySet<string> | null;
+  } | null>(null);
+  const mountedRunIdsKeyRef = useRef<string | null>(null);
   const rows = useMemo(() => projectedRows ?? projectTrajectoryTableRows({
     cells,
     searchQuery,
@@ -189,6 +198,54 @@ export function TrajectoryTable({
     restoreKey,
     rows.length,
   ]);
+
+  // 运行详情懒加载后会在运行行下方插入整段记录。以视口中线所在行为锚点：
+  // 插入发生在锚点上方时补偿滚动，阅读位置不跳；发生在下方时自然向下展开。
+  useLayoutEffect(() => {
+    const previous = previousLayoutRef.current;
+    previousLayoutRef.current = { rows, searchQuery, focusedCellKeys };
+    if (
+      !previous
+      || previous.rows === rows
+      || previous.searchQuery !== searchQuery
+      || previous.focusedCellKeys !== focusedCellKeys
+      || previous.rows.length === 0
+    ) return;
+    const currentScrollTop = scrollTopRef.current;
+    const anchorIndex = Math.min(
+      previous.rows.length - 1,
+      Math.floor((currentScrollTop + (measuredHeight / 2)) / TRAJECTORY_ROW_HEIGHT),
+    );
+    const anchorKey = previous.rows[anchorIndex]?.key;
+    const nextIndex = anchorKey ? rows.findIndex(row => row.key === anchorKey) : -1;
+    if (nextIndex < 0 || nextIndex === anchorIndex) return;
+    applyProgrammaticScroll(clampTrajectoryScrollTop({
+      itemCount: rows.length,
+      scrollTop: currentScrollTop + ((nextIndex - anchorIndex) * TRAJECTORY_ROW_HEIGHT),
+      viewportHeight: measuredHeight,
+      bottomInset: normalizedBottomInset,
+    }));
+  }, [
+    applyProgrammaticScroll,
+    focusedCellKeys,
+    measuredHeight,
+    normalizedBottomInset,
+    rows,
+    searchQuery,
+  ]);
+
+  useEffect(() => {
+    if (!onMountedRunIdsChange) return;
+    const runIds: string[] = [];
+    for (const row of rows.slice(range.startIndex, range.endIndex)) {
+      const runId = row.cell.runId;
+      if (runId && !runIds.includes(runId)) runIds.push(runId);
+    }
+    const key = runIds.join('\u0000');
+    if (mountedRunIdsKeyRef.current === key) return;
+    mountedRunIdsKeyRef.current = key;
+    onMountedRunIdsChange(runIds);
+  }, [onMountedRunIdsChange, range.endIndex, range.startIndex, rows]);
 
   const scrollToIndex = useCallback((index: number, align: 'auto' | 'center' = 'auto') => {
     const viewport = viewportRef.current;
@@ -409,6 +466,7 @@ export function TrajectoryTable({
                   durationMs={row.durationMs}
                   attemptCount={row.attemptCount}
                   collapsedAttemptCount={row.aliasedCellKeys.length}
+                  depth={row.depth}
                   showTurnLabel={row.turnNumber !== null && (
                     index === range.startIndex
                     || rows[index - 1]?.turnNumber !== row.turnNumber
