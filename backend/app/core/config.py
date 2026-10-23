@@ -391,11 +391,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Fusion API"
     SENTRY_DSN: Optional[str] = None
 
-    # 搜索服务地址（容器间通过 Docker 内网访问）
-    SEARCH_SERVICE_URL: str = os.getenv("SEARCH_SERVICE_URL", "http://search-service:8080")
+    # agent-tools 网关（生图 / 搜索 / 网页读取的统一入口，容器间经 middleware_default 内网访问）
+    AGENT_TOOLS_URL: str = os.getenv("AGENT_TOOLS_URL", "http://agent-tools-gateway:8100")
+    # Fusion 的产品服务密钥；生图 MCP 也以凭证引用 AGENT_TOOLS_API_KEY 使用同一把。
+    AGENT_TOOLS_API_KEY: str = os.getenv("AGENT_TOOLS_API_KEY", "")
 
-    # 网页读取服务地址
-    READER_SERVICE_URL: str = os.getenv("READER_SERVICE_URL", "http://reader-service:8091")
     # reader-service 内部默认等待 Jina 10s；调用方保留更长余量，避免冷抓取或文档站读取提前断开。
     READER_SERVICE_TIMEOUT: float = float(os.getenv("READER_SERVICE_TIMEOUT", "20"))
 

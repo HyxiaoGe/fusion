@@ -6,9 +6,9 @@ from typing import List
 
 import httpx
 
-from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.schemas.chat import SearchSource
+from app.services.external.agent_tools import agent_tools_headers, agent_tools_url
 
 
 async def search_web(
@@ -17,6 +17,7 @@ async def search_web(
     *,
     domains: list[str] | None = None,
     recency_days: int | None = None,
+    scene: str,
 ) -> List[SearchSource]:
     """
     调用 search-service 执行网络搜索。
@@ -34,8 +35,9 @@ async def search_web(
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
-                f"{settings.SEARCH_SERVICE_URL}/search",
+                agent_tools_url("search", "/search"),
                 json=payload,
+                headers=agent_tools_headers(scene),
             )
             resp.raise_for_status()
             data = resp.json()
@@ -88,8 +90,9 @@ async def search_images(query: str, count: int = 8) -> dict:
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(
-                f"{settings.SEARCH_SERVICE_URL}/search",
+                agent_tools_url("search", "/search"),
                 json={"query": query, "type": "image", "count": count, "provider": IMAGE_SEARCH_PROVIDER},
+                headers=agent_tools_headers("image_search"),
             )
             resp.raise_for_status()
             data = resp.json()

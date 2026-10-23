@@ -23,8 +23,9 @@ from app.services.stream.tool_executor import AGENT_TOOL_TIMEOUT, _handler_timeo
 from test.fake_tool_handler import FakeToolHandler  # noqa: E402
 from test.test_mcp_agent_tools import FakeClientManager, FakeDb, FakeRepository, build_row  # noqa: E402
 
-ENDPOINT = "http://192.168.1.11:8090/mcp"
+ENDPOINT = "http://agent-tools-gateway:8100/image/mcp"
 IMAGE_NAME = "4ce9c7606275acf72358b93aabf8a8e5b90ed5431254fcda3718caf60f0f8d55.jpeg"
+GATEWAY_IMAGE_URL = f"http://agent-tools-gateway:8100/image/static/images/{IMAGE_NAME}"
 SOURCE_URL = f"http://image-service.dev.seanfield.org/static/images/{IMAGE_NAME}"
 SUCCESS_TEXT = (
     f"Generated image: http://image-service.dev.seanfield.org/static/images/{IMAGE_NAME}\n"
@@ -173,9 +174,9 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"prompt": "a red fox", "aspect_ratio": "16:9", "grounding": True},
         )
         self.assertEqual(client.min_timeouts, [MCP_CALL_TIMEOUT_SECONDS])
-        # 产品身份由服务密钥认定；这里只带用户与场景供 image-service 统计，不进模型参数。
-        self.assertEqual(client.request_headers, [{"X-Image-User": "user-1", "X-Image-Scene": "chat_image"}])
-        self.assertEqual(server.requested_urls, [f"http://192.168.1.11:8090/static/images/{IMAGE_NAME}"])
+        # 产品身份由服务密钥认定；这里只带用户与场景供网关与 image-service 统计，不进模型参数。
+        self.assertEqual(client.request_headers, [{"X-Caller-User": "user-1", "X-Caller-Scene": "chat_image"}])
+        self.assertEqual(server.requested_urls, [GATEWAY_IMAGE_URL])
         self.assertEqual(store.calls[0]["conversation_id"], "conv-1")
         self.assertEqual(store.calls[0]["user_id"], "user-1")
         self.assertEqual(store.calls[0]["content"], b"jpeg-bytes")
@@ -275,7 +276,7 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         result = await handler.execute({"prompt": "a fox"})
 
         self.assertEqual(result.status, "success")
-        self.assertEqual(server.requested_urls, [f"http://192.168.1.11:8090/static/images/{IMAGE_NAME}"])
+        self.assertEqual(server.requested_urls, [GATEWAY_IMAGE_URL])
         self.assertEqual(result.data["model"], "doubao-seedream-4-5")
         self.assertTrue(result.data["fallback_used"])
         self.assertFalse(result.data["grounding_used"])
@@ -423,7 +424,7 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.calls[0][2]["reference_images"], [SOURCE_URL])
         self.assertEqual(client.calls[0][2]["aspect_ratio"], "9:16")
         self.assertNotIn("source_image_id", client.calls[0][2])
-        self.assertEqual(client.request_headers[0]["X-Image-Scene"], "image_edit")
+        self.assertEqual(client.request_headers[0]["X-Caller-Scene"], "image_edit")
         self.assertEqual(result.data["source_image_id"], "file-0")
         self.assertEqual(result.data["aspect_ratio"], "9:16")
         self.assertEqual(store.calls[0]["source_url"], SOURCE_URL)

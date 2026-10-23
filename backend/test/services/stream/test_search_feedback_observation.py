@@ -102,7 +102,7 @@ async def test_search_client_keeps_provider_metadata_without_inventing_missing_d
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     with patch("app.services.external.search_client.httpx.AsyncClient", return_value=client):
-        sources = await search_web("设施")
+        sources = await search_web("设施", scene="web_search")
     assert getattr(sources[0], "published_at", None) == "2026-08-21"
     assert getattr(sources[0], "site_name", None) == "信息网"
     assert getattr(sources[1], "published_at", None) is None

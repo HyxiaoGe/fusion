@@ -1,7 +1,7 @@
 """
 搜索服务用量客户端。
 
-只做 Fusion API 到内网 search-service 的透传与错误脱敏：
+只做 Fusion API 经 agent-tools 网关到 search-service 的透传与错误脱敏：
 Firecrawl API Key 仍只存在于 search-service，前端和 fusion-api 都不接触。
 """
 
@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config import settings
+from app.services.external.agent_tools import agent_tools_headers, agent_tools_url
 
 
 class SearchUsageClientError(RuntimeError):
@@ -25,10 +25,9 @@ async def get_firecrawl_historical_usage() -> dict[str, Any]:
 
 
 async def _get_json(path: str) -> dict[str, Any]:
-    url = f"{settings.SEARCH_SERVICE_URL.rstrip('/')}{path}"
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.get(url)
+            response = await client.get(agent_tools_url("search", path), headers=agent_tools_headers("admin_usage"))
             response.raise_for_status()
             payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:

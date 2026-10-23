@@ -62,7 +62,9 @@ class WebSearchHandler(BaseToolHandler):
         intent = args.get("intent")
         start = time.monotonic()
         try:
-            raw_sources = await search_web(query, count=requested_count, domains=domains, recency_days=recency_days)
+            raw_sources = await search_web(
+                query, count=requested_count, domains=domains, recency_days=recency_days, scene="web_search"
+            )
             duration_ms = int((time.monotonic() - start) * 1000)
 
             if not raw_sources:

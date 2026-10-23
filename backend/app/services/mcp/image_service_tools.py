@@ -317,10 +317,14 @@ def parse_generate_image_text(text: str) -> tuple[str, str | None]:
 
 
 def internal_image_url(endpoint_url: str, image_path: str) -> str:
-    """图片按 MCP 端点的内网源站下载；返回文本里的主机名不保证在容器内可解析。"""
+    """图片按 MCP 端点的内网源站下载；返回文本里的主机名不保证在容器内可解析。
+
+    端点挂在网关前缀下（如 /image/mcp）时，图片也在同一前缀下（/image/static/...）。
+    """
 
     endpoint = urlsplit(endpoint_url)
-    return f"{endpoint.scheme}://{endpoint.netloc}{image_path}"
+    prefix = endpoint.path.rstrip("/").rsplit("/", 1)[0]
+    return f"{endpoint.scheme}://{endpoint.netloc}{prefix}{image_path}"
 
 
 class ImageGenerationToolHandler(BaseToolHandler):
@@ -454,10 +458,10 @@ class ImageGenerationToolHandler(BaseToolHandler):
         )
 
     def _attribution_headers(self, source_image_id: str | None) -> dict[str, str]:
-        """image-service 按服务密钥认定产品，这里只补用户、场景和 run 关联，供其统计。"""
+        """网关按服务密钥认定产品，这里只补用户、场景和 run 关联，供网关与 image-service 统计。"""
         headers = {
-            "X-Image-User": self.binding.user_id,
-            "X-Image-Scene": "image_edit" if source_image_id is not None else "chat_image",
+            "X-Caller-User": self.binding.user_id,
+            "X-Caller-Scene": "image_edit" if source_image_id is not None else "chat_image",
         }
         run_id = current_log_context("run_id")
         if run_id:

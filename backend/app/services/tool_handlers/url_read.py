@@ -116,6 +116,7 @@ class UrlReadHandler(BaseToolHandler):
                 policy.normalized_url or url,
                 timeout=settings.READER_SERVICE_TIMEOUT,
                 full_page=full_page,
+                scene="url_read",
             )
             duration_ms = int((time.monotonic() - start) * 1000)
             result = response.result

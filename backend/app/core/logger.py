@@ -11,7 +11,7 @@ _ASIA_SHANGHAI = timezone(timedelta(hours=8))
 
 # 请求与运行身份：由 HTTP 中间件和后台运行入口绑定，随 asyncio 任务与 to_thread 自动传递，
 # 日志不必在每条消息里手写这些 ID 也能在 Loki 中按字段串起来。
-_LOG_CONTEXT_FIELDS = ("request_id", "run_id", "conversation_id")
+_LOG_CONTEXT_FIELDS = ("request_id", "run_id", "conversation_id", "user_id")
 _log_context: dict[str, ContextVar[str | None]] = {
     field: ContextVar(f"fusion_log_{field}", default=None) for field in _LOG_CONTEXT_FIELDS
 }
