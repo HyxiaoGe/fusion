@@ -1,6 +1,8 @@
 import { modelFallbackReasonLabel } from '@/lib/agent/modelFallback';
+import { planItemStatusLabel } from '@/lib/agent/planState';
 import i18n from '@/lib/i18n';
 import { getToolMeta, hasToolMeta } from '@/lib/agent/toolRegistry';
+import type { AgentPlanItemStatus } from '@/types/agentRun';
 import { extractTextFromBlocks, isContentFilteredMessage } from '@/types/conversation';
 import type { TrajectoryCell } from './TrajectoryCellProjection';
 
@@ -169,7 +171,7 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
       return {
         kindLabel: cell.requestIndex === null
           ? '模型请求'
-          : `Request #${cell.requestIndex}`,
+          : `模型请求 #${cell.requestIndex}`,
         summary: llmRoundSummary(cell),
         statusLabel: formatTrajectoryStatus(cell.status),
         durationMs: cell.durationMs,
@@ -189,13 +191,13 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
         isSkeleton: !cell.isHydrated,
       };
     case 'plan': {
-      const items = Array.isArray(cell.payload.items) ? cell.payload.items.length : 0;
+      const progress = planProgress(trajectoryPlanItems(cell.payload));
       return {
         kindLabel: '计划',
-        summary: items > 0 ? `${items} 个步骤` : '计划已更新',
-        statusLabel: cell.revision === null ? null : `第 ${cell.revision} 版`,
+        summary: progress.summary,
+        statusLabel: progress.statusLabel,
         durationMs: null,
-        tone: 'info',
+        tone: progress.tone,
       };
     }
     case 'context':
@@ -254,6 +256,59 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
   }
 }
 
+export interface TrajectoryPlanItem {
+  id: string;
+  title: string;
+  status: AgentPlanItemStatus;
+  statusLabel: string;
+  summary: string | null;
+}
+
+const PLAN_ITEM_STATUSES = new Set<string>(['pending', 'running', 'completed', 'failed', 'skipped', 'blocked']);
+
+/** 计划快照里的步骤，按模型给出的顺序。 */
+export function trajectoryPlanItems(payload: Record<string, unknown>): TrajectoryPlanItem[] {
+  if (!Array.isArray(payload.items)) return [];
+  return payload.items.flatMap((item: unknown, index) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const title = stringValue(record.title);
+    if (!title) return [];
+    const status = (PLAN_ITEM_STATUSES.has(String(record.status)) ? record.status : 'pending') as AgentPlanItemStatus;
+    return [{
+      id: stringValue(record.id) ?? `item-${index}`,
+      title,
+      status,
+      statusLabel: planItemStatusLabel(status),
+      summary: stringValue(record.summary),
+    }];
+  });
+}
+
+function planProgress(items: readonly TrajectoryPlanItem[]): {
+  summary: string;
+  statusLabel: string | null;
+  tone: TrajectoryCellPresentation['tone'];
+} {
+  if (items.length === 0) return { summary: '计划没有步骤', statusLabel: null, tone: 'neutral' };
+  const settled = items.filter(item => item.status === 'completed' || item.status === 'skipped').length;
+  const running = items.find(item => item.status === 'running');
+  const failed = items.some(item => item.status === 'failed');
+  const blocked = items.some(item => item.status === 'blocked');
+  const parts = [`${items.length} 个步骤`];
+  if (settled === items.length) parts.push('全部完成');
+  else {
+    parts.push(`完成 ${settled}/${items.length}`);
+    if (running) parts.push(`进行中：${running.title}`);
+  }
+  const summary = boundedSummary(parts.join(' · '));
+  if (failed) return { summary, statusLabel: '有步骤失败', tone: 'danger' };
+  if (blocked) return { summary, statusLabel: '有步骤受阻', tone: 'warn' };
+  if (settled === items.length) return { summary, statusLabel: '已完成', tone: 'success' };
+  if (running) return { summary, statusLabel: '进行中', tone: 'info' };
+  return { summary, statusLabel: '待执行', tone: 'neutral' };
+}
+
 /** 工具显示名：登记过的用中文名，MCP 等外部工具用原名。 */
 export function trajectoryToolLabel(toolName: string | null): string {
   if (!toolName) return '工具';
@@ -282,8 +337,10 @@ function llmRoundAction(cell: Extract<TrajectoryCell, { type: 'assistant_request
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
     const parts = [...counts].map(([label, count]) => (count > 1 ? `${label}×${count}` : label));
-    return `调用 ${cell.toolNames.length} 个工具：${parts.join('、')}`;
+    const tools = `调用 ${cell.toolNames.length} 个工具：${parts.join('、')}`;
+    return cell.updatedPlan ? `更新计划，${tools}` : tools;
   }
+  if (cell.updatedPlan) return '更新计划';
   if (cell.status === 'running') return '生成中';
   if (cell.status === 'success' || cell.status === 'completed') return '输出回答';
   return '未完成';

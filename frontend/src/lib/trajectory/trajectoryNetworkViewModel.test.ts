@@ -104,6 +104,7 @@ function planCell(runId: string, userMessageId: string): TrajectoryCell {
     sourceSequences: [3],
     planId: 'plan-1',
     revision: 1,
+    llmRoundKey: null,
     payload: {},
   };
 }

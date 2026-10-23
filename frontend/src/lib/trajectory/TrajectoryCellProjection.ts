@@ -89,11 +89,14 @@ export interface RunCell extends TrajectoryCellBase {
   liveTail: NormalizedTrajectoryEvent[];
 }
 
+/** 模型每次更新计划占一行；之后服务端推进步骤状态的快照并入最近一行。 */
 export interface PlanCell extends TrajectoryCellBase {
   type: 'plan';
   runId: string;
   planId: string;
   revision: number | null;
+  /** 更新计划的那一轮模型请求；不是模型更新的计划为 null。 */
+  llmRoundKey: string | null;
   payload: Record<string, unknown>;
 }
 
@@ -138,6 +141,8 @@ export interface LlmRoundCell extends TrajectoryCellBase {
   stepId: string | null;
   /** 本轮发起的工具调用名，按调用顺序。 */
   toolNames: string[];
+  /** 本轮调用了 update_plan。 */
+  updatedPlan: boolean;
   roundIndex: number | null;
   requestIndex: number | null;
   model: string | null;
@@ -711,7 +716,7 @@ function normalizeTrajectoryBadgeStatus(value: string | null): TrajectoryBadgeSt
 
 function projectDetailCells(detail: DetailContext, runCell: RunCell): TrajectoryCell[] {
   const cells: TrajectoryCell[] = [];
-  const plans = new Map<string, PlanCell>();
+  const latestPlans = new Map<string, PlanCell>();
   const contexts = new Map<string, ContextCell>();
   const tools = new Map<string, ToolCell>();
   const subtools = new Map<string, SubtoolCell>();
@@ -757,6 +762,7 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
           llmRoundId,
           stepId: item.stepId,
           toolNames: [],
+          updatedPlan: false,
           roundIndex,
           requestIndex: roundIndex === null ? null : detail.requestOffset + roundIndex,
           model: stringValue(item.payload.model),
@@ -781,22 +787,26 @@ function projectDetailCells(detail: DetailContext, runCell: RunCell): Trajectory
 
     if (item.eventType === 'plan_snapshot' || item.eventType === 'plan_step_updated') {
       const planId = stringValue(item.payload.plan_id) ?? `sequence-${item.sequence}`;
-      const existing = plans.get(planId);
-      if (existing) {
+      const existing = latestPlans.get(planId);
+      const modelUpdate = item.payload.reason === 'model_update';
+      if (existing && !modelUpdate) {
         updateEventBackedCell(existing, item, source);
         existing.revision = numberValue(item.payload.revision);
         existing.payload = item.payload;
       } else {
+        const round = modelUpdate && item.stepId ? latestRoundByStep.get(item.stepId) : undefined;
+        if (round) round.updatedPlan = true;
         const cell: PlanCell = {
           ...detailBase(runCell, source, item.sequence),
-          key: `run:${detail.run.runId}:plan:${planId}`,
+          key: `run:${detail.run.runId}:plan:${planId}:${item.sequence}`,
           type: 'plan',
           runId: detail.run.runId,
           planId,
           revision: numberValue(item.payload.revision),
+          llmRoundKey: round?.key ?? null,
           payload: item.payload,
         };
-        plans.set(planId, cell);
+        latestPlans.set(planId, cell);
         cells.push(cell);
       }
       continue;

@@ -742,8 +742,7 @@ describe('TrajectoryTabView', () => {
     expect(modelRow).toHaveAttribute('aria-selected', 'true');
     const detail = screen.getByLabelText('轨迹节点详情');
     expect(within(detail).getByRole('heading', { name: '模型调用' })).toBeInTheDocument();
-    expect(within(detail).getByText('模型阶段')).toBeInTheDocument();
-    expect(within(detail).getByText('llm:round-1')).toBeInTheDocument();
+    expect(within(detail).getByText('llm:round-1')).not.toBeVisible();
     expect(within(detail).queryByRole('tab', { name: '计时' })).not.toBeInTheDocument();
     expect(within(detail).getByText('请求计时')).toBeInTheDocument();
     expect(within(detail).getByText('40 毫秒')).toBeInTheDocument();

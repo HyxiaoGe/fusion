@@ -97,3 +97,24 @@ export function normalizeAgentPlanItem(item: AgentPlanItem): AgentPlanItem {
 function isAgentPlanMode(value: unknown): value is AgentPlanMode {
   return value === 'auto' || value === 'on' || value === 'off';
 }
+
+export function planItemStatusLabel(status: AgentPlanItemStatus): string {
+  switch (status) {
+    case 'pending':
+      return '等待中';
+    case 'running':
+      return '进行中';
+    case 'completed':
+      return '已完成';
+    case 'blocked':
+      return '已阻塞';
+    case 'failed':
+      return '失败';
+    case 'skipped':
+      return '已跳过';
+    default: {
+      void (status as never);
+      return '等待中';
+    }
+  }
+}

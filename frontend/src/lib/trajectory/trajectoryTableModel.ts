@@ -250,7 +250,7 @@ function tableSummary(cell: TrajectoryCell, summary: string): string {
 }
 
 function rowDepth(cell: TrajectoryCell): number {
-  if (cell.type === 'tool') return cell.llmRoundKey ? 1 : 0;
+  if (cell.type === 'tool' || cell.type === 'plan') return cell.llmRoundKey ? 1 : 0;
   if (cell.type === 'subtool') return cell.llmRoundKey ? 2 : 1;
   return 0;
 }
