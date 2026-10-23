@@ -603,6 +603,7 @@ class AgentEventEmitter:
         source: str = "observed",
         reason: str = "legacy_observed",
     ) -> None:
+        # 步骤内发出的快照带当前 step_id，轨迹据此把模型的计划更新归到发起它的那一轮。
         await self._emit(
             ev.PlanSnapshot(
                 type="plan_snapshot",
@@ -613,7 +614,7 @@ class AgentEventEmitter:
                 revision=revision,
                 reason=reason,
                 items=items,
-                **self._envelope(step_id=None),
+                **self._envelope(),
             )
         )
 

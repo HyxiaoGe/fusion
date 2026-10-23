@@ -49,8 +49,37 @@ function baseCell(): {
   };
 }
 
+function llmRound(
+  llmRoundId: string,
+  overrides: Partial<Extract<TrajectoryCell, { type: 'assistant_request' }>> = {},
+): Extract<TrajectoryCell, { type: 'assistant_request' }> {
+  return {
+    ...baseCell(),
+    key: `run:run-1:llm:${llmRoundId}`,
+    type: 'assistant_request',
+    llmRoundId,
+    stepId: 'step-1',
+    toolNames: [],
+    updatedPlan: false,
+    roundIndex: 3,
+    requestIndex: 3,
+    model: 'mimo-v2.6-flash',
+    provider: 'openai',
+    status: 'success',
+    reasoningPreview: null,
+    inputTokens: null,
+    outputTokens: null,
+    reasoningTokens: null,
+    durationMs: null,
+    ttftMs: null,
+    detailAvailable: true,
+    events: [],
+    ...overrides,
+  };
+}
+
 describe('buildTrajectoryNodeDetailModel', () => {
-  it('Run 详情摘要只列内置工具中文名，外部工具记个数，原名放诊断信息', async () => {
+  it('Run 详情摘要给出模型、Token 合计和可用工具数，工具清单放诊断信息', async () => {
     await i18n.changeLanguage('zh-CN');
     const run: Extract<TrajectoryCell, { type: 'run' }> = {
       ...baseCell(),
@@ -83,18 +112,25 @@ describe('buildTrajectoryNodeDetailModel', () => {
       liveTail: [],
     };
 
-    const model = buildTrajectoryNodeDetailModel(run, null);
+    const rounds = [
+      llmRound('round-1', { inputTokens: 1_000, outputTokens: 20 }),
+      llmRound('round-2', { inputTokens: 1_200, outputTokens: 300 }),
+      llmRound('other-run-round', { runId: 'run-other', model: 'deepseek-chat', inputTokens: 9_999 }),
+    ];
+
+    const model = buildTrajectoryNodeDetailModel(run, null, rounds);
     expect(model.summaryFields).toEqual([
-      { label: '模式', value: '全部可用工具 · agent' },
-      { label: '公告工具', value: '查询天气' },
-      { label: '按需检索工具', value: '外部工具 1 个' },
-      { label: '计划模式', value: '关闭' },
+      { label: '模型', value: 'mimo-v2.6-flash' },
+      { label: '输入 Token', value: '2,200' },
+      { label: '输出 Token', value: '320' },
+      { label: '模式', value: '模型自选工具' },
+      { label: '可用工具', value: '1 个' },
     ]);
     expect(model.diagnostics).toEqual(expect.arrayContaining([
       { label: '路由器版本', value: '2026-10-05.1' },
       { label: '工具包指纹', value: `sha256:${'a'.repeat(64)}` },
-      { label: '公告工具原名', value: 'weather_forecast' },
-      { label: '按需检索工具原名', value: 'mcp_docs_search' },
+      { label: '可用工具清单', value: '查询天气（weather_forecast）' },
+      { label: '按需检索工具清单', value: 'mcp_docs_search' },
     ]));
   });
 
@@ -135,8 +171,7 @@ describe('buildTrajectoryNodeDetailModel', () => {
 
     // 既不丢弃整条 resolution，也不把 i18n key 直接显示给用户。
     expect(fields).toContainEqual({ label: '模式', value: 'future_mode' });
-    expect(fields).toContainEqual({ label: '公告工具', value: '查询天气' });
-    expect(fields.map(field => field.label)).not.toContain('按需检索工具');
+    expect(fields).toContainEqual({ label: '可用工具', value: '1 个' });
   });
 
   it('老 Run 精确显示能力路由未记录且不展示推断字段', async () => {
@@ -163,15 +198,11 @@ describe('buildTrajectoryNodeDetailModel', () => {
     };
 
     expect(buildTrajectoryNodeDetailModel(run, null).summaryFields).toEqual([
-      { label: '工具边界', value: '该运行未记录工具边界（旧版记录不再展示）' },
+      { label: '工具范围', value: '该运行未记录工具范围' },
     ]);
   });
 
-  it.each([
-    { attemptIndex: 1, expected: 1, expectedMode: 'ordinal' },
-    { attemptIndex: 2, expected: 2, expectedMode: 'ordinal' },
-    { attemptIndex: null, expected: null, expectedMode: null },
-  ])('Run 本地详情使用后端序号 $attemptIndex，未知时不猜测', ({ attemptIndex, expected, expectedMode }) => {
+  it.each([1, 2, null])('Run 第 %s 次执行只写在标题里，摘要不重复尝试序号', attemptIndex => {
     const run: Extract<TrajectoryCell, { type: 'run' }> = {
       ...baseCell(),
       key: 'run:run-1',
@@ -193,9 +224,25 @@ describe('buildTrajectoryNodeDetailModel', () => {
     };
 
     expect(buildTrajectoryNodeDetailModel(run, null)).toMatchObject({
-      attemptCount: expected,
-      attemptMode: expectedMode,
+      attemptCount: null,
+      attemptMode: null,
     });
+  });
+
+  it('模型请求只显示模型名和 Token 数，推理 Token 为 0 时不显示，接口协议放诊断信息', () => {
+    const round = llmRound('round-1', { inputTokens: 12_975, outputTokens: 173, reasoningTokens: 0 });
+
+    const model = buildTrajectoryNodeDetailModel(round, null);
+
+    expect(model.title).toBe('模型请求 #3');
+    expect(model.summaryFields).toEqual([
+      { label: '模型', value: 'mimo-v2.6-flash' },
+      { label: '输入 Token', value: '12,975' },
+      { label: '输出 Token', value: '173' },
+    ]);
+    expect(model.diagnostics).toContainEqual({ label: '接口协议', value: 'openai' });
+    expect(buildTrajectoryNodeDetailModel({ ...round, reasoningTokens: 64 }, null).summaryFields)
+      .toContainEqual({ label: '推理 Token', value: '64' });
   });
 
   it('从用户与回答 cell 生成本地摘要和上海时区时间，不依赖节点详情', () => {
@@ -234,7 +281,6 @@ describe('buildTrajectoryNodeDetailModel', () => {
 
     expect(buildTrajectoryNodeDetailModel(user, null)).toMatchObject({
       title: '用户提问',
-      nodeType: '用户消息',
       status: '已记录',
       summary: '查询上海天气',
       startedAt: '2026-08-23 08:00:00.000',
@@ -245,7 +291,6 @@ describe('buildTrajectoryNodeDetailModel', () => {
     });
     expect(buildTrajectoryNodeDetailModel(answer, null)).toMatchObject({
       title: '回答',
-      nodeType: '回答消息',
       status: '失败',
       summary: '暂时无法回答',
       errorSummary: '回答未能完成',
@@ -308,7 +353,6 @@ describe('buildTrajectoryNodeDetailModel', () => {
 
     expect(buildTrajectoryNodeDetailModel(run, span)).toMatchObject({
       title: '模型调用',
-      nodeType: '模型阶段',
       status: '失败',
       summary: '模型调用',
       duration: null,
@@ -415,7 +459,6 @@ describe('buildTrajectoryNodeDetailModel', () => {
 
     expect(model).toMatchObject({
       title: '运行',
-      nodeType: '运行',
       summary: '运行',
       attemptCount: null,
     });
@@ -527,7 +570,6 @@ describe('buildTrajectoryNodeDetailModel', () => {
     expect(localModel.attemptMode).toBe(expectedMode);
     expect(spanModel).toMatchObject({
       title: '工具尝试 · 搜索',
-      nodeType: '工具尝试',
       status: '失败',
       summary: '工具尝试',
       duration: '40 毫秒',
@@ -632,7 +674,6 @@ describe('buildTrajectoryNodeDetailModel', () => {
 
     expect(buildTrajectoryNodeDetailModel(tool, null)).toMatchObject({
       title: '搜索',
-      nodeType: '工具',
       status: '完成',
       duration: '80 毫秒',
       startedAt: '2026-08-23 08:00:01.000',
@@ -642,7 +683,6 @@ describe('buildTrajectoryNodeDetailModel', () => {
     const attemptModel = buildTrajectoryNodeDetailModel(attempt, null);
     expect(attemptModel).toMatchObject({
       title: '工具尝试',
-      nodeType: '工具尝试',
       status: '失败',
       duration: '40 毫秒',
       attemptCount: 1,

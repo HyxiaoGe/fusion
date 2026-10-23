@@ -15,6 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { planItemStatusLabel } from '@/lib/agent/planState';
 import type { AgentPlanItem, AgentRunState } from '@/types/agentRun';
 import { cn } from '@/lib/utils';
 
@@ -268,11 +269,11 @@ function PlanItemRow({ item }: { item: DisplayPlanPhase }) {
       <div className="flex min-w-0 items-start gap-2.5">
         <span
           data-testid={`plan-status-${item.id}`}
-          title={getStatusLabel(item.status)}
+          title={planItemStatusLabel(item.status)}
           className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${getStatusToneClass(item.status)}`}
         >
           <Icon className={getStatusIconClass(item.status)} aria-hidden="true" />
-          <span className="sr-only">{getStatusLabel(item.status)}</span>
+          <span className="sr-only">{planItemStatusLabel(item.status)}</span>
         </span>
         <span className="min-w-0 flex-1 break-words text-xs leading-5 text-foreground/90">
           {item.title}
@@ -304,7 +305,7 @@ function PlanTaskRow({ task }: { task: AgentPlanItem }) {
         className={`${getTaskStatusIconClass(task.status)} ${getTaskStatusToneClass(task.status)}`}
       />
       <span className="min-w-0 flex-1 break-words">{task.title}</span>
-      <span className="sr-only">{getStatusLabel(task.status)}</span>
+      <span className="sr-only">{planItemStatusLabel(task.status)}</span>
     </li>
   );
 }
@@ -540,27 +541,6 @@ function getTaskStatusToneClass(status: AgentPlanItem['status']): string {
   if (status === 'failed') return 'text-danger';
   if (status === 'blocked') return 'text-warn';
   return 'text-muted-foreground/60';
-}
-
-function getStatusLabel(status: AgentPlanItem['status']): string {
-  switch (status) {
-    case 'pending':
-      return '等待中';
-    case 'running':
-      return '进行中';
-    case 'completed':
-      return '已完成';
-    case 'blocked':
-      return '已阻塞';
-    case 'failed':
-      return '失败';
-    case 'skipped':
-      return '已跳过';
-    default: {
-      void (status as never);
-      return '等待中';
-    }
-  }
 }
 
 function getProgressToneClass(items: AgentPlanItem[]): string {

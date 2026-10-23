@@ -23,7 +23,6 @@ export interface TrajectoryNodeSummaryField {
 
 export interface TrajectoryNodeDetailModel {
   title: string;
-  nodeType: string;
   status: string;
   summary: string;
   duration: string | null;
@@ -72,11 +71,10 @@ export function buildTrajectoryNodeDetailModel(
 ): TrajectoryNodeDetailModel {
   const presentation = getTrajectoryCellPresentation(cell);
   const events = cellEvents(cell);
-  if (span) return buildSpanDetailModel(cell, span, events, translate);
+  if (span) return buildSpanDetailModel(cell, span, events, relatedCells, translate);
 
   return {
     title: presentation.kindLabel,
-    nodeType: cellTypeLabel(cell.type),
     status: presentation.statusLabel ?? '已记录',
     summary: presentation.summary,
     duration: formatTrajectoryDuration(localDuration(cell, events, presentation.durationMs)),
@@ -86,7 +84,7 @@ export function buildTrajectoryNodeDetailModel(
     attemptCount: attemptCount(cell, relatedCells),
     attemptMode: cellAttemptMode(cell, relatedCells),
     errorSummary: cellError(cell, events),
-    summaryFields: cellSummaryFields(cell, translate),
+    summaryFields: cellSummaryFields(cell, relatedCells, translate),
     diagnostics: cellDiagnostics(cell, translate),
   };
 }
@@ -95,6 +93,7 @@ function buildSpanDetailModel(
   cell: TrajectoryCell,
   span: TrajectorySpan,
   cellEvents: readonly NormalizedTrajectoryEvent[],
+  relatedCells: readonly TrajectoryCell[],
   translate: TFunction,
 ): TrajectoryNodeDetailModel {
   const sequences = new Set(span.record_sequences);
@@ -105,7 +104,6 @@ function buildSpanDetailModel(
 
   return {
     title: toolLabel ? `${presentation.title} · ${toolLabel}` : presentation.title,
-    nodeType: presentation.nodeType,
     status: formatTrajectoryStatus(span.status),
     summary: presentation.summary,
     duration: formatTrajectoryDuration(span.duration_ms),
@@ -115,25 +113,24 @@ function buildSpanDetailModel(
     attemptCount: attemptOrdinal,
     attemptMode: attemptOrdinal === null ? null : 'ordinal',
     errorSummary: spanError(span, events),
-    summaryFields: cellSummaryFields(cell, translate),
+    summaryFields: cellSummaryFields(cell, relatedCells, translate),
     diagnostics: [...spanDiagnostics(span), ...engineeringDiagnostics(cell, translate)],
   };
 }
 
 function spanPresentation(kind: string): {
   title: string;
-  nodeType: string;
   summary: string;
 } {
   switch (kind) {
-    case 'run': return { title: '运行', nodeType: '运行', summary: '运行' };
-    case 'step': return { title: '执行步骤', nodeType: '步骤', summary: '执行步骤' };
-    case 'llm': return { title: '模型调用', nodeType: '模型阶段', summary: '模型调用' };
-    case 'retrieval': return { title: '资料获取', nodeType: '资料获取阶段', summary: '资料获取' };
-    case 'tool': return { title: '工具', nodeType: '工具阶段', summary: '工具调用' };
-    case 'tool_attempt': return { title: '工具尝试', nodeType: '工具尝试', summary: '工具尝试' };
-    case 'message': return { title: '消息', nodeType: '消息', summary: '消息' };
-    default: return { title: '轨迹阶段', nodeType: '轨迹阶段', summary: '轨迹阶段' };
+    case 'run': return { title: '运行', summary: '运行' };
+    case 'step': return { title: '执行步骤', summary: '执行步骤' };
+    case 'llm': return { title: '模型调用', summary: '模型调用' };
+    case 'retrieval': return { title: '资料获取', summary: '资料获取' };
+    case 'tool': return { title: '工具', summary: '工具调用' };
+    case 'tool_attempt': return { title: '工具尝试', summary: '工具尝试' };
+    case 'message': return { title: '消息', summary: '消息' };
+    default: return { title: '轨迹阶段', summary: '轨迹阶段' };
   }
 }
 
@@ -198,18 +195,36 @@ function localTtft(
   return latestNumber(events, 'ttft_ms');
 }
 
-/**
- * 后端新增模式时前端可能还没有对应文案：退回只展示原始 id，不显示 i18n key，
- * 也不因此丢弃整条 resolution（issue #26）。
- */
+/** 后端新增模式时前端可能还没有对应文案：显示原始 id，不显示 i18n key（issue #26）。 */
 function capabilityModeLabel(modeId: string, translate: TFunction): string {
   const key = `trajectory.capabilityResolution.modes.${modeId}`;
   const label = translate(key);
-  return label === key ? modeId : `${label} · ${modeId}`;
+  return label === key ? modeId : label;
+}
+
+/** system 段落的中文名；新加的段落还没有文案时显示原始 id。 */
+export function systemPromptSectionLabel(sectionId: string, translate: TFunction = i18n.t): string {
+  const key = `trajectory.systemPrompt.sections.${sectionId}`;
+  const label = translate(key);
+  return label === key ? sectionId : label;
+}
+
+function formatTokens(value: number): string {
+  return value.toLocaleString('en-US');
+}
+
+function runRounds(
+  cell: Extract<TrajectoryCell, { type: 'run' }>,
+  relatedCells: readonly TrajectoryCell[],
+): Extract<TrajectoryCell, { type: 'assistant_request' }>[] {
+  return relatedCells.filter((related): related is Extract<TrajectoryCell, { type: 'assistant_request' }> => (
+    related.type === 'assistant_request' && related.runId === cell.runId
+  ));
 }
 
 function cellSummaryFields(
   cell: TrajectoryCell,
+  relatedCells: readonly TrajectoryCell[],
   translate: TFunction,
 ): TrajectoryNodeSummaryField[] {
   if (cell.type === 'user' || cell.type === 'message') {
@@ -232,110 +247,70 @@ function cellSummaryFields(
       }
       if (cell.message.usage) {
         fields.push(
-          {
-            label: '输入 Token',
-            value: `${cell.message.usage.input_tokens.toLocaleString('en-US')} tok`,
-          },
-          {
-            label: '输出 Token',
-            value: `${cell.message.usage.output_tokens.toLocaleString('en-US')} tok`,
-          },
+          { label: '输入 Token', value: formatTokens(cell.message.usage.input_tokens) },
+          { label: '输出 Token', value: formatTokens(cell.message.usage.output_tokens) },
         );
       }
     }
     return fields;
   }
-  if (cell.type === 'tool') {
-    return [
-      {
-        label: '来源',
-        value: `工具 · ${getToolMeta(cell.toolName ?? '').label}`,
-      },
-    ];
-  }
   if (cell.type === 'run') {
+    const fields: TrajectoryNodeSummaryField[] = [];
+    const rounds = runRounds(cell, relatedCells);
+    const models = [...new Set(rounds.map(round => round.model).filter((model): model is string => Boolean(model)))];
+    if (models.length > 0) fields.push({ label: '模型', value: models.join('、') });
+    const inputTokens = rounds.reduce((total, round) => total + (round.inputTokens ?? 0), 0);
+    const outputTokens = rounds.reduce((total, round) => total + (round.outputTokens ?? 0), 0);
+    if (rounds.some(round => round.inputTokens !== null || round.outputTokens !== null)) {
+      fields.push(
+        { label: '输入 Token', value: formatTokens(inputTokens) },
+        { label: '输出 Token', value: formatTokens(outputTokens) },
+      );
+    }
     const resolution = cell.capabilityResolution;
     if (!resolution) {
-      return [{
+      fields.push({
         label: translate('trajectory.capabilityResolution.title'),
         value: translate('trajectory.capabilityResolution.notRecorded'),
-      }];
+      });
+      return fields;
     }
-    // 摘要只列内置工具的中文名；外部（MCP）工具名是哈希别名，只记个数，原名在诊断信息里。
-    const formatToolNames = (names: readonly string[]) => {
-      if (names.length === 0) return translate('trajectory.capabilityResolution.none');
-      const labels = names.filter(hasToolMeta).map(toolName => getToolMeta(toolName).label);
-      const externalCount = names.length - labels.length;
-      if (externalCount > 0) {
-        labels.push(translate('trajectory.capabilityResolution.externalToolCount', { count: externalCount }));
-      }
-      return labels.join(' · ');
-    };
-    const fields: TrajectoryNodeSummaryField[] = [
+    fields.push(
       {
         label: translate('trajectory.capabilityResolution.mode'),
         value: capabilityModeLabel(resolution.package_id, translate),
       },
       {
-        label: translate('trajectory.capabilityResolution.externalTools'),
-        value: formatToolNames(resolution.external_tool_names),
-      },
-    ];
-    if (resolution.deferred_tool_names.length > 0) {
-      fields.push({
-        label: translate('trajectory.capabilityResolution.deferredTools'),
-        value: formatToolNames(resolution.deferred_tool_names),
-      });
-    }
-    fields.push(
-      {
-        label: translate('trajectory.capabilityResolution.planMode'),
-        value: translate(`trajectory.capabilityResolution.planModes.${resolution.effective_plan_mode}`),
+        label: translate('trajectory.capabilityResolution.availableTools'),
+        value: translate('trajectory.capabilityResolution.toolCount', { count: resolution.external_tool_names.length }),
       },
     );
     return fields;
   }
   if (cell.type === 'context' && cell.eventType === 'system_prompt_prepared') {
-    return ['source', 'template_version', 'section_ids', 'fingerprint', 'char_count'].flatMap(key => {
-      const value = cell.payload[key];
-      return value === undefined || value === null ? [] : [{
-        label: translate(`trajectory.systemPrompt.${key}`),
-        value: Array.isArray(value) ? value.join(' · ') : String(value),
-      }];
-    });
+    const fields: TrajectoryNodeSummaryField[] = [];
+    const sectionIds = cell.payload.section_ids;
+    if (Array.isArray(sectionIds) && sectionIds.length > 0) {
+      fields.push({
+        label: translate('trajectory.systemPrompt.section_ids'),
+        value: sectionIds.map(sectionId => systemPromptSectionLabel(String(sectionId), translate)).join('、'),
+      });
+    }
+    if (typeof cell.payload.char_count === 'number') {
+      fields.push({
+        label: translate('trajectory.systemPrompt.char_count'),
+        value: formatTokens(cell.payload.char_count),
+      });
+    }
+    return fields;
   }
   if (cell.type !== 'assistant_request') return [];
-  const fields: TrajectoryNodeSummaryField[] = [
-    {
-      label: '来源',
-      value: cell.requestIndex !== null ? `Request #${cell.requestIndex}` : '模型请求',
-    },
-  ];
-  const model = [cell.provider, cell.model].filter(Boolean).join(' · ');
-  if (model) fields.push({ label: '模型', value: model });
-  for (const [label, value] of [
-    ['输入 Token', cell.inputTokens],
-    ['输出 Token', cell.outputTokens],
-    ['推理 Token', cell.reasoningTokens],
-  ] as const) {
-    if (value !== null) fields.push({ label, value: `${value.toLocaleString('en-US')} tok` });
-  }
+  const fields: TrajectoryNodeSummaryField[] = [];
+  if (cell.model) fields.push({ label: '模型', value: cell.model });
+  if (cell.inputTokens !== null) fields.push({ label: '输入 Token', value: formatTokens(cell.inputTokens) });
+  if (cell.outputTokens !== null) fields.push({ label: '输出 Token', value: formatTokens(cell.outputTokens) });
+  if (cell.reasoningTokens) fields.push({ label: '推理 Token', value: formatTokens(cell.reasoningTokens) });
   return fields;
-}
-
-function cellTypeLabel(type: TrajectoryCell['type']): string {
-  switch (type) {
-    case 'user': return '用户消息';
-    case 'message': return '回答消息';
-    case 'assistant_request': return '模型请求';
-    case 'run': return '运行';
-    case 'plan': return '计划';
-    case 'context': return '上下文';
-    case 'tool': return '工具';
-    case 'subtool': return '工具尝试';
-    case 'compacted': return '上下文压缩';
-    case 'model_fallback': return '换模型';
-  }
 }
 
 function localStartedAt(
@@ -377,9 +352,8 @@ function attemptCount(
   cell: TrajectoryCell,
   relatedCells: readonly TrajectoryCell[],
 ): number | null {
-  if (cell.type === 'run' || cell.type === 'subtool') {
-    return cell.attemptIndex;
-  }
+  // 运行的第几次已写在标题里，这里只给工具尝试标序号。
+  if (cell.type === 'subtool') return cell.attemptIndex;
   if (cell.type !== 'tool') return null;
 
   const attemptIds = new Set<string>();
@@ -397,9 +371,7 @@ function cellAttemptMode(
   cell: TrajectoryCell,
   relatedCells: readonly TrajectoryCell[],
 ): TrajectoryNodeDetailModel['attemptMode'] {
-  if (cell.type === 'run' || cell.type === 'subtool') {
-    return cell.attemptIndex === null ? null : 'ordinal';
-  }
+  if (cell.type === 'subtool') return cell.attemptIndex === null ? null : 'ordinal';
   if (cell.type !== 'tool') return null;
   return attemptCount(cell, relatedCells) === null ? null : 'count';
 }
@@ -518,7 +490,9 @@ function engineeringDiagnostics(cell: TrajectoryCell, translate: TFunction): Tra
     if (resolution.external_tool_names.length > 0) {
       items.push({
         label: translate('trajectory.capabilityResolution.externalToolNames'),
-        value: resolution.external_tool_names.join(' · '),
+        value: resolution.external_tool_names.map(toolName => (
+          hasToolMeta(toolName) ? `${getToolMeta(toolName).label}（${toolName}）` : toolName
+        )).join('、'),
       });
     }
     if (resolution.deferred_tool_names.length > 0) {
@@ -529,13 +503,25 @@ function engineeringDiagnostics(cell: TrajectoryCell, translate: TFunction): Tra
     }
     return items;
   }
+  if (cell.type === 'context' && cell.eventType === 'system_prompt_prepared') {
+    return ['source', 'template_version', 'fingerprint'].flatMap(key => {
+      const value = cell.payload[key];
+      return value === undefined || value === null ? [] : [{
+        label: translate(`trajectory.systemPrompt.${key}`),
+        value: String(value),
+      }];
+    });
+  }
   if (cell.type === 'assistant_request') {
+    const items: TrajectoryNodeDiagnostic[] = [];
+    if (cell.provider) items.push({ label: '接口协议', value: cell.provider });
     const fingerprint = cell.events.find(event => (
       event.eventType === 'llm_round_started' && event.payload.llm_round_id === cell.llmRoundId
     ))?.payload.system_prompt_fingerprint;
     if (typeof fingerprint === 'string') {
-      return [{ label: translate('trajectory.systemPrompt.requestFingerprint'), value: fingerprint }];
+      items.push({ label: translate('trajectory.systemPrompt.requestFingerprint'), value: fingerprint });
     }
+    return items;
   }
   return [];
 }

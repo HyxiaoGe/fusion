@@ -113,4 +113,19 @@ describe('轨迹单元格展示', () => {
 
     expect(getTrajectoryCellPresentation(cell).summary).toBe('被模型服务商内容审核拦截，显示固定提示');
   });
+
+  it.each([
+    [['completed', 'running', 'pending'], '3 个步骤 · 完成 1/3 · 进行中：第 2 步', '进行中', 'info'],
+    [['completed', 'skipped'], '2 个步骤 · 全部完成', '已完成', 'success'],
+    [['completed', 'failed'], '2 个步骤 · 完成 1/2', '有步骤失败', 'danger'],
+    [['blocked', 'pending'], '2 个步骤 · 完成 0/2', '有步骤受阻', 'warn'],
+    [['pending'], '1 个步骤 · 完成 0/1', '待执行', 'neutral'],
+  ] as const)('计划行按步骤状态汇总进度 %j', (statuses, summary, statusLabel, tone) => {
+    const presentation = getTrajectoryCellPresentation({
+      key: 'run:run-1:plan:plan-1:2', type: 'plan', runId: 'run-1', userMessageId: 'user-1', assistantMessageId: 'assistant-1',
+      completenessSources: ['durable-snapshot'], sourceSequences: [2], planId: 'plan-1', revision: 1, llmRoundKey: null,
+      payload: { items: statuses.map((status, index) => ({ id: `s${index}`, title: `第 ${index + 1} 步`, status })) },
+    });
+    expect(presentation).toMatchObject({ kindLabel: '计划', summary, statusLabel, tone });
+  });
 });

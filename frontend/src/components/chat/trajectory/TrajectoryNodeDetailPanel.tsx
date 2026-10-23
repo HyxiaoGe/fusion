@@ -7,12 +7,13 @@ import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import AdminSafeMarkdown from '@/components/admin/AdminSafeMarkdown';
-import { getToolMeta } from '@/lib/agent/toolRegistry';
+import { describeToolArgument } from '@/lib/agent/toolRegistry';
 import { useTrajectoryLlmNodeDetail } from '@/hooks/useTrajectoryLlmNodeDetail';
 import { useTrajectorySystemPromptNodeDetail } from '@/hooks/useTrajectorySystemPromptNodeDetail';
 import { useTrajectoryToolNodeDetail } from '@/hooks/useTrajectoryToolNodeDetail';
 import {
   buildTrajectoryNodeDetailModel,
+  systemPromptSectionLabel,
   type TrajectoryNodeDetailModel,
 } from '@/lib/trajectory/trajectoryNodeDetailModel';
 import { normalizeOutputProvenance } from '@/lib/trajectory/normalizeTrajectoryEvent';
@@ -20,6 +21,9 @@ import type { TrajectoryCell } from '@/lib/trajectory/TrajectoryCellProjection';
 import {
   formatTrajectoryDuration,
   formatTrajectoryStatus,
+  getTrajectoryCellPresentation,
+  trajectoryPlanItems,
+  trajectoryToolLabel,
 } from '@/lib/trajectory/trajectoryCellPresentation';
 import { extractTextFromBlocks, type ContentBlock } from '@/types/conversation';
 import type {
@@ -75,6 +79,7 @@ const PENDING_MAX_REQUESTS = 7;
 const EMPTY_RELATED_CELLS: readonly TrajectoryCell[] = [];
 const SUMMARY_PAYLOAD_FIELDS = 6;
 const SUMMARY_TEXT_CHARS = 600;
+const SUMMARY_LINKS = 5;
 
 export function TrajectoryNodeDetailPanel({
   conversationId,
@@ -279,7 +284,6 @@ function TrajectoryNodeDetailContent({
   return (
     <div className="min-w-0">
       <div className="mb-4 min-w-0">
-        <p className="text-xs font-medium text-muted-foreground">{model.nodeType}</p>
         <h2 className="truncate text-base font-semibold text-foreground">
           {isSystemPrompt
             ? t('trajectory.systemPrompt.title')
@@ -360,6 +364,7 @@ function TrajectoryNodeDetailContent({
             pendingStopped={pendingStopped}
             onRetry={retryDetail}
             detailKind={remoteDetailKind}
+            relatedCells={relatedCells}
           />
         )}
       </section>
@@ -368,16 +373,16 @@ function TrajectoryNodeDetailContent({
         <details
           role="group"
           aria-label="诊断信息"
-          className="mt-4 rounded-md border border-border/50 bg-muted/10 p-3 text-xs"
+          className="mt-4 border-b border-border/45 pb-2"
         >
-          <summary className="cursor-pointer font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <summary className="cursor-pointer py-1 text-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
             诊断信息
           </summary>
-          <dl className="mt-3 space-y-2">
+          <dl className="mt-1 divide-y divide-border/35 text-xs">
             {model.diagnostics.map(item => (
-              <div key={`${item.label}:${item.value}`}>
+              <div key={`${item.label}:${item.value}`} className={SUMMARY_FIELD_GRID}>
                 <dt className="text-muted-foreground">{item.label}</dt>
-                <dd className="break-all font-mono text-foreground">{item.value}</dd>
+                <dd className="min-w-0 break-all font-mono text-foreground">{item.value}</dd>
               </div>
             ))}
           </dl>
@@ -544,7 +549,7 @@ function SummarySection({
           : `第 ${model.attemptCount} 次`,
       }]
       : []),
-    ...(!['user', 'message', 'assistant_request', 'tool'].includes(cell.type)
+    ...(!['user', 'message', 'assistant_request', 'tool', 'plan'].includes(cell.type)
       ? [{ label: '概览', value: model.summary }]
       : []),
   ];
@@ -582,9 +587,42 @@ function SummarySection({
         </SummaryBlock>
       )}
       {cell.type === 'assistant_request' && <RequestTimingSummary model={model} />}
+      {cell.type === 'plan' && (
+        <SummaryBlock title="步骤" actionLabel="步骤">
+          <PlanStepList cell={cell} />
+        </SummaryBlock>
+      )}
     </div>
   );
 }
+
+function PlanStepList({ cell }: { cell: Extract<TrajectoryCell, { type: 'plan' }> }) {
+  const items = trajectoryPlanItems(cell.payload);
+  if (items.length === 0) return <SummaryNotice text="计划没有步骤" />;
+  return (
+    <ol aria-label="计划步骤" className="space-y-1.5 text-sm">
+      {items.map((item, index) => (
+        <li key={item.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-baseline gap-2">
+          <span className="text-xs tabular-nums text-muted-foreground">{index + 1}.</span>
+          <span className="min-w-0 break-words text-foreground">
+            {item.title}
+            {item.summary && <span className="block text-xs text-muted-foreground">{item.summary}</span>}
+          </span>
+          <span className={cn('text-xs', PLAN_STATUS_TONE[item.status])}>{item.statusLabel}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+const PLAN_STATUS_TONE: Record<string, string> = {
+  completed: 'text-success',
+  running: 'text-info',
+  failed: 'text-danger',
+  blocked: 'text-warn',
+  skipped: 'text-muted-foreground',
+  pending: 'text-muted-foreground',
+};
 
 function SummaryBlock({
   title,
@@ -638,18 +676,19 @@ function ToolCallPreview({ toolName, detail }: { toolName: string | null; detail
   if (notice) return <SummaryNotice text={notice} />;
   const payload = detail.response ? remoteSectionValue(detail.response, 'payload') : null;
   if (!payload || Object.keys(payload).length === 0) return <SummaryNotice text="没有参数" />;
-  const headline = getToolMeta(toolName ?? '').summarize(payload);
   const entries = Object.entries(payload);
   return (
     <div className="min-w-0 space-y-1.5">
-      {headline && <p className="break-words text-sm text-foreground">{headline}</p>}
-      <dl className="space-y-0.5 font-mono text-xs">
-        {entries.slice(0, SUMMARY_PAYLOAD_FIELDS).map(([key, value]) => (
-          <div key={key} className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-2">
-            <dt className="truncate text-muted-foreground">{key}</dt>
-            <dd className="truncate text-foreground">{formatPayloadValue(value)}</dd>
-          </div>
-        ))}
+      <dl className="space-y-1 text-sm">
+        {entries.slice(0, SUMMARY_PAYLOAD_FIELDS).map(([key, value]) => {
+          const argument = describeToolArgument(toolName ?? '', key, formatPayloadValue(value));
+          return (
+            <div key={key} className="grid grid-cols-[minmax(4rem,max-content)_minmax(0,1fr)] gap-3">
+              <dt className="text-muted-foreground">{argument.label}</dt>
+              <dd className="line-clamp-3 min-w-0 break-words text-foreground">{argument.value}</dd>
+            </div>
+          );
+        })}
       </dl>
       {entries.length > SUMMARY_PAYLOAD_FIELDS && (
         <SummaryNotice text={`另有 ${entries.length - SUMMARY_PAYLOAD_FIELDS} 项参数`} />
@@ -658,18 +697,99 @@ function ToolCallPreview({ toolName, detail }: { toolName: string | null; detail
   );
 }
 
+/** 摘要页展示工具自己的返回；发给模型的工具消息带有本应用追加的说明，放在结果页。 */
 function ToolResultPreview({ detail }: { detail: SummaryDetailState }) {
   const notice = summaryDetailNotice(detail);
   if (notice) return <SummaryNotice text={notice} />;
-  const response = detail.response;
-  const observation = response?.detail && 'tool_call_id' in response.detail ? response.detail.observation : undefined;
-  // 模型实际收到的工具消息最能说明这一步带回了什么；旧记录没有时退回工具返回。
-  const result = response ? remoteSectionValue(response, 'result') : null;
-  const text = observation?.status === 'available' && typeof observation.text === 'string'
-    ? observation.text
-    : result ? JSON.stringify(result, null, 2) : null;
-  if (!text?.trim()) return <SummaryNotice text="没有返回内容" />;
-  return <ClippedText text={text} />;
+  const result = detail.response ? remoteSectionValue(detail.response, 'result') : null;
+  if (!result || Object.keys(result).length === 0) return <SummaryNotice text="没有返回内容" />;
+  const links = resultLinks(result);
+  if (links) {
+    return (
+      <div className="min-w-0 space-y-1.5">
+        <ResultLinkList links={links.slice(0, SUMMARY_LINKS)} />
+        {links.length > SUMMARY_LINKS && <SummaryNotice text={`共 ${links.length} 条`} />}
+      </div>
+    );
+  }
+  const document = resultDocument(result);
+  if (document) {
+    return (
+      <div className="min-w-0 space-y-1.5">
+        <ResultLinkList links={[document]} />
+        {document.excerpt && <ClippedText text={document.excerpt} />}
+      </div>
+    );
+  }
+  return <ClippedText text={JSON.stringify(result, null, 2)} />;
+}
+
+interface ResultLink {
+  title: string;
+  url: string;
+  excerpt: string | null;
+}
+
+/** 工具返回里第一组带标题和网址的条目（搜索来源、图片等）；没有时为 null。 */
+function resultLinks(result: Record<string, unknown>): ResultLink[] | null {
+  for (const value of Object.values(result)) {
+    if (!Array.isArray(value) || value.length === 0) continue;
+    const links = value.flatMap(item => {
+      if (!item || typeof item !== 'object') return [];
+      const link = toResultLink(item as Record<string, unknown>);
+      return link ? [link] : [];
+    });
+    if (links.length === value.length) return links;
+  }
+  return null;
+}
+
+/** 单篇读取结果（标题 + 正文）。 */
+function resultDocument(result: Record<string, unknown>): ResultLink | null {
+  return typeof result.content === 'string' ? toResultLink(result) : null;
+}
+
+function toResultLink(record: Record<string, unknown>): ResultLink | null {
+  const title = typeof record.title === 'string' ? record.title.trim() : '';
+  const url = [record.url, record.page_url].find(
+    (value): value is string => typeof value === 'string' && /^https?:\/\//.test(value),
+  );
+  if (!title || !url) return null;
+  const excerpt = [record.content, record.description].find(
+    (value): value is string => typeof value === 'string' && Boolean(value.trim()),
+  );
+  return { title, url, excerpt: excerpt?.trim() ?? null };
+}
+
+function ResultLinkList({ links, withExcerpt = false }: { links: readonly ResultLink[]; withExcerpt?: boolean }) {
+  return (
+    <ol className="min-w-0 space-y-1.5 text-sm">
+      {links.map((link, index) => (
+        <li key={`${index}:${link.url}`} className="min-w-0">
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-words text-foreground underline-offset-2 hover:underline"
+          >
+            {link.title}
+          </a>
+          <span className="block truncate text-xs text-muted-foreground">{hostLabel(link.url)}</span>
+          {withExcerpt && link.excerpt && (
+            <p className="mt-0.5 line-clamp-3 break-words text-xs text-muted-foreground">{link.excerpt}</p>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function hostLabel(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 function LlmRoundPreview({
@@ -689,7 +809,10 @@ function LlmRoundPreview({
   const reasoning = sections.includes('thinking') ? llmDetail?.reasoning_text?.trim() : '';
   const output = sections.includes('output') ? llmDetail?.output_text?.trim() : '';
   const tools = roundToolCells(cell, relatedCells);
-  const empty = !notice && !reasoning && !output && tools.length === 0;
+  const plans = relatedCells.filter((related): related is Extract<TrajectoryCell, { type: 'plan' }> => (
+    related.type === 'plan' && related.llmRoundKey === cell.key
+  ));
+  const empty = !notice && !reasoning && !output && tools.length === 0 && plans.length === 0;
 
   return (
     <div className="min-w-0 space-y-2.5">
@@ -709,11 +832,17 @@ function LlmRoundPreview({
           <AdminSafeMarkdown content={output} className="text-sm" />
         </div>
       )}
+      {plans.map(plan => (
+        <p key={plan.key} className="flex min-w-0 items-baseline gap-2 text-xs">
+          <span className="shrink-0 font-medium text-foreground">更新计划</span>
+          <span className="truncate text-muted-foreground">{getTrajectoryCellPresentation(plan).summary}</span>
+        </p>
+      ))}
       {tools.length > 0 && (
         <ul aria-label="本轮发起的工具调用" className="space-y-1 text-xs">
           {tools.map(tool => (
             <li key={tool.toolCallId} className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 font-medium text-foreground">{getToolMeta(tool.toolName ?? '').label}</span>
+              <span className="shrink-0 font-medium text-foreground">{trajectoryToolLabel(tool.toolName)}</span>
               <span className="truncate text-muted-foreground">
                 {[formatTrajectoryStatus(tool.status), formatTrajectoryDuration(toolDurationMs(tool))]
                   .filter(Boolean)
@@ -764,9 +893,11 @@ function formatPayloadValue(value: unknown): string {
   return JSON.stringify(value) ?? '';
 }
 
+const SUMMARY_FIELD_GRID = 'grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3 py-2';
+
 function SummaryFieldRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3 py-2 text-sm">
+    <div className={cn(SUMMARY_FIELD_GRID, 'text-sm')}>
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-words text-foreground">{value}</dd>
     </div>
@@ -831,6 +962,7 @@ function RemoteDetailSection({
   pendingStopped,
   onRetry,
   detailKind,
+  relatedCells,
 }: {
   section: RemoteDetailSectionName;
   requestStatus: DetailRequestStatus;
@@ -839,6 +971,7 @@ function RemoteDetailSection({
   pendingStopped: boolean;
   onRetry: () => void;
   detailKind: RemoteDetailKind;
+  relatedCells: readonly TrajectoryCell[];
 }) {
   const { t } = useTranslation();
   const isSystemPrompt = detailKind === 'system_prompt';
@@ -909,6 +1042,7 @@ function RemoteDetailSection({
         response={response}
         redactedFields={redactedFields}
         truncatedFields={truncatedFields}
+        relatedCells={relatedCells}
       />
     );
   }
@@ -917,18 +1051,25 @@ function RemoteDetailSection({
   const value = toolSection && response.available_sections.includes(toolSection)
     ? remoteSectionValue(response, toolSection)
     : null;
+  const links = toolSection === 'result' && value ? resultLinks(value) : null;
   return (
     <div className="space-y-3">
       {response.reason === 'tool_detail_legacy_summary' && (
         <p className="text-sm text-muted-foreground">{t('trajectory.toolDetail.legacySummary')}</p>
       )}
       {toolSection === 'result' && <h3 className="text-sm font-semibold">{t('trajectory.observation.toolReturn')}</h3>}
+      {links && <ResultLinkList links={links} withExcerpt />}
       {value === null ? (
         <p className="text-sm text-muted-foreground">该部分未提供</p>
+      ) : links ? (
+        <details>
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            原始返回
+          </summary>
+          <JsonBlock value={value} />
+        </details>
       ) : (
-        <pre className="max-h-96 whitespace-pre-wrap overflow-auto rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-foreground">
-          <code>{JSON.stringify(value, null, 2)}</code>
-        </pre>
+        <JsonBlock value={value} />
       )}
       <DetailWarnings redactedFields={redactedFields} truncatedFields={truncatedFields} />
       {toolSection === 'result' && <ToolObservationSection observation={
@@ -938,31 +1079,71 @@ function RemoteDetailSection({
   );
 }
 
-function ToolObservationSection({ observation }: { observation?: ToolObservation }) {
-  const { t } = useTranslation();
-  return <section className="space-y-3 border-t border-border/60 pt-3">
-    <h3 className="text-sm font-semibold">{t('trajectory.observation.title')}</h3>
-    <p className="text-sm text-muted-foreground">{t('trajectory.observation.scope')}</p>
-    {observation?.status === 'available' && typeof observation.text === 'string' ? <>
-      <pre className="max-h-96 whitespace-pre-wrap break-words overflow-auto rounded-md border border-border/60 bg-muted/20 p-3 text-xs">{observation.text}</pre>
-      <p className="text-xs text-muted-foreground">{t('trajectory.observation.originalChars', { count: observation.original_chars ?? undefined })}</p>
-      <DetailWarnings redactedFields={observation.redacted_fields ?? []} truncatedFields={observation.truncated_fields ?? []} />
-    </> : <p className="text-sm text-muted-foreground">{t(`trajectory.observation.${observation?.status === 'capture_failed' ? 'failed' : 'notRecorded'}`)}</p>}
-  </section>;
+function JsonBlock({ value }: { value: unknown }) {
+  return (
+    <pre className="mt-1.5 max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-foreground">
+      <code>{JSON.stringify(value, null, 2)}</code>
+    </pre>
+  );
 }
 
-function ContextVisibilitySection({ visibility }: { visibility?: ContextToolVisibility | null }) {
+function ToolObservationSection({ observation }: { observation?: ToolObservation }) {
   const { t } = useTranslation();
-  return <section className="space-y-2 rounded-md border border-border/60 p-3 text-sm">
-    <h3 className="font-semibold">{t('trajectory.contextVisibility.title')}</h3>
-    <p className="text-muted-foreground">{t('trajectory.contextVisibility.scope')}</p>
-    {visibility ? <>
-      <p>{t('trajectory.contextVisibility.before', { count: visibility.before_count })}</p>
-      <p className="break-all">{t('trajectory.contextVisibility.visible', { count: visibility.visible_count })}：{visibility.visible_tool_call_ids.join('、') || t('trajectory.contextVisibility.none')}</p>
-      <p className="break-all">{t('trajectory.contextVisibility.removed', { count: visibility.removed_count })}：{visibility.removed_tool_call_ids.join('、') || t('trajectory.contextVisibility.none')}</p>
-      {visibility.truncated && <p className="text-warn">{t('trajectory.contextVisibility.truncated')}</p>}
-    </> : <p>{t('trajectory.contextVisibility.notRecorded')}</p>}
-  </section>;
+  return (
+    <details className="border-t border-border/60 pt-3">
+      <summary className="cursor-pointer text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {t('trajectory.observation.title')}
+      </summary>
+      <div className="mt-2 space-y-3">
+        <p className="text-xs text-muted-foreground">{t('trajectory.observation.scope')}</p>
+        {observation?.status === 'available' && typeof observation.text === 'string' ? <>
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-muted/20 p-3 text-xs">{observation.text}</pre>
+          <p className="text-xs text-muted-foreground">{t('trajectory.observation.originalChars', { count: observation.original_chars ?? undefined })}</p>
+          <DetailWarnings redactedFields={observation.redacted_fields ?? []} truncatedFields={observation.truncated_fields ?? []} />
+        </> : <p className="text-sm text-muted-foreground">{t(`trajectory.observation.${observation?.status === 'capture_failed' ? 'failed' : 'notRecorded'}`)}</p>}
+      </div>
+    </details>
+  );
+}
+
+/** 本轮提交给模型的工具结果，按工具名计数；还没有工具结果的轮次不显示。 */
+function ContextVisibilitySection({
+  visibility,
+  relatedCells,
+}: {
+  visibility?: ContextToolVisibility | null;
+  relatedCells: readonly TrajectoryCell[];
+}) {
+  const { t } = useTranslation();
+  if (!visibility || visibility.before_count === 0) return null;
+  const toolNames = new Map(relatedCells.flatMap(related => (
+    related.type === 'tool' ? [[related.toolCallId, related.toolName] as const] : []
+  )));
+  const describe = (ids: readonly string[]) => {
+    const counts = new Map<string, number>();
+    for (const id of ids) {
+      const label = toolNames.has(id)
+        ? trajectoryToolLabel(toolNames.get(id) ?? null)
+        : t('trajectory.contextVisibility.unknownTool');
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [...counts].map(([label, count]) => (count > 1 ? `${label}×${count}` : label)).join('、');
+  };
+  return (
+    <section className="space-y-1.5 text-sm">
+      <h3 className="font-semibold text-foreground">{t('trajectory.contextVisibility.title')}</h3>
+      <p className="break-words text-foreground">
+        {t('trajectory.contextVisibility.visible', { count: visibility.visible_count })}
+        {visibility.visible_tool_call_ids.length > 0 && `：${describe(visibility.visible_tool_call_ids)}`}
+      </p>
+      {visibility.removed_count > 0 && (
+        <p className="break-words text-muted-foreground">
+          {t('trajectory.contextVisibility.removed', { count: visibility.removed_count })}
+          {visibility.removed_tool_call_ids.length > 0 && `：${describe(visibility.removed_tool_call_ids)}`}
+        </p>
+      )}
+    </section>
+  );
 }
 
 function SystemPromptAvailableDetailSection({ response }: { response: TrajectoryNodeDetailResponse }) {
@@ -1013,7 +1194,7 @@ function SystemPromptAvailableDetailSection({ response }: { response: Trajectory
       )}
       {detail.sections.map((section, index) => (
         <section key={`${index}:${section.section_id}`} className="min-w-0 space-y-2">
-          <h3 className="text-xs font-medium text-muted-foreground">{section.section_id}</h3>
+          <h3 className="text-xs font-medium text-muted-foreground">{systemPromptSectionLabel(section.section_id, t)}</h3>
           <pre className="whitespace-pre-wrap break-words rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-foreground">
             {section.content}
           </pre>
@@ -1023,16 +1204,19 @@ function SystemPromptAvailableDetailSection({ response }: { response: Trajectory
   );
 }
 
+/** 正文照常显示、转去调用工具或本轮没有正文是常态，不占位置；只说明被改写、撤回或没显示的情况。 */
+const ROUTINE_PROVENANCE_REASONS = new Set(['streamed', 'tool_round', 'no_content']);
+
 function OutputProvenanceSection({ provenance }: { provenance: LlmOutputProvenance | null }) {
   const { t } = useTranslation();
+  if (!provenance || ROUTINE_PROVENANCE_REASONS.has(provenance.reason)) return null;
+  const disposition = provenance.reason === 'tool_retracted' ? 'retracted' : provenance.disposition;
   return (
-    <section className="mb-4 space-y-2 rounded-md border border-border/60 p-3 text-sm">
-      <h3 className="font-semibold">{t('trajectory.outputProvenance.title')}</h3>
-      <p>{t(`trajectory.outputProvenance.${provenance?.reason === 'tool_retracted' ? 'retracted' : provenance?.disposition ?? 'unknown'}`)}</p>
-      {provenance && <>
-        <p>{t(`trajectory.outputProvenance.sources.${provenance.source}`)}</p>
-        <p className="text-muted-foreground">{t(`trajectory.outputProvenance.reasons.${provenance.reason}`)}</p>
-      </>}
+    <section className="mb-4 space-y-1 border-b border-border/45 pb-3 text-sm">
+      <h3 className="font-semibold text-foreground">
+        {t('trajectory.outputProvenance.title')} · {t(`trajectory.outputProvenance.${disposition}`)}
+      </h3>
+      <p className="text-muted-foreground">{t(`trajectory.outputProvenance.reasons.${provenance.reason}`)}</p>
     </section>
   );
 }
@@ -1042,11 +1226,13 @@ function LlmAvailableDetailSection({
   response,
   redactedFields,
   truncatedFields,
+  relatedCells,
 }: {
   section: RemoteDetailSectionName;
   response: TrajectoryNodeDetailResponse;
   redactedFields: readonly string[];
   truncatedFields: readonly string[];
+  relatedCells: readonly TrajectoryCell[];
 }) {
   const detail = response.detail && 'llm_round_id' in response.detail
     ? response.detail
@@ -1064,23 +1250,19 @@ function LlmAvailableDetailSection({
     <div className="space-y-4">
       {section === 'preview' ? (
         <div className="space-y-5">
-          <ContextVisibilitySection visibility={detail.context_visibility} />
-          <section className="space-y-2">
-            <h3 className="text-sm font-semibold text-foreground">思考过程</h3>
-            {hasReasoning ? (
+          <ContextVisibilitySection visibility={detail.context_visibility} relatedCells={relatedCells} />
+          {hasReasoning && (
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-foreground">思考过程</h3>
               <AdminSafeMarkdown content={detail.reasoning_text ?? ''} className="text-sm" />
-            ) : (
-              <p className="text-sm text-muted-foreground">该轮未记录可见思考过程</p>
-            )}
-          </section>
+            </section>
+          )}
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-foreground">模型输出</h3>
             {hasOutput ? (
               <AdminSafeMarkdown content={detail.output_text ?? ''} className="text-sm" />
             ) : (
-              <p className="text-sm text-muted-foreground">
-                该轮未生成可见正文，可能仅产生了工具调用
-              </p>
+              <p className="text-sm text-muted-foreground">本轮没有正文</p>
             )}
           </section>
         </div>

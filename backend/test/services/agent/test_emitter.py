@@ -443,6 +443,21 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[2]["items"][0]["phase_id"], "phase-understand")
         self.assertEqual(events[2]["items"][0]["phase_title"], "分析任务并制定方案")
 
+    async def test_plan_snapshot_carries_current_step_id(self):
+        writer = AsyncMock()
+        em = AgentEventEmitter(run_id="r1", trace_id="r1", conversation_id="c1", task_id="task-1", redis_writer=writer)
+        await em.run_started(message_id="m1", model="gpt", tools=[], config={})
+        step_id = await em.step_started(step_number=1)
+        await em.plan_snapshot(plan_id="plan-r1", revision=1, items=[], reason="model_update")
+        await em.step_completed(step_number=1, tool_call_count=0, duration_ms=1)
+        await em.plan_snapshot(plan_id="plan-r1", revision=2, items=[], reason="terminal_stop")
+
+        snapshots = [
+            call.args[3] for call in writer.append_chunk.call_args_list if call.args[3]["type"] == "plan_snapshot"
+        ]
+        self.assertEqual(snapshots[0]["step_id"], step_id)
+        self.assertIsNone(snapshots[1]["step_id"])
+
     async def test_context_status_update_is_safe_and_replayable(self):
         writer = AsyncMock()
         em = AgentEventEmitter(

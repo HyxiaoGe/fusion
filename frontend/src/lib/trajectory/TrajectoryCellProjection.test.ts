@@ -1,5 +1,5 @@
 import i18n from '@/lib/i18n';
-import { getTrajectoryCellPresentation } from './trajectoryCellPresentation';
+import { getTrajectoryCellPresentation, trajectoryPlanItems } from './trajectoryCellPresentation';
 import { buildTrajectoryNodeDetailModel } from './trajectoryNodeDetailModel';
 import { describe, expect, it } from 'vitest';
 
@@ -273,7 +273,7 @@ describe('TrajectoryCellProjection', () => {
       capabilityResolution: null,
     });
     expect(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields).toEqual([
-      { label: '工具边界', value: '该运行未记录工具边界（旧版记录不再展示）' },
+      { label: '工具范围', value: '该运行未记录工具范围' },
     ]);
     expect(JSON.stringify(buildTrajectoryNodeDetailModel(runCell!, null).summaryFields)).not.toContain('web_search');
   });
@@ -1155,12 +1155,12 @@ it.each(['ready', 'failed'])('同 Run 的系统提示词 %s 只有一行', async
   expect(cells).toHaveLength(1);
   expect(cells[0]).toMatchObject({ contextId: 'system_prompt', payload: { status } });
   expect(getTrajectoryCellPresentation(cells[0]).summary).toBe(
-    status === 'ready' ? 'Run 初始系统提示词已组装' : 'Run 初始系统提示词组装失败',
+    status === 'ready' ? '初始系统提示词已组装' : '初始系统提示词组装失败',
   );
-  expect(buildTrajectoryNodeDetailModel(cells[0], null).summaryFields).toContainEqual({ label: '来源', value: 'code' });
+  expect(buildTrajectoryNodeDetailModel(cells[0], null).diagnostics).toContainEqual({ label: '来源', value: 'code' });
   await i18n.changeLanguage('en-US');
   expect(getTrajectoryCellPresentation(cells[0]).summary).toBe(
-    status === 'ready' ? 'Initial Run system prompt assembled' : 'Initial Run system prompt assembly failed',
+    status === 'ready' ? 'Initial system prompt assembled' : 'Initial system prompt assembly failed',
   );
 });
 
@@ -1168,7 +1168,7 @@ it('请求详情只显示对应 started 的实际指纹，旧请求不推断', a
   await i18n.changeLanguage('zh-CN');
   const base: Extract<TrajectoryCell, { type: 'assistant_request' }> = {
     key: 'request', type: 'assistant_request', runId: 'r', userMessageId: null, assistantMessageId: null,
-    completenessSources: ['live-tail'], sourceSequences: [0], llmRoundId: 'selected', stepId: null, toolNames: [], roundIndex: 1, requestIndex: 1,
+    completenessSources: ['live-tail'], sourceSequences: [0], llmRoundId: 'selected', stepId: null, toolNames: [], updatedPlan: false, roundIndex: 1, requestIndex: 1,
     model: null, provider: null, status: 'completed', reasoningPreview: null,
     inputTokens: null, outputTokens: null, reasoningTokens: null, durationMs: null, ttftMs: null, detailAvailable: true,
     events: [event('r', 0, 'system_prompt_prepared', { payload: { fingerprint: 'a'.repeat(64) } }),
@@ -1290,4 +1290,59 @@ it('换模型事件按发生位置投影为一行，挑不到备用时如实写�
       ['call-a', rounds[0].key, { query: '杭州' }],
       ['call-b', rounds[0].key, { argument_count: 3 }],
     ]);
+  });
+
+  it('模型每次改计划单独成行并挂到发起它的模型轮次，进度快照只刷新最近一版', () => {
+    const run = runSummary('planned', { llm_round_count: 2 });
+    const items = (first: string, second: string) => [
+      { id: 'a', title: '确定路线', status: first },
+      { id: 'b', title: '查询天气', status: second },
+    ];
+    const plan = (sequence: number, stepId: string, reason: string, revision: number, planItems: unknown[]) => event(
+      'planned', sequence, 'plan_snapshot', { stepId, payload: { plan_id: 'plan-1', revision, reason, items: planItems } },
+    );
+    const events = [
+      event('planned', 0, 'llm_round_started', { stepId: 'step-1', payload: { llm_round_id: 'round-1' } }),
+      event('planned', 1, 'llm_round_completed', { stepId: 'step-1', payload: { llm_round_id: 'round-1', finish_reason: 'tool_calls' } }),
+      plan(2, 'step-1', 'model_update', 1, items('running', 'pending')),
+      plan(3, 'step-1', 'tool_progress', 2, items('completed', 'pending')),
+      event('planned', 4, 'llm_round_started', { stepId: 'step-2', payload: { llm_round_id: 'round-2' } }),
+      plan(5, 'step-2', 'model_update', 3, items('completed', 'running')),
+      plan(6, 'step-2', 'terminal_stop', 4, items('completed', 'completed')),
+    ];
+    const projection = projectTrajectoryCells(input({
+      runs: [run],
+      runSummariesById: { planned: run },
+      snapshotsByRunId: {
+        planned: {
+          snapshotRequestId: 'snapshot-planned',
+          run,
+          spans: [],
+          completeness: {
+            status: 'complete',
+            degraded_reason: null,
+            event_count: events.length,
+            expected_last_sequence: 6,
+            loaded_event_count: events.length,
+            first_sequence: 0,
+            last_sequence: 6,
+          },
+          truncated: false,
+          durableLastSequence: 6,
+          events,
+        },
+      },
+    }));
+
+    const cells = projection.unassociatedCells;
+    const rounds = cells.filter(
+      (cell): cell is Extract<TrajectoryCell, { type: 'assistant_request' }> => cell.type === 'assistant_request',
+    );
+    const plans = cells.filter((cell): cell is Extract<TrajectoryCell, { type: 'plan' }> => cell.type === 'plan');
+    expect(rounds.map(round => round.updatedPlan)).toEqual([true, true]);
+    expect(plans.map(cell => [cell.llmRoundKey, cell.revision, cell.sourceSequences])).toEqual([
+      [rounds[0].key, 2, [2, 3]],
+      [rounds[1].key, 4, [5, 6]],
+    ]);
+    expect(trajectoryPlanItems(plans[0].payload).map(item => item.status)).toEqual(['completed', 'pending']);
   });

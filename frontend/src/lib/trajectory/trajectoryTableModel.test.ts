@@ -145,6 +145,7 @@ function llmRoundCell(
     llmRoundId: key,
     stepId: 'step-1',
     toolNames: [],
+    updatedPlan: false,
     roundIndex: 1,
     requestIndex: 1,
     model: 'mimo-v2.6-flash',
