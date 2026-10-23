@@ -11,6 +11,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.logger import app_logger as logger
+from app.services.external.agent_tools import agent_tools_headers, agent_tools_url
 from app.services.security.url_policy import evaluate_url_policy
 
 
@@ -263,7 +264,7 @@ def _safe_log_domain(url: str) -> str:
 
 
 async def read_url_with_diagnostics(
-    url: str, timeout: float | None = None, *, full_page: bool = False
+    url: str, timeout: float | None = None, *, full_page: bool = False, scene: str
 ) -> UrlReadResponse:
     """
     调用 reader-service 读取网页内容。
@@ -274,8 +275,9 @@ async def read_url_with_diagnostics(
     try:
         async with httpx.AsyncClient(timeout=effective_timeout) as client:
             resp = await client.get(
-                f"{settings.READER_SERVICE_URL}/read",
+                agent_tools_url("reader", "/read"),
                 params={"url": url, "full": "true"} if full_page else {"url": url},
+                headers=agent_tools_headers(scene),
             )
             resp.raise_for_status()
             try:
@@ -318,10 +320,10 @@ async def read_url_with_diagnostics(
         return UrlReadResponse(result=None, failure=failure)
 
 
-async def read_url(url: str, timeout: float | None = None) -> Optional[UrlReadResult]:
+async def read_url(url: str, timeout: float | None = None, *, scene: str) -> Optional[UrlReadResult]:
     """
     调用 reader-service 读取网页内容。
     返回 UrlReadResult；失败时返回 None（不阻断对话）。
     """
-    response = await read_url_with_diagnostics(url, timeout=timeout)
+    response = await read_url_with_diagnostics(url, timeout=timeout, scene=scene)
     return response.result

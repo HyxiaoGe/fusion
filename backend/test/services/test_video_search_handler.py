@@ -78,7 +78,7 @@ class VideoSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_keeps_only_embeddable_videos_with_stable_ids(self):
         result, search = await self._execute(SEARCH_RESULTS)
 
-        search.assert_awaited_once_with("鼓浪屿 旅游", count=10, domains=VIDEO_SITE_DOMAINS)
+        search.assert_awaited_once_with("鼓浪屿 旅游", count=10, domains=VIDEO_SITE_DOMAINS, scene="video_search")
         self.assertEqual(result.status, "success")
         self.assertEqual(
             [(video["platform"], video["video_id"]) for video in result.data["videos"]],

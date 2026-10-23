@@ -325,13 +325,13 @@ class McpClientManagerTests(unittest.TestCase):
                 build_config(allowed_tools=["search"]),
                 "search",
                 {},
-                request_headers={"X-Image-User": "user-1", "X-Request-ID": "run-1"},
+                request_headers={"X-Caller-User": "user-1", "X-Request-ID": "run-1"},
             )
         )
 
         self.assertEqual(
             connector.connections[0]["headers"],
-            {"X-Image-User": "user-1", "X-Request-ID": "run-1", "Authorization": "Bearer test-secret"},
+            {"X-Caller-User": "user-1", "X-Request-ID": "run-1", "Authorization": "Bearer test-secret"},
         )
 
     def test_call_request_headers_cannot_replace_credential_or_protocol_headers(self):
@@ -339,8 +339,8 @@ class McpClientManagerTests(unittest.TestCase):
             "authorization": {"authorization": "Bearer forged"},
             "configured_auth_name": {"CONTEXT7_API_KEY": "forged"},
             "session": {"Mcp-Session-Id": "forged"},
-            "crlf": {"X-Image-User": "user-1\r\nAuthorization: Bearer forged"},
-            "empty": {"X-Image-User": ""},
+            "crlf": {"X-Caller-User": "user-1\r\nAuthorization: Bearer forged"},
+            "empty": {"X-Caller-User": ""},
         }
         for name, request_headers in cases.items():
             with self.subTest(name=name):

@@ -222,10 +222,11 @@ class StreamHandler:
             guest=guest,
         )
 
-        # run 内的日志自动带上 run_id / conversation_id；后台任务继承发起请求的 request_id。
+        # run 内的日志自动带上 run_id / conversation_id / user_id；后台任务继承发起请求的 request_id。
+        # agent-tools 网关调用也从这里取用户与 run 记账。
         with (
             AGENT_RUNS_ACTIVE.track_inprogress(),
-            log_context(run_id=run_input.trace_id, conversation_id=conversation_id),
+            log_context(run_id=run_input.trace_id, conversation_id=conversation_id, user_id=user_id),
         ):
             db = SessionLocal()
             identity_started = False

@@ -117,7 +117,9 @@ class VideoSearchHandler(BaseToolHandler):
         if not query:
             return ToolResult(status="failed", data={**data, "error_code": "empty_query"}, error_message="query 为空")
         try:
-            results = await search_web(query, count=VIDEO_SEARCH_RESULT_COUNT, domains=VIDEO_SITE_DOMAINS)
+            results = await search_web(
+                query, count=VIDEO_SEARCH_RESULT_COUNT, domains=VIDEO_SITE_DOMAINS, scene="video_search"
+            )
         except Exception:  # noqa: BLE001 — 上游异常只记类型，交给模型如实说明
             return ToolResult(
                 status="failed",

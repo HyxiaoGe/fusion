@@ -50,7 +50,9 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
                 }
             )
 
-        mock_search.assert_awaited_once_with("redis", count=7, domains=["redis.io"], recency_days=30)
+        mock_search.assert_awaited_once_with(
+            "redis", count=7, domains=["redis.io"], recency_days=30, scene="web_search"
+        )
         self.assertEqual(result.data["requested_count"], 7)
         self.assertEqual(result.data["actual_count"], 7)
         self.assertEqual(result.data["context_source_count"], 7)
@@ -625,7 +627,7 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.data["reader_duration_ms"], 18000)
         self.assertNotIn("failure_detail", result.data)
         self.assertEqual(result.data["safe_log_url"], "https://example.com")
-        mock_read.assert_awaited_once_with("https://example.com", timeout=20.0, full_page=False)
+        mock_read.assert_awaited_once_with("https://example.com", timeout=20.0, full_page=False, scene="url_read")
 
     async def test_execute_unexpected_reader_error_stays_degraded_and_safe(self):
         with patch(

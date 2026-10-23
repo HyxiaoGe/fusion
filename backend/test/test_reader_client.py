@@ -57,7 +57,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client) as mock_ctor:
-            result = await read_url("https://example.com")
+            result = await read_url("https://example.com", scene="url_read")
 
         self.assertIsNotNone(result)
         self.assertEqual(result.url, "https://example.com")
@@ -74,13 +74,15 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         )
         mock_client = self._mock_client_for_response(response)
         with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
-            extracted = await reader_client.read_url_with_diagnostics("https://example.com")
-            await reader_client.read_url_with_diagnostics("https://example.com", full_page=True)
+            extracted = await reader_client.read_url_with_diagnostics("https://example.com", scene="url_read")
+            await reader_client.read_url_with_diagnostics("https://example.com", full_page=True, scene="url_read")
 
         self.assertTrue(extracted.result.extracted)
         first, second = mock_client.get.await_args_list
         self.assertEqual(first.kwargs["params"], {"url": "https://example.com"})
         self.assertEqual(second.kwargs["params"], {"url": "https://example.com", "full": "true"})
+        self.assertEqual(first.args[0], "http://agent-tools-gateway:8100/reader/read")
+        self.assertEqual(first.kwargs["headers"]["X-Caller-Scene"], "url_read")
 
     async def test_non_direct_provider_is_not_marked_extracted(self):
         response = real_httpx.Response(
@@ -92,7 +94,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             "app.services.external.reader_client.httpx.AsyncClient",
             return_value=self._mock_client_for_response(response),
         ):
-            result = await reader_client.read_url_with_diagnostics("https://example.com")
+            result = await reader_client.read_url_with_diagnostics("https://example.com", scene="url_read")
 
         self.assertFalse(result.result.extracted)
 
@@ -112,7 +114,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         mock_client = self._mock_client_for_response(response)
 
         with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
-            result = await read_url("https://example.com")
+            result = await read_url("https://example.com", scene="url_read")
 
         self.assertIsNotNone(result)
         self.assertEqual(result.attempts, 2)
@@ -141,7 +143,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger") as mock_logger,
         ):
-            result = await self._read_url_with_diagnostics()("http://caict.ac.cn/report.pdf")
+            result = await self._read_url_with_diagnostics()("http://caict.ac.cn/report.pdf", scene="url_read")
 
         self.assertIsNone(result.result)
         self.assertEqual(result.failure.kind, "http_status")
@@ -177,7 +179,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
                     patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
                     patch("app.services.external.reader_client.logger"),
                 ):
-                    result = await self._read_url_with_diagnostics()("https://example.com/gone")
+                    result = await self._read_url_with_diagnostics()("https://example.com/gone", scene="url_read")
 
                 self.assertIsNone(result.result)
                 self.assertEqual(result.failure.kind, "page_not_found")
@@ -210,7 +212,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger"),
         ):
-            result = await self._read_url_with_diagnostics()("https://example.com/report")
+            result = await self._read_url_with_diagnostics()("https://example.com/report", scene="url_read")
 
         self.assertIsNone(result.result)
         self.assertEqual(result.failure.kind, "http_status")
@@ -236,7 +238,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         mock_client = self._mock_client_for_response(response)
 
         with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
-            result = await self._read_url_with_diagnostics()("https://example.com/docs")
+            result = await self._read_url_with_diagnostics()("https://example.com/docs", scene="url_read")
 
         self.assertIsNotNone(result.result)
         self.assertIsNone(result.failure)
@@ -249,7 +251,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger"),
         ):
-            result = await self._read_url_with_diagnostics()("https://example.com/docs")
+            result = await self._read_url_with_diagnostics()("https://example.com/docs", scene="url_read")
 
         self.assertIsNone(result.result)
         self.assertEqual(result.failure.kind, "parse_error")
@@ -267,7 +269,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger") as mock_logger,
         ):
-            response = await read_url_with_diagnostics("https://example.com")
+            response = await read_url_with_diagnostics("https://example.com", scene="url_read")
 
         self.assertIsNone(response.result)
         self.assertEqual(response.failure.kind, "timeout")
@@ -288,7 +290,9 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger") as mock_logger,
         ):
-            response = await read_url_with_diagnostics("https://example.com/private/report?token=secret&safe=1")
+            response = await read_url_with_diagnostics(
+                "https://example.com/private/report?token=secret&safe=1", scene="url_read"
+            )
 
         self.assertEqual(response.failure.kind, "timeout")
         warning_text = str(mock_logger.warning.call_args)
@@ -328,7 +332,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger") as mock_logger,
         ):
-            response = await read_url_with_diagnostics("https://example.com")
+            response = await read_url_with_diagnostics("https://example.com", scene="url_read")
 
         self.assertIsNone(response.result)
         self.assertEqual(response.failure.kind, "http_status")
@@ -362,7 +366,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger"),
         ):
-            response = await read_url_with_diagnostics("https://example.com/page?token=secret")
+            response = await read_url_with_diagnostics("https://example.com/page?token=secret", scene="url_read")
 
         self.assertEqual(response.failure.kind, "http_status")
         self.assertEqual(response.failure.kind, "http_status")
@@ -401,7 +405,9 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
                     patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
                     patch("app.services.external.reader_client.logger") as mock_logger,
                 ):
-                    result = await read_url_with_diagnostics("https://example.com/private?token=secret")
+                    result = await read_url_with_diagnostics(
+                        "https://example.com/private?token=secret", scene="url_read"
+                    )
 
                 self.assertEqual(result.failure.kind, kind)
                 self.assertEqual(result.failure.retryable, retryable)
@@ -430,7 +436,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         mock_client = self._mock_client_for_response(response)
 
         with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
-            result = await self._read_url_with_diagnostics()("https://example.com")
+            result = await self._read_url_with_diagnostics()("https://example.com", scene="url_read")
 
         self.assertFalse(result.failure.retryable)
         self.assertIsNone(result.failure.upstream_status)
@@ -450,7 +456,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         mock_client = self._mock_client_for_response(response)
 
         with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
-            result = await self._read_url_with_diagnostics()("https://example.com")
+            result = await self._read_url_with_diagnostics()("https://example.com", scene="url_read")
 
         self.assertEqual(result.failure.kind, "http_status")
         self.assertNotIn("secret", str(result.failure))
@@ -467,7 +473,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
                 response = self._http_error_response(502, body, text=text)
                 mock_client = self._mock_client_for_response(response)
                 with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
-                    result = await self._read_url_with_diagnostics()("https://example.com")
+                    result = await self._read_url_with_diagnostics()("https://example.com", scene="url_read")
 
                 self.assertEqual(result.failure.kind, "http_status")
                 self.assertNotIn("secret", str(result.failure))
@@ -487,7 +493,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger") as mock_logger,
         ):
-            response = await read_url_with_diagnostics("https://example.com")
+            response = await read_url_with_diagnostics("https://example.com", scene="url_read")
 
         self.assertIsNone(response.result)
         self.assertEqual(response.failure.kind, "request_error")
@@ -514,7 +520,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger") as mock_logger,
         ):
-            response = await read_url_with_diagnostics("https://example.com")
+            response = await read_url_with_diagnostics("https://example.com", scene="url_read")
 
         self.assertIsNone(response.result)
         self.assertEqual(response.failure.kind, "parse_error")
@@ -529,7 +535,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         mock_client.get = AsyncMock(side_effect=Exception("connection refused"))
 
         with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
-            result = await read_url("https://example.com")
+            result = await read_url("https://example.com", scene="url_read")
 
         self.assertIsNone(result)
 
@@ -541,7 +547,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
         mock_client.get = AsyncMock(side_effect=real_httpx.TimeoutException("timeout"))
 
         with patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client):
-            result = await read_url("https://example.com")
+            result = await read_url("https://example.com", scene="url_read")
 
         self.assertIsNone(result)
 
@@ -556,7 +562,7 @@ class ReadUrlTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.external.reader_client.httpx.AsyncClient", return_value=mock_client),
             patch("app.services.external.reader_client.logger") as mock_logger,
         ):
-            result = await read_url("https://example.com")
+            result = await read_url("https://example.com", scene="url_read")
 
         self.assertIsNone(result)
         mock_logger.warning.assert_called_once()

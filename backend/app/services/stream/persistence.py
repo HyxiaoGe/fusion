@@ -315,7 +315,7 @@ async def read_url_for_context(*, policy, detected_url: str):
     timeout = settings.READER_SERVICE_TIMEOUT
     try:
         return await asyncio.wait_for(
-            read_url(resolve_reader_url(policy, detected_url), timeout=timeout),
+            read_url(resolve_reader_url(policy, detected_url), timeout=timeout, scene="url_context"),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
