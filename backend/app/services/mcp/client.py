@@ -45,6 +45,7 @@ _REMOTE_ARGUMENT_ERROR_CODES = frozenset(
     }
 )
 _SAFE_ERROR_FIELD_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$")
+_REQUEST_HEADER_VALUE_PATTERN = re.compile(r"^[\x21-\x7e](?:[\x20-\x7e]{0,254}[\x21-\x7e])?$")
 _FORBIDDEN_AUTH_HEADERS = {
     "accept",
     "connection",
@@ -436,9 +437,11 @@ class McpClientManager:
         arguments: dict[str, Any],
         *,
         min_call_timeout_seconds: float | None = None,
+        request_headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         if not _TOOL_NAME_PATTERN.fullmatch(tool_name) or tool_name not in config.allowed_tools:
             raise McpClientError("tool_not_allowed", "MCP 工具未获授权")
+        extra_headers = _validate_request_headers(config, request_headers)
         try:
             normalized_arguments = _normalize_json_payload(arguments)
         except McpClientError:
@@ -480,6 +483,7 @@ class McpClientManager:
             "tools_call",
             operation,
             min_call_timeout_seconds=min_call_timeout_seconds,
+            extra_headers=extra_headers,
         )
 
     async def close(self) -> None:
@@ -492,6 +496,7 @@ class McpClientManager:
         operation,
         *,
         min_call_timeout_seconds: float | None = None,
+        extra_headers: dict[str, str] | None = None,
     ):
         started_at = time.perf_counter()
         is_idempotent = operation_name in _IDEMPOTENT_OPERATIONS
@@ -516,7 +521,7 @@ class McpClientManager:
                     connection = self._resolve_connection(config)
                     async with self.connector.connect(
                         endpoint_url=connection.endpoint_url,
-                        headers=connection.headers,
+                        headers={**(extra_headers or {}), **connection.headers},
                         query_params=connection.query_params,
                         connect_timeout_seconds=connect_timeout_seconds,
                         call_timeout_seconds=call_timeout_seconds,
@@ -685,6 +690,31 @@ class McpClientManager:
         if not credential:
             raise McpClientError("credential_unavailable", "MCP 凭证不可用")
         return credential
+
+
+def _validate_request_headers(
+    config: McpConnectionConfig,
+    request_headers: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """单次调用附带的非凭证请求头；不能覆盖鉴权或协议头。"""
+
+    if not request_headers:
+        return {}
+    reserved = {*_FORBIDDEN_AUTH_HEADERS, "authorization"}
+    if config.auth_name:
+        reserved.add(config.auth_name.lower())
+    headers: dict[str, str] = {}
+    for name, value in request_headers.items():
+        if (
+            not isinstance(name, str)
+            or not _AUTH_NAME_PATTERN.fullmatch(name)
+            or name.lower() in reserved
+            or not isinstance(value, str)
+            or not _REQUEST_HEADER_VALUE_PATTERN.fullmatch(value)
+        ):
+            raise McpClientError("invalid_request_headers", "MCP 请求头无效")
+        headers[name] = value
+    return headers
 
 
 def _validate_endpoint(

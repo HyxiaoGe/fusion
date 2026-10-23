@@ -5,6 +5,7 @@ import httpx
 
 os.environ["DATABASE_URL"] = "sqlite:///./fusion-test.db"
 
+from app.core.logger import log_context  # noqa: E402
 from app.services.mcp.agent_tools import (  # noqa: E402
     McpAgentServerCircuitBreaker,
     McpAgentToolConcurrencyLimiter,
@@ -62,9 +63,11 @@ class TimeoutAwareClientManager(FakeClientManager):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.min_timeouts = []
+        self.request_headers = []
 
-    async def call_tool(self, config, tool_name, arguments, *, min_call_timeout_seconds=None):
+    async def call_tool(self, config, tool_name, arguments, *, min_call_timeout_seconds=None, request_headers=None):
         self.min_timeouts.append(min_call_timeout_seconds)
+        self.request_headers.append(request_headers)
         return await super().call_tool(config, tool_name, arguments)
 
 
@@ -170,6 +173,8 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"prompt": "a red fox", "aspect_ratio": "16:9", "grounding": True},
         )
         self.assertEqual(client.min_timeouts, [MCP_CALL_TIMEOUT_SECONDS])
+        # 产品身份由服务密钥认定；这里只带用户与场景供 image-service 统计，不进模型参数。
+        self.assertEqual(client.request_headers, [{"X-Image-User": "user-1", "X-Image-Scene": "chat_image"}])
         self.assertEqual(server.requested_urls, [f"http://192.168.1.11:8090/static/images/{IMAGE_NAME}"])
         self.assertEqual(store.calls[0]["conversation_id"], "conv-1")
         self.assertEqual(store.calls[0]["user_id"], "user-1")
@@ -189,6 +194,14 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Image id: file-1", context)
         self.assertIn("never show it to the user", context)
         self.assertIn("what was drawn", context)
+
+    async def test_run_id_is_sent_as_request_correlation(self):
+        handler, client, _store, _server = self.build_handler()
+
+        with log_context(run_id="run-123"):
+            await handler.execute({"prompt": "a red fox"})
+
+        self.assertEqual(client.request_headers[0]["X-Request-ID"], "run-123")
 
     async def test_failures_are_reported_without_block_or_url(self):
         cases = {
@@ -410,6 +423,7 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.calls[0][2]["reference_images"], [SOURCE_URL])
         self.assertEqual(client.calls[0][2]["aspect_ratio"], "9:16")
         self.assertNotIn("source_image_id", client.calls[0][2])
+        self.assertEqual(client.request_headers[0]["X-Image-Scene"], "image_edit")
         self.assertEqual(result.data["source_image_id"], "file-0")
         self.assertEqual(result.data["aspect_ratio"], "9:16")
         self.assertEqual(store.calls[0]["source_url"], SOURCE_URL)

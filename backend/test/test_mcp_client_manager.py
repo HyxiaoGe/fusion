@@ -310,6 +310,64 @@ class McpClientManagerTests(unittest.TestCase):
 
         self.assertEqual(connector.connections[0]["headers"], {"Authorization": "Bearer test-secret"})
 
+    def test_call_request_headers_are_sent_alongside_credential(self):
+        connector = FakeConnector(
+            FakeSession(call_result=SimpleNamespace(model_dump=lambda **_: {"content": [], "isError": False}))
+        )
+        manager = McpClientManager(
+            policy=build_policy(),
+            connector=connector,
+            environ={"DASHSCOPE_API_KEY": "test-secret"},
+        )
+
+        asyncio.run(
+            manager.call_tool(
+                build_config(allowed_tools=["search"]),
+                "search",
+                {},
+                request_headers={"X-Image-User": "user-1", "X-Request-ID": "run-1"},
+            )
+        )
+
+        self.assertEqual(
+            connector.connections[0]["headers"],
+            {"X-Image-User": "user-1", "X-Request-ID": "run-1", "Authorization": "Bearer test-secret"},
+        )
+
+    def test_call_request_headers_cannot_replace_credential_or_protocol_headers(self):
+        cases = {
+            "authorization": {"authorization": "Bearer forged"},
+            "configured_auth_name": {"CONTEXT7_API_KEY": "forged"},
+            "session": {"Mcp-Session-Id": "forged"},
+            "crlf": {"X-Image-User": "user-1\r\nAuthorization: Bearer forged"},
+            "empty": {"X-Image-User": ""},
+        }
+        for name, request_headers in cases.items():
+            with self.subTest(name=name):
+                connector = FakeConnector(FakeSession())
+                manager = McpClientManager(
+                    policy=build_policy(
+                        allowed_hosts=frozenset({"mcp.context7.com"}),
+                        allowed_credential_refs=frozenset({"CONTEXT7_API_KEY"}),
+                    ),
+                    connector=connector,
+                    environ={"CONTEXT7_API_KEY": "secret"},
+                )
+                config = build_config(
+                    provider="context7",
+                    endpoint_url="https://mcp.context7.com/mcp",
+                    auth_type="header",
+                    auth_name="CONTEXT7_API_KEY",
+                    credential_ref="CONTEXT7_API_KEY",
+                    allowed_tools=["search"],
+                )
+
+                with self.assertRaises(McpClientError) as raised:
+                    asyncio.run(manager.call_tool(config, "search", {}, request_headers=request_headers))
+
+                self.assertEqual(raised.exception.code, "invalid_request_headers")
+                self.assertEqual(connector.connections, [])
+
     def test_context7_custom_header_uses_allowlisted_credential(self):
         secret = "context7-test-secret"
         connector = FakeConnector(FakeSession())
