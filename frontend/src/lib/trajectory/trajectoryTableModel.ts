@@ -1,6 +1,10 @@
 import { extractTextFromBlocks } from '@/types/conversation';
 import type { TrajectoryCell } from './TrajectoryCellProjection';
-import { getTrajectoryCellPresentation } from './trajectoryCellPresentation';
+import {
+  getTrajectoryCellPresentation,
+  toolArgumentSummary,
+  trajectoryToolLabel,
+} from './trajectoryCellPresentation';
 
 export interface TrajectoryTableRow {
   key: string;
@@ -23,6 +27,8 @@ export interface TrajectoryTableRow {
   matchExcerpt: string | null;
   attemptCount: number;
   aliasedCellKeys: string[];
+  /** 缩进层级：工具挂在发起它的模型轮次下，尝试再挂在工具下。 */
+  depth: number;
 }
 
 interface TrajectoryTableModelInput {
@@ -50,6 +56,8 @@ const KIND_LABELS: Record<TrajectoryCell['type'], string> = {
 };
 
 const COLLAPSIBLE_ATTEMPT_STATUSES = new Set(['success', 'completed', 'complete']);
+// 成功是常态，状态列只标出运行中、失败、降级等需要留意的情况。
+const SILENT_STATUS_TONES = new Set(['success']);
 // 每轮都有的「上下文充足」不携带新信息（输入 Token 已在模型请求行），表格里不单独成行。
 const NO_OP_CONTEXT_STATUSES = new Set(['no_op', 'no_op_fast_path']);
 
@@ -83,7 +91,8 @@ export function projectTrajectoryTableRows({
     if (collapsedAttemptKeys.has(cell.key) || isNoOpContextStatus(cell)) continue;
     const presentation = getTrajectoryCellPresentation(cell);
     const kindLabel = KIND_LABELS[cell.type];
-    const summary = tableSummary(cell, presentation.kindLabel, presentation.summary);
+    const summary = tableSummary(cell, presentation.summary);
+    const statusLabel = SILENT_STATUS_TONES.has(presentation.tone) ? null : presentation.statusLabel;
     const aliasedCellKeys = cell.type === 'tool'
       ? (collapsedKeysByTool.get(toolIdentity(cell.runId, cell.toolCallId)) ?? [])
       : [];
@@ -95,7 +104,8 @@ export function projectTrajectoryTableRows({
       cell.type,
       kindLabel,
       summary,
-      presentation.statusLabel,
+      cell.type === 'tool' || cell.type === 'subtool' ? cell.toolName : null,
+      statusLabel,
       presentation.trajectoryStatusLabel,
       messageText,
     ].filter(Boolean).join(' '));
@@ -124,7 +134,7 @@ export function projectTrajectoryTableRows({
         : null,
       kindLabel,
       summary,
-      statusLabel: presentation.statusLabel,
+      statusLabel,
       trajectoryStatusLabel: presentation.trajectoryStatusLabel ?? null,
       durationMs: presentation.durationMs,
       searchText,
@@ -134,6 +144,7 @@ export function projectTrajectoryTableRows({
       matchExcerpt,
       attemptCount,
       aliasedCellKeys,
+      depth: rowDepth(cell),
       directSearchMatch,
       directFocusMatch,
     };
@@ -231,12 +242,17 @@ function toolIdentity(runId: string, toolCallId: string): string {
   return `${runId}\u0000${toolCallId}`;
 }
 
-function tableSummary(cell: TrajectoryCell, presentationKind: string, summary: string): string {
+function tableSummary(cell: TrajectoryCell, summary: string): string {
   if (cell.type === 'tool') {
-    return [presentationKind, cell.toolName, summary].filter(Boolean).join(' · ');
+    return [trajectoryToolLabel(cell.toolName), toolArgumentSummary(cell)].filter(Boolean).join(' · ');
   }
-  if (cell.type === 'subtool' && cell.toolName) return `${summary} · ${cell.toolName}`;
   return summary;
+}
+
+function rowDepth(cell: TrajectoryCell): number {
+  if (cell.type === 'tool') return cell.llmRoundKey ? 1 : 0;
+  if (cell.type === 'subtool') return cell.llmRoundKey ? 2 : 1;
+  return 0;
 }
 
 function searchableMessageText(cell: TrajectoryCell): string {
@@ -285,5 +301,6 @@ function stripPrivateFields(rows: MutableTableRow[]): TrajectoryTableRow[] {
     matchExcerpt: row.matchExcerpt,
     attemptCount: row.attemptCount,
     aliasedCellKeys: row.aliasedCellKeys,
+    depth: row.depth,
   }));
 }

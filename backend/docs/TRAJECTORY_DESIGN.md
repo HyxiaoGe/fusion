@@ -603,6 +603,7 @@ GET /api/admin/audit/conversations/{conversation_id}/runs/{run_id}/trajectory
 
 - **新生命周期事件必须天然是用户安全数据**：经聊天 SSE 发给普通用户的 `llm_round_* / retrieval_* / tool_attempt_*` 不得携带 prompt、完整输入输出、工具 schema 原文、检索查询全文。敏感字段只出现在管理员诊断 DTO。
 - **落库 allowlist**：`TrajectoryRecorder` 按事件类型定义允许入库的字段白名单（现有 `sanitize_arguments` 是工具名定向脱敏，不是通用事件脱敏器，不能直接当账本脱敏用）。
+- **工具参数摘要**：`tool_call_started.arguments` 只存 emitter 定向脱敏后的有界摘要——顶层标量与字符串列表，键按字典序、最多 16 个，嵌套对象丢弃，凭据类键名整值打码为 `[REDACTED]`；用于轨迹表工具行的参数摘要。完整参数仍只在节点详情里从 `ToolCallLog` 还原。FlyAI 票务工具在 emitter 侧只留 `argument_count`，账本不还原具体参数。
 - **管理员 DTO 的字段来源**：prompt、工具 schema、完整输入/输出**不在账本中**，v1 管理员 DTO 只能承诺从 `ToolCallLog / messages / 工具注册表` 可还原的字段；无法还原的字段**从 v1 承诺中删除**，不得声称账本可提供。
 - **DTO 分离**：普通用户 `TrajectorySnapshot` 与管理员诊断 DTO 分离（不同端点，§7.2）；**禁止依赖前端隐藏字段实现权限**。
 - **run 级关联限制**：`ToolCallLog` 只按 `trace_id=run_id` 查询并按 `step_number / created_at / id` 排序。它没有 ledger `tool_call_id` 外键，管理员工具项必须固定 `association="run"`，不得伪造 span 或 `tool_call_id` 精确关联。

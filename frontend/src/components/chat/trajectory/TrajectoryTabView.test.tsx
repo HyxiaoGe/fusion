@@ -599,7 +599,7 @@ describe('TrajectoryTabView', () => {
     expect(overview).toHaveClass('w-full');
     expect(overview.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(table.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole('option', { name: /第 1 次执行.*已完成.*轨迹已截断/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /第 1 次执行.*轨迹已截断/ })).toBeInTheDocument();
     expect(screen.queryByLabelText('轨迹时间线')).toBeNull();
     expect(screen.queryByLabelText('轨迹检查器')).toBeNull();
     expect(screen.getByText('当前仅展示有界轨迹，部分记录已截断')).toBeInTheDocument();
@@ -617,7 +617,7 @@ describe('TrajectoryTabView', () => {
       { wrapper: wrapper(store) },
     );
 
-    const tool = await screen.findByRole('option', { name: /搜索.*工具调用.*完成/ });
+    const tool = await screen.findByRole('option', { name: /工具，搜索/ });
     fireEvent.click(tool);
     expect(screen.getByTestId('trajectory-overview-active')).toHaveTextContent('Tools');
     const detail = screen.getByLabelText('轨迹节点详情');
@@ -643,7 +643,7 @@ describe('TrajectoryTabView', () => {
       { wrapper: wrapper(store) },
     );
 
-    const tool = await screen.findByRole('option', { name: /搜索.*工具调用.*完成/ });
+    const tool = await screen.findByRole('option', { name: /工具，搜索/ });
     fireEvent.click(tool);
     const detailScroll = screen.getByTestId('trajectory-detail-scroll');
     detailScroll.scrollTop = 300;
@@ -685,7 +685,7 @@ describe('TrajectoryTabView', () => {
       { wrapper: wrapper(store) },
     );
 
-    const tool = await screen.findByRole('option', { name: /搜索.*工具调用.*完成/ });
+    const tool = await screen.findByRole('option', { name: /工具，搜索/ });
     const user = screen.getByRole('option', { name: /用户提问.*查天气/ });
     fireEvent.click(user);
 
@@ -707,7 +707,7 @@ describe('TrajectoryTabView', () => {
       { wrapper: wrapper(store) },
     );
 
-    await screen.findByRole('option', { name: /搜索.*工具调用.*完成/ });
+    await screen.findByRole('option', { name: /工具，搜索/ });
     fireEvent.click(screen.getByRole('button', { name: '实际耗时' }));
     fireEvent.click(screen.getByRole('button', { name: '创建范围' }));
     fireEvent.change(screen.getByRole('slider', { name: '范围起点' }), {
@@ -733,7 +733,7 @@ describe('TrajectoryTabView', () => {
       { wrapper: wrapper(store) },
     );
 
-    const modelRow = await screen.findByRole('option', { name: /模型.*deepseek-chat/ });
+    const modelRow = await screen.findByRole('option', { name: /模型，模型请求，输出回答/ });
     const canvas = screen.getByRole('application', { name: /轨迹记录总览/ });
     fireEvent.keyDown(canvas, { key: 'End' });
     fireEvent.keyDown(canvas, { key: 'Enter' });
@@ -793,8 +793,8 @@ describe('TrajectoryTabView', () => {
       { wrapper: wrapper(store) },
     );
 
-    const toolA = await screen.findByRole('option', { name: /tool_0.*工具调用.*完成/ });
-    const toolB = screen.getByRole('option', { name: /tool_1.*工具调用.*完成/ });
+    const toolA = await screen.findByRole('option', { name: /外部工具，tool_0/ });
+    const toolB = screen.getByRole('option', { name: /外部工具，tool_1/ });
     fireEvent.click(toolA);
     expect(toolA).toHaveAttribute('aria-selected', 'true');
 
@@ -855,7 +855,7 @@ describe('TrajectoryTabView', () => {
 
     const search = await screen.findByRole('searchbox', { name: '搜索轨迹记录' });
     fireEvent.change(search, { target: { value: '不存在的记录' } });
-    expect(screen.queryByRole('option', { name: /搜索.*工具调用.*完成/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /工具，搜索/ })).toBeNull();
 
     act(() => {
       store.dispatch(requestTrajectoryInspect({
@@ -868,7 +868,7 @@ describe('TrajectoryTabView', () => {
     });
 
     expect(search).toHaveValue('');
-    const tool = await screen.findByRole('option', { name: /搜索.*工具调用.*完成/ });
+    const tool = await screen.findByRole('option', { name: /工具，搜索/ });
     await waitFor(() => expect(tool).toHaveFocus());
     await waitFor(() => {
       expect(store.getState().trajectory.byConversationId['chat-a'].inspectRequest).toBeNull();
@@ -894,7 +894,7 @@ describe('TrajectoryTabView', () => {
     table.scrollTop = 0;
     fireEvent.scroll(table);
     await waitFor(() => expect(screen.getByRole('button', { name: '继续跟随' })).toBeInTheDocument());
-    const firstTool = await screen.findByRole('option', { name: /tool_0.*工具调用.*完成/ });
+    const firstTool = await screen.findByRole('option', { name: /外部工具，tool_0/ });
     fireEvent.click(firstTool);
     expect(within(screen.getByLabelText('轨迹节点详情')).getByText('tool:tool-0'))
       .toBeInTheDocument();
@@ -951,7 +951,7 @@ describe('TrajectoryTabView', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建范围' }));
     const search = screen.getByRole('searchbox', { name: '搜索轨迹记录' });
     fireEvent.change(search, { target: { value: 'tool' } });
-    const selectedTool = (await screen.findAllByRole('option', { name: /tool_\d+.*工具调用.*完成/ }))[0];
+    const selectedTool = (await screen.findAllByRole('option', { name: /外部工具，tool_\d+/ }))[0];
     fireEvent.click(selectedTool);
     const selectedSpanId = within(screen.getByLabelText('轨迹节点详情'))
       .getByText(/^tool:tool-\d+$/).textContent;
@@ -1030,7 +1030,7 @@ describe('TrajectoryTabView', () => {
       await snapshotRequest.promise;
     });
 
-    const target = await screen.findByRole('option', { name: /搜索.*工具调用.*完成/ });
+    const target = await screen.findByRole('option', { name: /工具，搜索/ });
     await waitFor(() => expect(target).toHaveFocus());
     expect(target).toHaveAttribute('data-highlighted', 'true');
     await waitFor(() => {
@@ -1105,7 +1105,7 @@ describe('TrajectoryTabView', () => {
       'run-a',
       expect.any(AbortSignal),
     ));
-    fireEvent.click(await screen.findByRole('option', { name: /第 2 次执行.*已完成/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /第 2 次执行，运行/ }));
 
     expect(store.getState().trajectory.byConversationId['chat-a']).toMatchObject({
       selectedRunId: 'run-b',
@@ -1184,7 +1184,7 @@ describe('TrajectoryTabView', () => {
       }));
     });
 
-    const tool = await screen.findByRole('option', { name: /搜索.*工具调用.*完成/ });
+    const tool = await screen.findByRole('option', { name: /工具，搜索/ });
     await waitFor(() => expect(tool).toHaveFocus());
     expect(tool).toHaveAttribute('data-highlighted', 'true');
     expect(screen.queryByText('该节点不在当前有界快照中')).toBeNull();

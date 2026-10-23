@@ -285,7 +285,7 @@ EVENT_FIELDS = {
 EVENT_ALLOWED_FIELDS = {
     "run_started": {"conversation_id", "message_id", "task_id", "model", "tools", "capability_resolution"},
     "step_started": {"step_number"},
-    "tool_call_started": {"tool_name", "plan_item_id"},
+    "tool_call_started": {"tool_name", "plan_item_id", "arguments"},
     "tool_call_delta": {"tool_name"},
     "tool_call_completed": {"tool_name", "status", "duration_ms", "plan_item_id"},
     "step_completed": {"step_number", "tool_call_count", "duration_ms"},
@@ -420,7 +420,8 @@ def _assert_nested_payloads_drop_full_inputs_outputs_and_strip_url_query():
         {**COMMON, "type": "evidence_item_upserted", **EVENT_FIELDS["evidence_item_upserted"]}
     )
 
-    assert "arguments" not in started
+    # 开始事件只留有界的参数摘要，完整参数在节点详情里从 ToolCallLog 还原。
+    assert started["arguments"] == {"query": "完整工具输入"}
     assert "result_summary" not in completed
     assert "content_block" not in content
     assert evidence["evidence"]["url"] == "https://example.com/report"
@@ -630,6 +631,44 @@ class TrajectoryPayloadTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["tool_names"], ["web_search", "url_read"])
+
+    def test_tool_arguments_keep_bounded_scalars_and_redact_secret_keys(self):
+        arguments = {
+            "query": "北京天气",
+            "count": 5,
+            "domains": ["weather.com.cn", 3, {"nested": True}],
+            "filters": {"region": "cn"},
+            "api_key": "sk-live",
+            "Authorization": "Bearer abc",
+        }
+        payload = build_trajectory_payload(
+            {**COMMON, "type": "tool_call_started", "tool_name": "web_search", "arguments": arguments}
+        )
+
+        self.assertEqual(
+            payload["arguments"],
+            {
+                "Authorization": "[REDACTED]",
+                "api_key": "[REDACTED]",
+                "count": 5,
+                "domains": ["weather.com.cn"],
+                "query": "北京天气",
+            },
+        )
+        # 键按字典序落库，前端实时事件按同一顺序归一，避免误判冲突。
+        self.assertEqual(list(payload["arguments"]), ["Authorization", "api_key", "count", "domains", "query"])
+
+    def test_tool_arguments_cap_key_count_and_ignore_non_mapping(self):
+        many = {f"k{index:02d}": index for index in range(40)}
+        payload = build_trajectory_payload(
+            {**COMMON, "type": "tool_call_started", "tool_name": "mcp_x", "arguments": many}
+        )
+        self.assertEqual(list(payload["arguments"]), [f"k{index:02d}" for index in range(16)])
+
+        malformed = build_trajectory_payload(
+            {**COMMON, "type": "tool_call_started", "tool_name": "mcp_x", "arguments": "raw json"}
+        )
+        self.assertEqual(malformed["arguments"], {})
 
     def test_suggested_questions_ready_records_metadata_but_never_the_questions(self):
         """账本只记"发生了什么、耗时多久"，生成内容的真相源是消息行。"""

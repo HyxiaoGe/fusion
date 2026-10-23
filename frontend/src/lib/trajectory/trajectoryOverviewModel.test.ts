@@ -90,6 +90,8 @@ function toolCell(runId: string, toolCallId: string, sequences: number[]): Traje
     toolCallId,
     stepId: 'step-1',
     toolName: '联网搜索',
+    arguments: null,
+    llmRoundKey: null,
     status: 'success',
     events: [],
   };
@@ -107,6 +109,7 @@ function subtoolCell(runId: string, attemptId: string, sequences: number[]): Tra
     toolCallId: 'tool-1',
     toolAttemptId: attemptId,
     toolName: '联网搜索',
+    llmRoundKey: null,
     attemptIndex: 0,
     status: 'success',
     events: [],

@@ -50,6 +50,7 @@ interface TrajectoryCellProps {
   durationMs?: number | null;
   attemptCount?: number;
   collapsedAttemptCount?: number;
+  depth?: number;
   showTurnLabel?: boolean;
   searchQuery?: string;
   matched?: boolean;
@@ -92,6 +93,7 @@ export function TrajectoryCell({
   durationMs: providedDurationMs,
   attemptCount = 0,
   collapsedAttemptCount = 0,
+  depth = 0,
   showTurnLabel = false,
   searchQuery = '',
   matched = false,
@@ -135,7 +137,7 @@ export function TrajectoryCell({
     matchExcerpt && matchFieldLabel ? `命中${matchFieldLabel}：${matchExcerpt}` : null,
     statusLabel,
     presentation.trajectoryStatusLabel,
-    attemptCount > 0 ? `${attemptCount} 次尝试` : null,
+    attemptCount > 1 ? `${attemptCount} 次尝试` : null,
     collapsedAttemptCount > 0 ? `已折叠的 ${collapsedAttemptCount} 次成功尝试` : null,
     duration,
   ].filter(Boolean).join('，');
@@ -172,10 +174,13 @@ export function TrajectoryCell({
         {visualGroupLabel}
         <span className="sr-only">{turnAttemptLabel}</span>
       </span>
-      <span className={cn(
-        'flex min-w-0 items-center gap-1.5 truncate text-xs font-medium',
-        TONE_CLASSES[presentation.tone],
-      )}>
+      <span
+        className={cn(
+          'flex min-w-0 items-center gap-1.5 truncate text-xs font-medium',
+          TONE_CLASSES[presentation.tone],
+        )}
+        style={depth > 0 ? { paddingLeft: `${depth * 0.875}rem` } : undefined}
+      >
         <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         {/* 内部类型名（assistant_request 等）只用于搜索，不占用户可见的类型列。 */}
         <span className="min-w-0 truncate">
@@ -206,7 +211,7 @@ export function TrajectoryCell({
             <HighlightText text={summary} query={searchQuery} />
           </span>
         )}
-        {attemptCount > 0 && (
+        {attemptCount > 1 && (
           <span className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
             {attemptCount} 次尝试
           </span>

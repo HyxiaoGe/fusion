@@ -29,6 +29,7 @@ import trajectoryReducer, {
   trajectorySnapshotReceived,
   trajectorySnapshotRequested,
   type TrajectoryLiveEventBuffer,
+  MAX_SNAPSHOT_CACHE_SIZE,
 } from './trajectorySlice';
 
 const reducer = trajectoryReducer;
@@ -739,7 +740,7 @@ describe('trajectorySlice', () => {
       .toMatchObject({ status: 'ready', error: null });
   });
 
-  it('snapshot LRU 最多保留 8 个且驱逐不删摘要、selection 或 live tail', () => {
+  it('snapshot LRU 超过上限只驱逐最旧的，且驱逐不删摘要、selection 或 live tail', () => {
     let state = reducer(undefined, trajectoryRunListRequested({
       conversationId: 'conversation-a',
       requestId: 'runs-a',
@@ -760,7 +761,7 @@ describe('trajectorySlice', () => {
       event: liveEvent('run-0', 10),
     }));
 
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index <= MAX_SNAPSHOT_CACHE_SIZE; index += 1) {
       state = reducer(state, trajectorySnapshotRequested({
         conversationId: 'conversation-a',
         runId: `run-${index}`,
@@ -774,10 +775,10 @@ describe('trajectorySlice', () => {
     }
 
     const conversation = state.byConversationId['conversation-a'];
-    expect(conversation.snapshotLru).toEqual([
-      'run-1', 'run-2', 'run-3', 'run-4', 'run-5', 'run-6', 'run-7', 'run-8',
-    ]);
-    expect(Object.keys(conversation.snapshotsByRunId)).toHaveLength(8);
+    expect(conversation.snapshotLru).toEqual(
+      Array.from({ length: MAX_SNAPSHOT_CACHE_SIZE }, (_, index) => `run-${index + 1}`),
+    );
+    expect(Object.keys(conversation.snapshotsByRunId)).toHaveLength(MAX_SNAPSHOT_CACHE_SIZE);
     expect(conversation.snapshotsByRunId['run-0']).toBeUndefined();
     expect(conversation.runs.some(run => run.run_id === 'run-0')).toBe(true);
     expect(conversation.selectedRunId).toBe('run-0');

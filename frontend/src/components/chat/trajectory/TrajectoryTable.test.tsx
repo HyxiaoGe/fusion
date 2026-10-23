@@ -78,6 +78,8 @@ function toolCell(key: string): Extract<TrajectoryCell, { type: 'tool' }> {
     toolCallId: key,
     stepId: 'step-1',
     toolName: 'web_search',
+    arguments: null,
+    llmRoundKey: null,
     status: 'success',
     events: [],
   };
@@ -99,6 +101,7 @@ function attemptCell(
     toolCallId,
     toolAttemptId: key,
     toolName: 'web_search',
+    llmRoundKey: null,
     attemptIndex: 1,
     status,
     events: [],
@@ -160,7 +163,7 @@ describe('TrajectoryTable', () => {
       expect(screen.getByText(heading)).toBeInTheDocument();
     }
     const run = within(table).getByRole('option', {
-      name: /#2.*第 1 轮.*第 1 次执行.*运行.*2 步.*已完成.*1.25 秒/,
+      name: /#2.*第 1 轮.*第 1 次执行.*运行.*2 步.*1.25 秒/,
     });
     expect(run).toHaveAttribute('aria-selected', 'true');
     expect(within(run).getByText('Run 1')).toBeInTheDocument();
@@ -256,7 +259,9 @@ describe('TrajectoryTable', () => {
         viewportHeight={112}
       />,
     );
-    expect(screen.getByText('web_search')).toHaveAttribute('data-trajectory-match', 'true');
+    // 登记过的工具显示中文名，原始工具名不显示但仍可搜到。
+    expect(screen.getByRole('option', { name: /搜索命中.*工具，搜索/ })).toBeInTheDocument();
+    expect(screen.queryByText('web_search')).toBeNull();
 
     rerender(
       <TrajectoryTable

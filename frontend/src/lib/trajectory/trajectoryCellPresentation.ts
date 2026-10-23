@@ -1,6 +1,6 @@
 import { modelFallbackReasonLabel } from '@/lib/agent/modelFallback';
 import i18n from '@/lib/i18n';
-import { getToolMeta } from '@/lib/agent/toolRegistry';
+import { getToolMeta, hasToolMeta } from '@/lib/agent/toolRegistry';
 import { extractTextFromBlocks, isContentFilteredMessage } from '@/types/conversation';
 import type { TrajectoryCell } from './TrajectoryCellProjection';
 
@@ -77,10 +77,11 @@ function runDuration(cell: Extract<TrajectoryCell, { type: 'run' }>): number | n
 
 function trajectoryBadgeLabel(
   status: Extract<TrajectoryCell, { type: 'run' }>['trajectoryBadge']['status'],
-): string {
+): string | null {
   switch (status) {
     case 'recording': return '轨迹记录中';
-    case 'complete': return '轨迹完整';
+    // 完整是常态，不占状态列；只标出需要留意的情况。
+    case 'complete': return null;
     case 'degraded': return '轨迹降级';
     case 'truncated': return '轨迹已截断';
     case 'legacy': return '历史未记录轨迹';
@@ -169,11 +170,7 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
         kindLabel: cell.requestIndex === null
           ? '模型请求'
           : `Request #${cell.requestIndex}`,
-        summary: boundedSummary(
-          cell.reasoningPreview
-          ?? cell.outputPreview
-          ?? [cell.provider, cell.model].filter(Boolean).join(' · '),
-        ) || '模型请求正文待生成',
+        summary: llmRoundSummary(cell),
         statusLabel: formatTrajectoryStatus(cell.status),
         durationMs: cell.durationMs,
         tone: statusTone(cell.status),
@@ -217,7 +214,7 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
       const meta = getToolMeta(cell.toolName ?? '');
       return {
         kindLabel: meta.label,
-        summary: '工具调用',
+        summary: toolArgumentSummary(cell) || '工具调用',
         statusLabel: formatTrajectoryStatus(cell.status),
         durationMs: latestDuration(cell),
         tone: statusTone(cell.status),
@@ -237,7 +234,7 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
       return {
         kindLabel: '上下文压缩',
         summary: `移除 ${cell.removedTurns} 轮 · ${cell.removedMessages} 条消息 · ${cell.removedToolTransactions} 次工具`,
-        statusLabel: '已完成',
+        statusLabel: null,
         durationMs: null,
         tone: 'neutral',
       };
@@ -255,6 +252,41 @@ export function getTrajectoryCellPresentation(cell: TrajectoryCell): TrajectoryC
       };
     }
   }
+}
+
+/** 工具显示名：登记过的用中文名，MCP 等外部工具用原名。 */
+export function trajectoryToolLabel(toolName: string | null): string {
+  if (!toolName) return '工具';
+  return hasToolMeta(toolName) ? getToolMeta(toolName).label : toolName;
+}
+
+/** 工具行的参数摘要（搜索词、网址等）；参数未记录时为空串。 */
+export function toolArgumentSummary(cell: Extract<TrajectoryCell, { type: 'tool' }>): string {
+  if (!cell.arguments || !cell.toolName) return '';
+  return boundedSummary(getToolMeta(cell.toolName).summarize(cell.arguments));
+}
+
+/**
+ * 模型轮次先说这一轮做了什么（调了哪些工具，或输出了回答），再接思考预览。
+ * 不接正文预览：最后一轮的正文就是下一行的回答，重复显示没有信息量。
+ */
+function llmRoundSummary(cell: Extract<TrajectoryCell, { type: 'assistant_request' }>): string {
+  return boundedSummary([llmRoundAction(cell), cell.reasoningPreview].filter(Boolean).join(' · '));
+}
+
+function llmRoundAction(cell: Extract<TrajectoryCell, { type: 'assistant_request' }>): string {
+  if (cell.toolNames.length > 0) {
+    const counts = new Map<string, number>();
+    for (const name of cell.toolNames) {
+      const label = trajectoryToolLabel(name);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    const parts = [...counts].map(([label, count]) => (count > 1 ? `${label}×${count}` : label));
+    return `调用 ${cell.toolNames.length} 个工具：${parts.join('、')}`;
+  }
+  if (cell.status === 'running') return '生成中';
+  if (cell.status === 'success' || cell.status === 'completed') return '输出回答';
+  return '未完成';
 }
 
 function statusTone(status: string): TrajectoryCellPresentation['tone'] {

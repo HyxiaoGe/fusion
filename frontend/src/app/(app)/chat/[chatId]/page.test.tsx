@@ -920,14 +920,14 @@ describe('ChatPage 会话切换体验', () => {
     rerender(<ChatPage />);
 
     const table = screen.getByRole('listbox', { name: '轨迹记录表' });
-    const runOption = screen.getByRole('option', { name: /执行.*已完成/i });
+    const runOption = screen.getByRole('option', { name: /执行，运行/i });
     fireEvent.click(runOption);
     Object.defineProperty(table, 'scrollTop', { configurable: true, writable: true, value: 56 });
     fireEvent.scroll(table);
     rerender(<ChatPage />);
 
     expect(screen.getByRole('complementary', { name: '轨迹节点详情' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /执行.*已完成/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: /执行，运行/i })).toHaveAttribute('aria-selected', 'true');
 
     activateConversationTab('聊天');
     rerender(<ChatPage />);
@@ -937,7 +937,7 @@ describe('ChatPage 会话切换体验', () => {
     expect(screen.getByRole('listbox', { name: '轨迹记录表' })).toBe(table);
     expect(table.scrollTop).toBe(56);
     expect(screen.getByRole('complementary', { name: '轨迹节点详情' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /执行.*已完成/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: /执行，运行/i })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('Chat 状态行 inspect 依次切 Tab、选 run、水合、定位高亮并原子完成', async () => {
@@ -976,7 +976,7 @@ describe('ChatPage 会话切换体验', () => {
     }));
 
     rerender(<ChatPage />);
-    const runOption = await screen.findByRole('option', { name: /执行.*已完成/i });
+    const runOption = await screen.findByRole('option', { name: /执行，运行/i });
     await waitFor(() => expect(runOption).toHaveAttribute('data-highlighted', 'true'));
     expect(runOption).toHaveFocus();
     expect(trajectoryState.byConversationId['chat-a'].inspectRequest).toBeNull();
@@ -1014,7 +1014,7 @@ describe('ChatPage 会话切换体验', () => {
     const { rerender } = render(<ChatPage />);
     activateConversationTab('轨迹');
     rerender(<ChatPage />);
-    fireEvent.click(screen.getByRole('option', { name: /执行.*已完成/i }));
+    fireEvent.click(screen.getByRole('option', { name: /执行，运行/i }));
     rerender(<ChatPage />);
 
     fireEvent.click(screen.getByRole('button', { name: '在聊天中查看' }));

@@ -235,7 +235,6 @@ describe('normalizeTrajectoryEvent', () => {
         message_id: 'message-1',
         task_id: 'task-1',
         model: 'deepseek-chat',
-        tools: ['weather'],
       },
     });
     expect(normalized?.payload.tools).not.toBe(tools);
@@ -389,6 +388,79 @@ describe('normalizeTrajectoryEvent', () => {
       title: 'authorization=[REDACTED]',
       url: 'https://example.com/guide',
     });
+  });
+
+  it('工具参数只留有界标量与字符串列表，实时与账本键序不同也归一为同一事件', () => {
+    const envelope = {
+      schema_version: 1,
+      run_id: 'run-1',
+      parent_run_id: null,
+      step_id: 'step-1',
+      parent_step_id: null,
+      tool_call_id: 'tool-1',
+      sequence: 3,
+      trace_id: 'trace-1',
+      ts: Date.parse(timestamp) / 1000,
+    };
+    const live = normalizeSseTrajectoryEvent({
+      ...envelope,
+      type: 'tool_call_started',
+      tool_name: 'web_search',
+      arguments: {
+        query: '北京天气',
+        domains: ['weather.com.cn', 3, { nested: true }],
+        filters: { region: 'cn' },
+        api_key: 'sk-live',
+        count: 5,
+      },
+    });
+    // 账本是后端脱敏后的 JSONB，键序不保留。
+    const durable = normalizeTrajectoryRecord('run-1', {
+      sequence: 3,
+      event_type: 'tool_call_started',
+      schema_version: 1,
+      timestamp,
+      step_id: 'step-1',
+      tool_call_id: 'tool-1',
+      parent_step_id: null,
+      trace_id: 'trace-1',
+      span_id: 'tool:tool-1',
+      payload: {
+        type: 'tool_call_started',
+        tool_name: 'web_search',
+        arguments: { query: '北京天气', count: 5, domains: ['weather.com.cn'], api_key: '[REDACTED]' },
+      },
+    });
+
+    expect(live?.payload.arguments).toEqual({
+      api_key: '[REDACTED]',
+      count: 5,
+      domains: ['weather.com.cn'],
+      query: '北京天气',
+    });
+    expect(Object.keys(live?.payload.arguments as object)).toEqual(['api_key', 'count', 'domains', 'query']);
+    expect(JSON.stringify(durable)).toBe(JSON.stringify(live));
+  });
+
+  it('run_started 的外部工具采样不进入前端事件，完整目录与截断采样不再判为冲突', () => {
+    const base = {
+      type: 'run_started',
+      schema_version: 1,
+      run_id: 'run-1',
+      parent_run_id: null,
+      step_id: null,
+      parent_step_id: null,
+      tool_call_id: null,
+      sequence: 0,
+      trace_id: 'trace-1',
+      ts: Date.parse(timestamp) / 1000,
+      model: 'mimo',
+    };
+    const live = normalizeSseTrajectoryEvent({ ...base, tools: ['web_search', 'url_read', 'weather', 'search_trains'] });
+    const durable = normalizeSseTrajectoryEvent({ ...base, tools: ['web_search', 'url_read', 'weather'] });
+
+    expect(live?.payload).not.toHaveProperty('tools');
+    expect(live).toEqual(durable);
   });
 
   it('将 P1 record 与相同 SSE 事件归一为同一普通用户事件', () => {

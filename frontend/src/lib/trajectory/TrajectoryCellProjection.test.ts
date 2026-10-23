@@ -425,7 +425,7 @@ describe('TrajectoryCellProjection', () => {
     expect(projection.unassociatedCells.map(cell => cell.key)).toEqual(['run:legacy-not-adjacent']);
   });
 
-  it('未选中或未水合 run 只给骨架，selected hydrated run 才投影完整细节与 live tail', () => {
+  it('已水合的 run 都展开细节，未水合 run 只给骨架，live tail 只来自所选 run', () => {
     const selected = runSummary('selected', {
       message_id: 'assistant-selected',
       turn_message_id: 'user-selected',
@@ -571,7 +571,7 @@ describe('TrajectoryCellProjection', () => {
         runId: 'other',
         hydrated: true,
         selected: false,
-        records: [],
+        records: [0],
         spans: [],
         liveTail: [],
       },
@@ -1074,7 +1074,6 @@ describe('TrajectoryCellProjection', () => {
       provider: 'deepseek',
       status: 'success',
       reasoningPreview: '先检索项目结构，再判断实现质量。',
-      outputPreview: '项目结构清晰。',
       inputTokens: 100,
       outputTokens: 40,
       reasoningTokens: 24,
@@ -1169,8 +1168,8 @@ it('请求详情只显示对应 started 的实际指纹，旧请求不推断', a
   await i18n.changeLanguage('zh-CN');
   const base: Extract<TrajectoryCell, { type: 'assistant_request' }> = {
     key: 'request', type: 'assistant_request', runId: 'r', userMessageId: null, assistantMessageId: null,
-    completenessSources: ['live-tail'], sourceSequences: [0], llmRoundId: 'selected', roundIndex: 1, requestIndex: 1,
-    model: null, provider: null, status: 'completed', reasoningPreview: null, outputPreview: null,
+    completenessSources: ['live-tail'], sourceSequences: [0], llmRoundId: 'selected', stepId: null, toolNames: [], roundIndex: 1, requestIndex: 1,
+    model: null, provider: null, status: 'completed', reasoningPreview: null,
     inputTokens: null, outputTokens: null, reasoningTokens: null, durationMs: null, ttftMs: null, detailAvailable: true,
     events: [event('r', 0, 'system_prompt_prepared', { payload: { fingerprint: 'a'.repeat(64) } }),
       event('r', 1, 'llm_round_started', { payload: { llm_round_id: 'other', system_prompt_fingerprint: 'b'.repeat(64) } }),
@@ -1236,3 +1235,59 @@ it('换模型事件按发生位置投影为一行，挑不到备用时如实写�
   const runCell = projection.cells.find(cell => cell.type === 'run');
   expect(runCell?.sourceSequences).not.toContain(1);
 });
+
+  it('工具调用挂到同一 step 内最近的模型轮次，并带上开始事件的参数', () => {
+    const run = runSummary('rounds', { llm_round_count: 2 });
+    const roundEvent = (sequence: number, eventType: string, roundId: string, stepId: string) => event(
+      'rounds', sequence, eventType, { stepId, payload: { llm_round_id: roundId, round_index: sequence } },
+    );
+    const toolEvent = (sequence: number, eventType: string, toolCallId: string, payload: Record<string, unknown>) => (
+      event('rounds', sequence, eventType, { stepId: 'step-1', toolCallId, payload })
+    );
+    const events = [
+      roundEvent(0, 'llm_round_started', 'round-1', 'step-1'),
+      roundEvent(1, 'llm_round_completed', 'round-1', 'step-1'),
+      toolEvent(2, 'tool_call_started', 'call-a', { tool_name: 'web_search', arguments: { query: '杭州' } }),
+      toolEvent(3, 'tool_call_started', 'call-b', { tool_name: 'search_trains', arguments: { argument_count: 3 } }),
+      toolEvent(4, 'tool_call_completed', 'call-a', { tool_name: 'web_search', status: 'success' }),
+      toolEvent(5, 'tool_call_completed', 'call-b', { tool_name: 'search_trains', status: 'success' }),
+      roundEvent(6, 'llm_round_started', 'round-2', 'step-2'),
+    ];
+    const projection = projectTrajectoryCells(input({
+      runs: [run],
+      runSummariesById: { rounds: run },
+      snapshotsByRunId: {
+        rounds: {
+          snapshotRequestId: 'snapshot-rounds',
+          run,
+          spans: [],
+          completeness: {
+            status: 'complete',
+            degraded_reason: null,
+            event_count: events.length,
+            expected_last_sequence: 6,
+            loaded_event_count: events.length,
+            first_sequence: 0,
+            last_sequence: 6,
+          },
+          truncated: false,
+          durableLastSequence: 6,
+          events,
+        },
+      },
+    }));
+
+    const cells = projection.unassociatedCells;
+    const rounds = cells.filter(
+      (cell): cell is Extract<TrajectoryCell, { type: 'assistant_request' }> => cell.type === 'assistant_request',
+    );
+    const tools = cells.filter((cell): cell is Extract<TrajectoryCell, { type: 'tool' }> => cell.type === 'tool');
+    expect(rounds.map(round => [round.llmRoundId, round.stepId, round.toolNames])).toEqual([
+      ['round-1', 'step-1', ['web_search', 'search_trains']],
+      ['round-2', 'step-2', []],
+    ]);
+    expect(tools.map(tool => [tool.toolCallId, tool.llmRoundKey, tool.arguments])).toEqual([
+      ['call-a', rounds[0].key, { query: '杭州' }],
+      ['call-b', rounds[0].key, { argument_count: 3 }],
+    ]);
+  });

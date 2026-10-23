@@ -41,6 +41,7 @@ function attemptCell(attemptIndex: number | null): Extract<TrajectoryCell, { typ
     toolCallId: 'tool-1',
     toolAttemptId: 'attempt-1',
     toolName: 'web_search',
+    llmRoundKey: null,
     attemptIndex,
     status: 'success',
     events: [],

@@ -181,7 +181,8 @@ function TrajectoryTabView({
 }: TrajectoryTabViewProps) {
   const dispatch = useAppDispatch();
   const store = useStore<RootState>();
-  const trajectory = useConversationTrajectory(conversationId);
+  const [mountedRunIds, setMountedRunIds] = useState<readonly string[]>([]);
+  const trajectory = useConversationTrajectory(conversationId, mountedRunIds);
   const notificationContainerRef = useRef<HTMLElement>(null);
   const normalizedContentBottomInset = Number.isFinite(contentBottomInset)
     ? Math.max(0, contentBottomInset)
@@ -577,9 +578,10 @@ function TrajectoryTabView({
   }, [clearInspectFeedback, conversationId, dispatch, store]);
 
   const handleSelectCell = useCallback((cell: TrajectoryCell) => {
-    const span = resolveTrajectoryCellSpan(cell, trajectory.snapshot?.spans ?? []);
-    commitCellSelection(cell, span);
-  }, [commitCellSelection, trajectory.snapshot?.spans]);
+    // 所有运行都展开，点中的行可能属于另一个运行，要用它自己运行的快照解析 span。
+    const spans = cell.runId ? trajectory.snapshotsByRunId[cell.runId]?.spans ?? [] : [];
+    commitCellSelection(cell, resolveTrajectoryCellSpan(cell, spans));
+  }, [commitCellSelection, trajectory.snapshotsByRunId]);
 
   const handleSelectRun = useCallback((run: TrajectoryRunSummary) => {
     const domain = selectionDomain(run.run_id, run.message_id);
@@ -890,6 +892,7 @@ function TrajectoryTabView({
                 onInspectTargetResolved={handleInspectResolved}
                 onInspectTargetUnavailable={handleInspectUnavailable}
                 onViewportStateChange={handleViewportStateChange}
+                onMountedRunIdsChange={setMountedRunIds}
                 className="h-full border-0"
               />
             </div>

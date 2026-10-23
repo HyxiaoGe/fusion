@@ -9,7 +9,8 @@ import type {
   TrajectorySnapshot,
 } from '@/types/trajectory';
 
-const MAX_SNAPSHOT_CACHE_SIZE = 8;
+// 表格不折叠，滚过的运行都保持展开；视口内同时可见的运行远少于此，淘汰只发生在已滚走的运行上。
+export const MAX_SNAPSHOT_CACHE_SIZE = 24;
 const MAX_RUN_LIST_SIZE = 500;
 const MAX_PROVISIONAL_RUNS = 8;
 const MAX_EVENTS_PER_RUN = 5000;

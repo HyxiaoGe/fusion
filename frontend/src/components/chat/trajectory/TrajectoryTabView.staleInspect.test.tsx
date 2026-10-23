@@ -260,7 +260,7 @@ describe('TrajectoryTabView stale inspect callback', () => {
 
     await waitFor(() => expect(capturedTableCallbacks.has('inspect-a-fallback')).toBe(true));
     const staleCallback = capturedCallback('inspect-a-fallback');
-    fireEvent.click(await screen.findByRole('option', { name: /第 2 次执行.*已完成/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /第 2 次执行，运行/ }));
     await waitFor(() => expect(store.getState().trajectory.byConversationId['chat-a']).toMatchObject({
       selectedRunId: 'run-b',
       selectionSource: 'manual',
@@ -330,9 +330,10 @@ describe('TrajectoryTabView stale inspect callback', () => {
     });
 
     expect(latestTableTarget.current).toBeNull();
-    expect(screen.getAllByRole('option', { name: /搜索.*工具调用.*完成/ }).map(option => (
+    // 两个运行都展开，各有一行工具；都不应残留旧高亮。
+    expect(screen.getAllByRole('option', { name: /工具，搜索/ }).map(option => (
       option.getAttribute('data-highlighted')
-    ))).toEqual(['false']);
+    ))).toEqual(['false', 'false']);
   });
 
   it('同 request/run 的 S2 覆盖 S1 后旧 fallback callback 不消费请求，S2 继续正确定位', async () => {
@@ -393,7 +394,7 @@ describe('TrajectoryTabView stale inspect callback', () => {
     act(() => s2Resolution.callback());
 
     expect(store.getState().trajectory.byConversationId['chat-a'].inspectRequest).toBeNull();
-    const target = screen.getByRole('option', { name: /搜索.*工具调用.*完成/ });
+    const target = screen.getByRole('option', { name: /工具，搜索/ });
     expect(target).toHaveAttribute('data-highlighted', 'true');
     expect(screen.queryByText('该节点不在当前有界快照中')).toBeNull();
   });
