@@ -151,11 +151,12 @@
         "webGroup": "Web",
         "documentChunks": "{{count}} passages",
         "knowledgeCandidates": "Knowledge base candidates · {{files}} files · {{count}} passages",
-        "kinds": { "search": "Search", "url_read": "Webpage", "knowledge": "Knowledge base" },
+        "kinds": { "search": "Search", "url_read": "Webpage", "knowledge": "Knowledge base", "tool": "Tool data" },
         "status": { "unread": "Not read", "unused": "Unused", "degraded": "Partially available", "interrupted": "Interrupted" }
       },
       "citation": {
         "knowledge": "Knowledge base",
+        "tool": "Tool data",
         "web": "Web source",
         "summary": "Source summary",
         "noSummary": "No summary is available for this source.",

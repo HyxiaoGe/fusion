@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, ExternalLink, FileSearch, Globe2, Search } from 'lucide-react';
+import { BookOpen, Database, ExternalLink, FileSearch, Globe2, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AnswerEvidenceItem, AnswerEvidenceModel } from './answerEvidenceModel';
 import { groupAnswerEvidenceItems, layoutAnswerEvidenceItems } from './answerEvidenceLayout';
@@ -80,6 +80,7 @@ function AnswerEvidenceContent({
   const showHiddenSearch = layout.hiddenSearchCount > 0;
   const showHiddenUrls = layout.hiddenUrlCount > 0;
   const showHiddenKnowledge = layout.hiddenKnowledgeCount > 0;
+  const showHiddenTools = layout.hiddenToolCount > 0;
   const showOpenAll = hasSidebarContent || layout.hasHiddenItems;
 
   useEffect(() => {
@@ -125,6 +126,9 @@ function AnswerEvidenceContent({
           ) : null}
           {showHiddenKnowledge ? (
             <EvidenceMetaChip>未预览 {layout.hiddenKnowledgeCount} 份知识库文件</EvidenceMetaChip>
+          ) : null}
+          {showHiddenTools ? (
+            <EvidenceMetaChip>未预览 {layout.hiddenToolCount} 条工具数据</EvidenceMetaChip>
           ) : null}
           {showOpenAll ? (
             <button
@@ -173,7 +177,7 @@ function EvidenceItem({
 }) {
   const content = <EvidenceItemContent item={item} />;
 
-  if (item.kind === 'search_source' || item.kind === 'knowledge') {
+  if (item.kind === 'search_source' || item.kind === 'knowledge' || item.kind === 'tool') {
     return (
       <button
         type="button"
@@ -240,12 +244,16 @@ function EvidenceItemIcon({ item }: { item: AnswerEvidenceItem }) {
     );
   }
 
-  const Icon = item.kind === 'search_source' ? Search : item.kind === 'knowledge' ? BookOpen : Globe2;
+  const Icon = item.kind === 'search_source'
+    ? Search
+    : item.kind === 'knowledge' ? BookOpen : item.kind === 'tool' ? Database : Globe2;
 
   return (
     <span className={cn(
       'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm',
-      item.kind === 'search_source' ? 'text-info' : item.kind === 'knowledge' ? 'text-primary' : 'text-teal',
+      item.kind === 'search_source'
+        ? 'text-info'
+        : item.kind === 'knowledge' || item.kind === 'tool' ? 'text-primary' : 'text-teal',
     )}>
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
     </span>

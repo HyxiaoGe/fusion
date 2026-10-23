@@ -149,11 +149,62 @@ describe('contentBlockRegistry', () => {
       provider: 'tencent_map',
       label: '腾讯地图',
       tool_call_log_id: 'log-1',
+      source_refs: [],
     });
     expect(normalizeContentBlock({ type: 'data_source', id: 'x', schema_version: 1, category: 'docs', provider: 'p', label: 'l' })?.type)
       .toBe('unsupported_result');
     expect(normalizeContentBlock({ type: 'data_source', id: 'x', schema_version: 1, category: 'map', provider: 'p' })?.type)
       .toBe('unsupported_result');
+  });
+
+  it('解码工具来源块，只保留可引用来源的定位字段', () => {
+    expect(normalizeContentBlock({
+      type: 'data_source',
+      id: 'blk_tool',
+      schema_version: 1,
+      category: 'tool',
+      provider: 'trendradar',
+      label: '热榜资讯',
+      tool_call_log_id: 'log-2',
+      source_refs: [
+        {
+          kind: 'tool',
+          evidence_id: 'ev-tool-1',
+          citation_index: 3,
+          title: '热榜资讯 / get_latest_news',
+          provider: 'trendradar',
+          status: 'success',
+          payload: 'ignored',
+        },
+        { kind: 'tool', evidence_id: 'ev-tool-2', title: '第二条超出上限', provider: 'trendradar' },
+      ],
+    })).toEqual({
+      type: 'data_source',
+      id: 'blk_tool',
+      schema_version: 1,
+      category: 'tool',
+      provider: 'trendradar',
+      label: '热榜资讯',
+      tool_call_log_id: 'log-2',
+      source_refs: [{
+        kind: 'tool',
+        evidence_id: 'ev-tool-1',
+        citation_index: 3,
+        title: '热榜资讯 / get_latest_news',
+        provider: 'trendradar',
+        status: 'success',
+      }],
+    });
+    const invalidRefs = normalizeContentBlock({
+      type: 'data_source',
+      id: 'blk_tool',
+      schema_version: 1,
+      category: 'tool',
+      provider: 'trendradar',
+      label: '热榜资讯',
+      source_refs: [{ kind: 'web', evidence_id: 'ev-1', title: 't', provider: 'p' }, { kind: 'tool', title: 't', provider: 'p' }],
+    });
+    expect(invalidRefs?.type === 'data_source' ? invalidRefs.source_refs : null).toEqual([]);
   });
 
   it('解码服务商内容审核拦截块，只保留标识字段', () => {

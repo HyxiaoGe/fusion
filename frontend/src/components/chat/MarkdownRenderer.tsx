@@ -2,7 +2,7 @@
 
 import React, { useContext, useMemo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Database } from 'lucide-react';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import type { ImageResultItem, SearchSourceSummary, VideoResultItem } from '@/types/conversation';
@@ -112,10 +112,12 @@ function renderWithCitations(
 
     if (source) {
       const knowledge = source.kind === 'knowledge';
-      // 知识库引用与网页引用分色并带书本图标，编号仍沿用统一的引用注册表。
-      const sharedClass = `${citationStyles.chip}${knowledge ? ` ${citationStyles.knowledgeChip}` : ''} no-underline`;
-      const label = knowledge ? (
-        <><BookOpen className={citationStyles.chipIcon} aria-hidden="true" />{num}</>
+      const tool = source.kind === 'tool';
+      // 知识库、工具引用与网页引用分色并带图标，编号仍沿用统一的引用注册表。
+      const sharedClass = `${citationStyles.chip}${knowledge || tool ? ` ${citationStyles.knowledgeChip}` : ''} no-underline`;
+      const ChipIcon = knowledge ? BookOpen : tool ? Database : null;
+      const label = ChipIcon ? (
+        <><ChipIcon className={citationStyles.chipIcon} aria-hidden="true" />{num}</>
       ) : num;
       const previewProps = { 'data-citation-index': sourceIndex, 'data-citation-number': num };
 
@@ -129,11 +131,11 @@ function renderWithCitations(
             onCitationClick(sourceIndex);
           }}
           className={sharedClass}
-          aria-label={`查看${knowledge ? '知识库' : ''}参考资料 ${num}：${source.title}`}
+          aria-label={`查看${knowledge ? '知识库' : tool ? '工具数据' : ''}参考资料 ${num}：${source.title}`}
         >
           {label}
         </button>
-      ) : source.kind !== 'knowledge' ? (
+      ) : !knowledge && !tool ? (
         <a
           {...previewProps}
           href={source.url}

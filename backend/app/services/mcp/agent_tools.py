@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.db.database import SessionLocal
 from app.db.mcp_server_repository import McpServerRepository
-from app.schemas.chat import DataSourceBlock
+from app.schemas.chat import DataSourceBlock, ToolSourceReference
 from app.services.mcp.amap_product_tools import (
     AMAP_PRODUCT_DEFINITIONS,
     AMAP_PRODUCT_REMOTE_DEPENDENCIES,
@@ -68,6 +68,7 @@ from app.services.mcp.tool_contract import (
     is_valid_tool_snapshot,
     validate_tool_arguments,
 )
+from app.services.source_evidence_ledger import tool_call_evidence_id
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 from app.services.tool_handlers.itinerary import (
     PRESENT_ITINERARY_TOOL_NAME,
@@ -547,6 +548,8 @@ class McpAgentToolHandler(BaseToolHandler):
     """运行级 MCP handler；不进入进程全局工具注册表。"""
 
     supports_automatic_retry = False
+    # 成功结果作为一条来源参与本 run 的统一引用编号。
+    supports_run_level_citations = True
 
     def __init__(
         self,
@@ -628,11 +631,16 @@ class McpAgentToolHandler(BaseToolHandler):
             return self._failed_result(started_at, error_code="internal_error")
 
     def build_content_block(self, result: ToolResult, block_id: str, log_id: str):
-        """不持久化任意 MCP 返回内容；已知数据服务商只留一条来源署名。"""
+        """不持久化任意 MCP 返回内容；成功调用只留服务商署名和一条可引用来源。"""
 
-        if result.status != "success" or self.binding.data_source is None:
+        if result.status != "success" or "payload" not in result.data:
             return None
-        category, provider, label = self.binding.data_source
+        if self.binding.data_source is not None:
+            category, provider, label = self.binding.data_source
+        else:
+            category = "tool"
+            provider = self.binding.provider[:40] or "mcp"
+            label = self.binding.server_name.strip()[:40] or provider
         return DataSourceBlock(
             type="data_source",
             id=block_id,
@@ -641,7 +649,21 @@ class McpAgentToolHandler(BaseToolHandler):
             provider=provider,
             label=label,
             tool_call_log_id=log_id,
+            source_refs=[
+                ToolSourceReference(
+                    evidence_id=tool_call_evidence_id(log_id),
+                    title=self.binding.tool_label[:160],
+                    provider=provider,
+                )
+            ],
         )
+
+    def citation_sources(self, result: ToolResult, log_id: str) -> list[dict[str, str]]:
+        """参与统一编号的来源；与 build_content_block 的 source_refs 一一对应。"""
+
+        if result.status != "success" or "payload" not in result.data:
+            return []
+        return [{"kind": "tool", "evidence_id": tool_call_evidence_id(log_id)}]
 
     def format_llm_context(
         self,
@@ -673,6 +695,7 @@ class McpAgentToolHandler(BaseToolHandler):
             binding=self.binding,
             payload_text=payload_text,
             max_bytes=self.max_llm_context_bytes,
+            citation_index=citation_numbers[0] if citation_numbers else None,
         )
 
     def sanitize_input_params_for_log(self, input_params: dict) -> dict:
@@ -1538,12 +1561,14 @@ def _format_untrusted_mcp_context(
     binding: McpAgentToolBinding,
     payload_text: str,
     max_bytes: int,
+    citation_index: int | None = None,
 ) -> str:
     rendered = render_runtime_prompt(
         "mcp.result_wrapper",
         tool_alias=binding.alias,
         provider=escape(binding.provider),
         tool_label=escape(binding.tool_label),
+        citation_index=citation_index,
         payload="__FUSION_PAYLOAD__",
     )
     prefix, marker, suffix = rendered.partition("__FUSION_PAYLOAD__")

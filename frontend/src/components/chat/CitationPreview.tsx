@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { BookOpen, Globe2 } from 'lucide-react';
+import { BookOpen, Database, Globe2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { SearchSourceSummary } from '@/types/conversation';
 import { useHasOpenChatDetailOverlay } from './ChatDetailOverlayContext';
@@ -181,13 +181,14 @@ function PreviewContent({ source, number, triggerTag }: {
 }) {
   const { t } = useTranslation();
   const knowledge = source.kind === 'knowledge';
-  let domain = t('chatBody.citation.knowledge');
-  if (!knowledge) {
+  const tool = source.kind === 'tool';
+  let domain = t(tool ? 'chatBody.citation.tool' : 'chatBody.citation.knowledge');
+  if (!knowledge && !tool) {
     try { domain = new URL(source.url).hostname.replace(/^www\./, ''); }
     catch { domain = t('chatBody.citation.web'); }
   }
   const snippet = source.snippet?.trim().slice(0, 320);
-  const Icon = knowledge ? BookOpen : Globe2;
+  const Icon = knowledge ? BookOpen : tool ? Database : Globe2;
   return (
     <>
       <div className={styles.header}>

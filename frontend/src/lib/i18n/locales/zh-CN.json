@@ -151,11 +151,12 @@
         "webGroup": "网页",
         "documentChunks": "{{count}} 段",
         "knowledgeCandidates": "知识库候选 · {{files}} 份文件 · {{count}} 段",
-        "kinds": { "search": "搜索", "url_read": "读取", "knowledge": "知识库" },
+        "kinds": { "search": "搜索", "url_read": "读取", "knowledge": "知识库", "tool": "工具数据" },
         "status": { "unread": "未读取", "unused": "未使用", "degraded": "部分可用", "interrupted": "中断" }
       },
       "citation": {
         "knowledge": "知识库",
+        "tool": "工具数据",
         "web": "网页来源",
         "summary": "来源摘要",
         "noSummary": "此来源暂无摘要。",

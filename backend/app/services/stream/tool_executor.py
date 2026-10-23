@@ -683,7 +683,7 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
             tool_call=tool_call,
             handler=handler,
             ids=ids,
-            args={},
+            args=_recordable_rejected_arguments(handler, args),
             result=result,
         )
     runtime_argument_error = _build_runtime_argument_error_result(request, handler, args)
@@ -693,7 +693,7 @@ async def execute_one_tool_call(request: ToolExecutionBatchRequest, tool_call: d
             tool_call=tool_call,
             handler=handler,
             ids=ids,
-            args={},
+            args=_recordable_rejected_arguments(handler, args),
             result=runtime_argument_error,
         )
     args, budget_result = prepare_tool_arguments(
@@ -772,6 +772,16 @@ async def _complete_preflight_tool_result(
     )
     await emit_progress_digest_events(request=request, record=record)
     return record
+
+
+def _recordable_rejected_arguments(handler: Any, args: dict) -> dict:
+    """被拒的参数在资源上限内时照常记录（仍经 handler 脱敏），否则排查时看不到模型传了什么；超限的不记录。"""
+    if validate_tool_argument_resource_limits(
+        args,
+        max_json_bytes=max_tool_argument_json_bytes(getattr(handler, "tool_name", None)),
+    ):
+        return {}
+    return args
 
 
 def _validate_handler_arguments(

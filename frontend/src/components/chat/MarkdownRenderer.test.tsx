@@ -203,6 +203,30 @@ describe('MarkdownRenderer — citation 行为（contract §9）', () => {
     expect(citation.querySelector('svg')).not.toBeNull();
   });
 
+  it('工具引用按统一编号打开侧栏，没有点击回调时也不生成空外链', () => {
+    const source = {
+      title: '热榜资讯 / get_latest_news',
+      url: '',
+      evidence_id: 'ev-tool-1',
+      citation_index: 2,
+      kind: 'tool' as const,
+    };
+    const onCite = vi.fn();
+    const { container, unmount } = render(
+      <MarkdownRenderer content="热搜第一是某话题[2]。" sources={[source]} onCitationClick={onCite} />,
+    );
+
+    const citation = screen.getByRole('button', { name: '查看工具数据参考资料 2：热榜资讯 / get_latest_news' });
+    fireEvent.click(citation);
+    expect(onCite).toHaveBeenCalledWith(0);
+    expect(citation.querySelector('svg')).not.toBeNull();
+    expect(container.querySelector('a[href=""]')).toBeNull();
+    unmount();
+
+    const readonly = render(<MarkdownRenderer content="热搜第一是某话题[2]。" sources={[source]} />);
+    expect(readonly.container.querySelector('a')).toBeNull();
+  });
+
   it('网页引用保持原样式，不带知识库标记', () => {
     render(
       <MarkdownRenderer

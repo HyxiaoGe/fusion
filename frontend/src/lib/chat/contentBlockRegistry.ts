@@ -17,6 +17,7 @@ import type {
   SourceReference,
   TextBlock,
   ThinkingBlock,
+  ToolSourceReference,
   UrlBlock,
   VideoResultItem,
   VideoResultsBlock,
@@ -385,15 +386,35 @@ function decodeDataSourceBlock(source: Record<string, unknown>): DataSourceBlock
   const id = requiredString(source.id);
   const provider = boundedRequiredString(source.provider, 40);
   const label = boundedRequiredString(source.label, 40);
-  if (!id || source.category !== 'map' || !provider || !label) return null;
+  const category = source.category === 'map' || source.category === 'tool' ? source.category : null;
+  if (!id || !category || !provider || !label) return null;
   return {
     type: 'data_source',
     id,
     schema_version: 1,
-    category: 'map',
+    category,
     provider,
     label,
     ...optionalField('tool_call_log_id', optionalString(source.tool_call_log_id)),
+    source_refs: normalizeArray(source.source_refs, normalizeToolSourceReference, 1),
+  };
+}
+
+function normalizeToolSourceReference(value: unknown): ToolSourceReference | null {
+  const source = asRecord(value);
+  if (!source || source.kind !== 'tool') return null;
+  if (source.status !== undefined && source.status !== 'success') return null;
+  const evidenceId = boundedRequiredString(source.evidence_id, 160);
+  const title = boundedRequiredString(source.title, 160);
+  const provider = boundedRequiredString(source.provider, 40);
+  if (!evidenceId || !title || !provider) return null;
+  return {
+    kind: 'tool',
+    evidence_id: evidenceId,
+    ...optionalField('citation_index', positiveInteger(source.citation_index)),
+    title,
+    provider,
+    status: 'success',
   };
 }
 

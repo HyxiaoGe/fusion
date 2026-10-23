@@ -100,7 +100,7 @@ def max_citation_index(content_blocks: Iterable[Any]) -> int:
     """历史回答里已用过的最大引用编号；新一轮从其后编号，避免和回放的工具结果撞号。"""
     highest = 0
     for block in content_blocks or []:
-        if _field(block, "type") not in {"search", "url_read", "knowledge_evidence"}:
+        if _field(block, "type") not in {"search", "url_read", "knowledge_evidence", "data_source"}:
             continue
         for source in [*(_field(block, "source_refs") or []), *(_field(block, "sources") or [])]:
             index = _field(source, "citation_index")

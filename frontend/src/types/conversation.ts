@@ -34,7 +34,7 @@ export interface SearchSourceSummary {
   favicon?: string;
   evidence_id?: string;
   citation_index?: number;
-  kind?: 'web' | 'knowledge';
+  kind?: 'web' | 'knowledge' | 'tool';
   /** 来源证据已有的摘要；仅供阅读预览，不作为引用编号或正文事实。 */
   snippet?: string;
 }
@@ -197,14 +197,26 @@ export interface VideoResultsBlock {
 }
 
 /** 外部数据工具（目前只有腾讯地图 MCP）的来源署名；不含远端返回内容。 */
+/** 一次外部工具调用作为回答来源；只有工具身份，没有网址和返回内容。 */
+export interface ToolSourceReference {
+  kind: 'tool';
+  evidence_id: string;
+  citation_index?: number;
+  title: string;
+  provider: string;
+  status?: 'success';
+}
+
 export interface DataSourceBlock {
   type: 'data_source';
   id: string;
   schema_version: 1;
-  category: 'map';
+  /** map：地图服务商，回答下方署名；tool：其余 MCP 工具。 */
+  category: 'map' | 'tool';
   provider: string;
   label: string;
   tool_call_log_id?: string;
+  source_refs?: ToolSourceReference[];
 }
 
 export interface ProviderPlacePhoto {

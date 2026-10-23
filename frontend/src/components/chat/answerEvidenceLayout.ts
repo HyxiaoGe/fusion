@@ -15,6 +15,7 @@ interface AnswerEvidenceLayout {
   hiddenSearchCount: number;
   hiddenUrlCount: number;
   hiddenKnowledgeCount: number;
+  hiddenToolCount: number;
   hasHiddenItems: boolean;
 }
 
@@ -75,10 +76,10 @@ function selectVisibleItems(items: AnswerEvidenceItem[], capacity: number): Answ
   const normalizedCapacity = Math.max(1, Math.floor(capacity));
   const searchItems = items.filter(item => item.kind === 'search_source');
   const urlItems = items.filter(item => item.kind === 'url_read');
-  const knowledgeItems = items.filter(item => item.kind === 'knowledge');
+  const localItems = items.filter(item => item.kind === 'knowledge' || item.kind === 'tool');
 
   // 保留既有网页依据布局：搜索和深读同时存在时尽量各预览一条。
-  if (knowledgeItems.length === 0 && searchItems.length > 0 && urlItems.length > 0) {
+  if (localItems.length === 0 && searchItems.length > 0 && urlItems.length > 0) {
     if (normalizedCapacity === 1) {
       return searchItems.slice(0, 1);
     }
@@ -93,7 +94,7 @@ function selectVisibleItems(items: AnswerEvidenceItem[], capacity: number): Answ
     ];
   }
 
-  // 知识来源按统一 citation_index 顺序预览，避免编号与展示顺序错位。
+  // 知识库、工具来源按统一 citation_index 顺序预览，避免编号与展示顺序错位。
   return items.slice(0, normalizedCapacity);
 }
 
@@ -101,18 +102,22 @@ function buildLayout(visibleItems: AnswerEvidenceItem[], allItems: AnswerEvidenc
   const visibleSearchCount = visibleItems.filter(item => item.kind === 'search_source').length;
   const visibleUrlCount = visibleItems.filter(item => item.kind === 'url_read').length;
   const visibleKnowledgeCount = visibleItems.filter(item => item.kind === 'knowledge').length;
+  const visibleToolCount = visibleItems.filter(item => item.kind === 'tool').length;
   const searchCount = allItems.filter(item => item.kind === 'search_source').length;
   const urlCount = allItems.filter(item => item.kind === 'url_read').length;
   const knowledgeCount = allItems.filter(item => item.kind === 'knowledge').length;
+  const toolCount = allItems.filter(item => item.kind === 'tool').length;
   const hiddenSearchCount = Math.max(0, searchCount - visibleSearchCount);
   const hiddenUrlCount = Math.max(0, urlCount - visibleUrlCount);
   const hiddenKnowledgeCount = Math.max(0, knowledgeCount - visibleKnowledgeCount);
+  const hiddenToolCount = Math.max(0, toolCount - visibleToolCount);
 
   return {
     visibleItems,
     hiddenSearchCount,
     hiddenUrlCount,
     hiddenKnowledgeCount,
-    hasHiddenItems: hiddenSearchCount > 0 || hiddenUrlCount > 0 || hiddenKnowledgeCount > 0,
+    hiddenToolCount,
+    hasHiddenItems: hiddenSearchCount > 0 || hiddenUrlCount > 0 || hiddenKnowledgeCount > 0 || hiddenToolCount > 0,
   };
 }

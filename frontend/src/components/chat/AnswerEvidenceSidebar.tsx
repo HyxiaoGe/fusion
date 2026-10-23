@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, BookOpen, Check, ChevronDown, ExternalLink, Globe2, Search, X } from 'lucide-react';
+import { AlertTriangle, BookOpen, Check, ChevronDown, Database, ExternalLink, Globe2, Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
@@ -382,8 +382,8 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
       ref={ref}
       data-testid={item.kind === 'search'
         ? `answer-evidence-used-search-${item.sourceIndex}`
-        : item.kind === 'knowledge'
-          ? `answer-evidence-used-knowledge-${item.sourceIndex}`
+        : item.kind === 'knowledge' || item.kind === 'tool'
+          ? `answer-evidence-used-${item.kind}-${item.sourceIndex}`
           : undefined}
       data-highlighted={highlighted}
       aria-current={highlighted ? 'true' : undefined}
@@ -431,7 +431,7 @@ const UsedSourceItem = React.forwardRef<HTMLDivElement, {
             {highlighted ? <span className={styles.currentMark}><Check size={12} aria-hidden="true" />{t('chatBody.evidencePanel.current')}</span> : null}
           </span>
         </button>
-        {item.kind !== 'knowledge' ? (
+        {item.url ? (
           <a
             href={item.url}
             target="_blank"
@@ -474,7 +474,9 @@ function UsedSourceIcon({ item }: { item: AnswerEvidenceSidebarUsedItem }) {
     );
   }
 
-  const Icon = item.kind === 'search' ? Search : item.kind === 'knowledge' ? BookOpen : Globe2;
+  const Icon = item.kind === 'search'
+    ? Search
+    : item.kind === 'knowledge' ? BookOpen : item.kind === 'tool' ? Database : Globe2;
   return <Icon className="h-4 w-4" aria-hidden="true" />;
 }
 

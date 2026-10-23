@@ -7,6 +7,7 @@ import { selectStreamContentBlocks, selectStreamSlot } from '@/redux/slices/stre
 import type { AgentEvidenceItem, AgentRunState, DocumentDraftState } from '@/types/agentRun';
 import type {
   ContentBlock,
+  DataSourceBlock,
   DocumentBlock,
   GeneratedImageBlock,
   ImageResultItem,
@@ -106,6 +107,7 @@ export function deriveStaticAssistantMessageViewModel({
   });
   const searchBlocks = collectSearchBlocks(blocksToRender);
   const knowledgeBlocks = collectKnowledgeEvidenceBlocks(blocksToRender);
+  const toolBlocks = collectToolSourceBlocks(blocksToRender);
   const evidenceSearchSources = collectSearchSources(searchBlocks);
   const searchQueries = collectSearchQueries(searchBlocks);
   const displayText = extractTextFromBlocks(blocksToRender);
@@ -114,6 +116,7 @@ export function deriveStaticAssistantMessageViewModel({
     searchSources: evidenceSearchSources,
     urlBlocks: activity.urlBlocks,
     knowledgeBlocks,
+    toolBlocks,
     agentEvidence: ownedRun?.evidence,
     answerText: displayText,
     searchProvider: collectSearchProvider(searchBlocks),
@@ -236,6 +239,11 @@ export function useAssistantMessageViewModel({
     [blocksToRender],
   );
 
+  const toolBlocks = useMemo(
+    () => collectToolSourceBlocks(blocksToRender),
+    [blocksToRender],
+  );
+
   const evidenceSearchSources = useMemo(
     () => collectSearchSources(searchBlocks),
     [searchBlocks],
@@ -255,12 +263,21 @@ export function useAssistantMessageViewModel({
         searchSources: evidenceSearchSources,
         urlBlocks: activity.urlBlocks,
         knowledgeBlocks,
+        toolBlocks,
         agentEvidence: ownedRun?.evidence,
         answerText: displayText,
         searchProvider: collectSearchProvider(searchBlocks),
       });
     },
-    [activity.urlBlocks, displayText, evidenceSearchSources, knowledgeBlocks, ownedRun?.evidence, searchBlocks],
+    [
+      activity.urlBlocks,
+      displayText,
+      evidenceSearchSources,
+      knowledgeBlocks,
+      ownedRun?.evidence,
+      searchBlocks,
+      toolBlocks,
+    ],
   );
 
   const searchSources: SearchSourceSummary[] = useMemo(
@@ -383,6 +400,13 @@ function collectKnowledgeEvidenceBlocks(contentBlocks: ContentBlock[]): Knowledg
   );
 }
 
+/** MCP 工具调用的来源块（地图与其他工具都带一条可引用来源）。 */
+function collectToolSourceBlocks(contentBlocks: ContentBlock[]): DataSourceBlock[] {
+  return contentBlocks.filter(
+    (block): block is DataSourceBlock => block.type === 'data_source' && (block.source_refs?.length ?? 0) > 0,
+  );
+}
+
 function collectSearchSources(searchBlocks: SearchBlock[]): SearchSourceSummary[] {
   return dedupeSearchSources(searchBlocks.flatMap(block => block.sources ?? []));
 }
@@ -423,13 +447,13 @@ function collectCitationSources(
     ...searchBlocks.flatMap(block => block.source_refs ?? []),
     ...urlBlocks.flatMap(block => block.source_refs ?? []),
   ];
-  // 正文引用映射独立于摘要展示；以持久化编号为准，补充知识库等非网页来源。
+  // 正文引用映射独立于摘要展示；以持久化编号为准，补充知识库、工具等非网页来源。
   const byCitation = new Map<number, SearchSourceSummary>();
   for (const item of stableItems) {
     byCitation.set(item.citationIndex!, {
       title: item.title, url: item.url, favicon: item.favicon,
       evidence_id: item.evidenceId, citation_index: item.citationIndex,
-      kind: item.kind === 'knowledge' ? 'knowledge' : 'web',
+      kind: item.kind === 'knowledge' || item.kind === 'tool' ? item.kind : 'web',
     });
   }
   for (const ref of sourceRefs.filter(isUsableSourceRef)) {
@@ -447,7 +471,7 @@ function collectCitationSources(
       .sort((left, right) => left.citation_index! - right.citation_index!)
       .map(source => {
         // 完整引用注册表覆盖后，才按最终来源身份取摘要，不能沿用被替换来源的摘要。
-        const evidence = source.kind === 'knowledge' ? undefined : agentEvidence.find(entry => entry.kind === 'web'
+        const evidence = source.kind === 'knowledge' || source.kind === 'tool' ? undefined : agentEvidence.find(entry => entry.kind === 'web'
           && entry.url === source.url
           && (source.evidence_id ? entry.id === source.evidence_id : entry.citationIndex === source.citation_index));
         return evidence?.snippet?.trim() ? { ...source, snippet: evidence.snippet.trim() } : source;
