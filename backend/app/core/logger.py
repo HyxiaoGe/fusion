@@ -38,6 +38,11 @@ def log_context(**fields: str | None) -> Generator[None, None, None]:
             var.reset(token)
 
 
+def current_log_context(name: str) -> str | None:
+    """读取当前上下文绑定的关联字段，供需要向外部服务传递关联 ID 的调用使用。"""
+    return _log_context[name].get()
+
+
 class _LogContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         for name, var in _log_context.items():

@@ -173,6 +173,7 @@ _LOCAL_NO_NETWORK_ERROR_CODES = frozenset(
         "invalid_arguments",
         "invalid_auth",
         "invalid_endpoint",
+        "invalid_request_headers",
         "tool_definition_changed",
         "tool_not_allowed",
     }
@@ -459,6 +460,7 @@ class McpAgentRemoteExecutor:
         arguments: dict[str, Any],
         *,
         min_call_timeout_seconds: float | None = None,
+        request_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         permit: _McpCircuitPermit | None = None
         try:
@@ -496,6 +498,7 @@ class McpAgentRemoteExecutor:
                             if min_call_timeout_seconds is not None
                             else {}
                         ),
+                        **({"request_headers": request_headers} if request_headers else {}),
                     )
                 except McpClientError as error:
                     if error.code in _LOCAL_NO_NETWORK_ERROR_CODES:

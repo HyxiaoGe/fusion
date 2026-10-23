@@ -24,6 +24,7 @@ import httpx
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
+from app.core.logger import current_log_context
 from app.schemas.chat import GeneratedImageBlock
 from app.services.mcp.client import McpClientError
 from app.services.mcp.tool_contract import canonical_json_bytes
@@ -402,6 +403,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 self.remote_definition_sha256,
                 arguments,
                 min_call_timeout_seconds=MCP_CALL_TIMEOUT_SECONDS,
+                request_headers=self._attribution_headers(source_image_id),
             )
             outcome = parse_generate_image_payload(payload)
             content, mime_type = await self._download(outcome.image_path)
@@ -450,6 +452,17 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 "editable": outcome.source_url is not None,
             },
         )
+
+    def _attribution_headers(self, source_image_id: str | None) -> dict[str, str]:
+        """image-service 按服务密钥认定产品，这里只补用户、场景和 run 关联，供其统计。"""
+        headers = {
+            "X-Image-User": self.binding.user_id,
+            "X-Image-Scene": "image_edit" if source_image_id is not None else "chat_image",
+        }
+        run_id = current_log_context("run_id")
+        if run_id:
+            headers["X-Request-ID"] = run_id
+        return headers
 
     async def _download(self, image_path: str) -> tuple[bytes, str]:
         url = internal_image_url(self.binding.endpoint_url, image_path)
