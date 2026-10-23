@@ -392,7 +392,10 @@ interface LocalEvidencePartition<T extends LocalAnswerEvidenceItem = LocalAnswer
   candidateItems: T[];
 }
 
-/** 有本类的 Agent 证据时以它为准，否则按回答正文里的引用编号判定是否用到。 */
+/**
+ * 有本类的 Agent 证据时以它为准，否则按回答正文里的引用编号判定是否用到。
+ * 运行状态里的证据最多保留 12 条，被挤掉的条目没有对应证据，同样按正文编号判定。
+ */
 function partitionLocalEvidence<T extends LocalAnswerEvidenceItem>(
   items: T[],
   agentEvidence: AgentEvidenceItem[],
@@ -401,10 +404,14 @@ function partitionLocalEvidence<T extends LocalAnswerEvidenceItem>(
 ): LocalEvidencePartition<T> {
   const kindAgentEvidence = agentEvidence.filter((item) => item.kind === kind);
   if (kindAgentEvidence.length > 0) {
-    const usedItems = items.filter((item) => kindAgentEvidence.some((evidence) => (
-      matchesLocalEvidence(item, evidence)
-      && (evidence.usedByFinalAnswer || evidence.status === 'used')
-    )));
+    const citedIndexes = collectExplicitCitationIndexes(answerText);
+    const usedItems = items.filter((item) => {
+      const matched = kindAgentEvidence.filter((evidence) => matchesLocalEvidence(item, evidence));
+      if (matched.length === 0) {
+        return item.citationIndex != null && citedIndexes.has(item.citationIndex);
+      }
+      return matched.some((evidence) => evidence.usedByFinalAnswer || evidence.status === 'used');
+    });
     const usedKeys = new Set(usedItems.map(localEvidenceKey));
     const candidateItems = items.filter((item) => (
       !usedKeys.has(localEvidenceKey(item))
