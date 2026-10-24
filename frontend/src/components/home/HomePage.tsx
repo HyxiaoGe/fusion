@@ -93,7 +93,7 @@ const FALLBACK_INSPIRATIONS = [
 ];
 
 const SHOWCASE_PAGE_SIZE = 4;
-const SHOWCASE_ROTATE_INTERVAL = 12_000;
+const SHOWCASE_ROTATE_INTERVAL = 6_000;
 const INSPIRATION_FETCH_LIMIT = 50;
 const INSPIRATION_ROTATE_INTERVAL = 15_000;
 const CAROUSEL_FLIP_STAGGER = 80;
@@ -400,7 +400,7 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                     />
                     <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/60 to-transparent px-3 pb-2.5 pt-8 text-left">
                       <span className="text-xs font-medium text-white">{image.label}</span>
-                      <span className="flex items-center gap-1 text-[11px] text-white/85 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                      <span className="flex items-center gap-1 text-[11px] text-white/90 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
                         <Wand2 className="h-3 w-3" aria-hidden="true" />
                         做同款
                       </span>
