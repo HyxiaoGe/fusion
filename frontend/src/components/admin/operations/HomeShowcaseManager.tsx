@@ -122,7 +122,15 @@ export default function HomeShowcaseManager() {
     setDeletingId(id);
     try {
       await deleteShowcaseImage(id);
+      const sourceFileId = images?.find((image) => image.id === id)?.source_file_id;
       setImages((current) => (current ?? []).filter((image) => image.id !== id));
+      // 同一张生成图可能被加过多次，池里还剩同源的就保留标记
+      const stillInPool = (images ?? []).some((image) => image.id !== id && image.source_file_id === sourceFileId);
+      if (sourceFileId && !stillInPool) {
+        setCandidates((current) => current?.map((candidate) => (
+          candidate.file_id === sourceFileId ? { ...candidate, in_pool: false } : candidate
+        )) ?? null);
+      }
       setPendingDeleteId(null);
     } catch (error) {
       setLoadError(errorMessage(error, '删除失败'));
