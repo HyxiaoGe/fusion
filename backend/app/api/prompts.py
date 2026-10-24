@@ -84,24 +84,35 @@ def list_showcase_admin(
 @admin_router.get("/generated")
 async def list_generated_for_showcase(
     request: Request,
-    cursor: str | None = Query(default=None, max_length=64),
+    offset: int = Query(default=0, ge=0),
+    hide_in_pool: bool = Query(default=False),
     db: Session = Depends(get_db),
     admin: UserModel = Depends(get_current_admin_user),
     file_service: FileService = Depends(get_file_service),
 ):
-    """当前管理员自己生成过的图片，供挑进图片池；不列其他用户的图。"""
-    in_pool = {row.source_file_id for row in home_showcase_service.list_showcase_images(db) if row.source_file_id}
-    page, next_cursor = home_showcase_service.list_generated_images(db, str(admin.id), after_message_id=cursor)
+    """当前管理员自己生成过的图片，按编辑链分组，供挑进图片池；不列其他用户的图。"""
+    in_pool = frozenset(
+        row.source_file_id for row in home_showcase_service.list_showcase_images(db) if row.source_file_id
+    )
+    page, next_offset = home_showcase_service.list_generated_groups(
+        db, str(admin.id), exclude_file_ids=in_pool if hide_in_pool else frozenset(), offset=offset
+    )
+    versions = [image for group in page for image in group["versions"]]
     # 签发缩略图地址要逐张确认存储对象存在，并发进行
     thumbnail_urls = await asyncio.gather(
-        *(file_service.get_file_url(image["file_id"], str(admin.id), "thumbnail") for image in page)
+        *(file_service.get_file_url(image["file_id"], str(admin.id), "thumbnail") for image in versions)
     )
-    images = [
-        {**image, "thumbnail_url": url, "in_pool": image["file_id"] in in_pool}
-        for image, url in zip(page, thumbnail_urls, strict=True)
-        if url is not None
-    ]
-    return success(data={"images": images, "next_cursor": next_cursor}, request_id=request.state.request_id)
+    url_of = {image["file_id"]: url for image, url in zip(versions, thumbnail_urls, strict=True)}
+    groups = []
+    for group in page:
+        items = [
+            {**image, "thumbnail_url": url_of[image["file_id"]], "in_pool": image["file_id"] in in_pool}
+            for image in group["versions"]
+            if url_of[image["file_id"]] is not None
+        ]
+        if items:
+            groups.append({"key": group["key"], "versions": items})
+    return success(data={"groups": groups, "next_offset": next_offset}, request_id=request.state.request_id)
 
 
 @admin_router.post("/from-generated")
