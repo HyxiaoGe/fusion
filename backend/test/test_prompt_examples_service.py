@@ -13,6 +13,11 @@ class PromptExamplesServiceTests(unittest.TestCase):
     def test_default_pool_can_fill_home_starter_row(self):
         self.assertGreaterEqual(len(prompt_examples_service.DEFAULT_EXAMPLES), 9)
 
+    def test_default_pool_only_uses_catalog_categories_without_requirements(self):
+        for item in prompt_examples_service.DEFAULT_EXAMPLES:
+            capability = prompt_examples_service.CAPABILITY_BY_KEY[item["category"]]
+            self.assertIsNone(capability.requires, item)
+
     def test_balanced_sample_does_not_mutate_source_pool(self):
         examples = [
             {"category": "news", "question": "新闻问题一"},

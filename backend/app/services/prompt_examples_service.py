@@ -29,11 +29,11 @@ DEFAULT_EXAMPLES = [
     {"category": "code", "question": "写一个 Python 快速排序函数"},
     {"category": "code", "question": "如何用 Docker 部署 FastAPI 服务"},
     {"category": "code", "question": "解释 React useEffect 的执行时机"},
-    {"category": "writing", "question": "写一篇关于 AI 发展的短文"},
-    {"category": "writing", "question": "帮我润色这段产品介绍"},
-    {"category": "writing", "question": "写一封正式的商务邮件"},
     {"category": "knowledge", "question": "解释一下量子计算的基本原理"},
+    {"category": "knowledge", "question": "为什么秋天的天空特别蓝"},
     {"category": "research", "question": "对比 PostgreSQL 和 MongoDB 适用场景"},
+    {"category": "research", "question": "国产大模型现在发展得怎么样"},
+    {"category": "document", "question": "帮我写一份一个月的健身计划"},
     {"category": "news", "question": "最近 AI 圈有什么大新闻"},
 ]
 
