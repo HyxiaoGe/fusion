@@ -47,6 +47,26 @@ describe('ImageViewer', () => {
     expect(closeButton.closest('[aria-label="图片预览加载中"]')).toBeNull();
   });
 
+  it('直接给地址时换图不经过加载占位，图片元素保留', async () => {
+    const { rerender } = render(<ImageViewer imageUrl="https://example.com/a.webp" alt="甲" onClose={vi.fn()} />);
+    const first = await screen.findByRole('img', { name: '甲' });
+
+    rerender(<ImageViewer imageUrl="https://example.com/b.webp" alt="乙" onClose={vi.fn()} />);
+
+    expect(screen.queryByLabelText('图片预览加载中')).toBeNull();
+    const second = screen.getByRole('img', { name: '乙' });
+    expect(second).toBe(first);
+    expect(second).toHaveAttribute('src', 'https://example.com/b.webp');
+  });
+
+  it('直接给的地址加载失败时显示错误', async () => {
+    render(<ImageViewer imageUrl="https://example.com/broken.webp" alt="坏图" onClose={vi.fn()} />);
+
+    fireEvent.error(await screen.findByRole('img', { name: '坏图' }));
+
+    expect(await screen.findByText('图片加载失败')).toBeInTheDocument();
+  });
+
   it('点击图片外的预览空白区域会关闭查看器', async () => {
     const onClose = vi.fn();
     getFileUrlMock.mockResolvedValueOnce('/api/files/file-1/content?variant=processed&token=stable');
