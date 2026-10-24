@@ -241,7 +241,8 @@ export default function HomeShowcaseManager() {
                 <AdminEmpty>{hideInPool ? '没有不在图片池里的生成图' : '你还没有生成过图片'}</AdminEmpty>
               ) : null}
               {groups !== null && (visibleGroups.length > 0 || candidatesOffset !== null) ? (
-                <ul aria-label="我的生成图" className="grid max-h-[420px] grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-5 lg:grid-cols-7">
+                // 展开的版本行占整行；dense 让同一行剩下的卡片回填到它前面，不留空位
+                <ul aria-label="我的生成图" className="grid max-h-[420px] grid-flow-row-dense grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-5 lg:grid-cols-7">
                   {visibleGroups.map((group) => {
                     const expanded = group.key === expandedGroupKey;
                     return (
