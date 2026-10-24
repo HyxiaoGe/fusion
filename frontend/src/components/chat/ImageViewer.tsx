@@ -94,6 +94,15 @@ const ImageViewer: React.FC<ImageViewerProps> = ({
   const loadCandidate = useCallback(async (startIndex: number, bypassCache = false) => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
+    if (imageUrl && startIndex === 0) {
+      // 直接给了地址就直接展示，不经过加载占位：左右切换时图片元素保留，不会先闪一下占位再重建
+      setActiveCandidateIndex(0);
+      activeCandidateRef.current = { fromCache: false, index: 0 };
+      setFullImageUrl(imageUrl);
+      setError(false);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError(false);
     setFullImageUrl(null);
