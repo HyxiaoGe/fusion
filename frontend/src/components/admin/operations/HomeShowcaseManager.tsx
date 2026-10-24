@@ -11,14 +11,18 @@ import {
 } from '@/components/settings/SettingsControls';
 import { Label } from '@/components/ui/label';
 import {
+  addShowcaseFromGenerated,
   deleteShowcaseImage,
   fetchAdminShowcaseImages,
+  fetchGeneratedShowcaseCandidates,
   uploadShowcaseImage,
+  type GeneratedShowcaseCandidate,
   type ShowcaseImage,
 } from '@/lib/api/prompts';
+import { cn } from '@/lib/utils';
 
 const LABEL_MAX = 12;
-const PROMPT_MAX = 500;
+const PROMPT_MAX = 1000;
 const POSITION_OPTIONS: Array<{ value: '' | 'top' | 'bottom'; label: string }> = [
   { value: '', label: '居中' },
   { value: 'top', label: '保留顶部' },
@@ -29,10 +33,15 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-/** 首页生图示例卡片的图片池：首页按添加顺序每次展示 4 张，点击把提示词填入输入框。 */
+/** 首页生图示例卡片的图片池：首页按添加顺序每次展示 4 张，点击把提示词填入输入框。
+ * 图片可以上传，也可以从当前管理员自己生成过的图里挑（默认沿用生成时的提示词）。 */
 export default function HomeShowcaseManager() {
   const [images, setImages] = useState<ShowcaseImage[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [source, setSource] = useState<'generated' | 'upload'>('generated');
+  const [candidates, setCandidates] = useState<GeneratedShowcaseCandidate[] | null>(null);
+  const [candidatesError, setCandidatesError] = useState<string | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [label, setLabel] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -53,26 +62,47 @@ export default function HomeShowcaseManager() {
     }
   }, []);
 
+  const loadCandidates = useCallback(async () => {
+    setCandidatesError(null);
+    try {
+      const data = await fetchGeneratedShowcaseCandidates();
+      setCandidates(data.images);
+    } catch (error) {
+      setCandidatesError(errorMessage(error, '生成图列表加载失败'));
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadCandidates();
+  }, [load, loadCandidates]);
 
-  const canSubmit = Boolean(file) && label.trim().length > 0 && prompt.trim().length > 0 && !submitting;
+  const selectCandidate = (candidate: GeneratedShowcaseCandidate) => {
+    setSelectedFileId(candidate.file_id);
+    setPrompt(candidate.prompt.slice(0, PROMPT_MAX));
+  };
+
+  const hasImage = source === 'upload' ? Boolean(file) : Boolean(selectedFileId);
+  const canSubmit = hasImage && label.trim().length > 0 && prompt.trim().length > 0 && !submitting;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!file || !canSubmit) return;
+    if (!canSubmit) return;
     setSubmitting(true);
     setFormError(null);
+    const fields = { label: label.trim(), prompt: prompt.trim(), objectPosition: position || null };
     try {
-      const created = await uploadShowcaseImage({
-        file,
-        label: label.trim(),
-        prompt: prompt.trim(),
-        objectPosition: position || null,
-      });
+      const created = source === 'upload' && file
+        ? await uploadShowcaseImage({ file, ...fields })
+        : await addShowcaseFromGenerated({ fileId: selectedFileId ?? '', ...fields });
       setImages((current) => [...(current ?? []), created]);
+      if (created.source_file_id) {
+        setCandidates((current) => current?.map((candidate) => (
+          candidate.file_id === created.source_file_id ? { ...candidate, in_pool: true } : candidate
+        )) ?? null);
+      }
       setFile(null);
+      setSelectedFileId(null);
       setLabel('');
       setPrompt('');
       setPosition('');
@@ -109,17 +139,67 @@ export default function HomeShowcaseManager() {
       />
 
       <form onSubmit={(event) => void handleSubmit(event)} className="grid gap-4 rounded-xl border border-border/60 p-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="showcase-file">图片</Label>
-          <Input
-            id="showcase-file"
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          />
-          <p className="text-xs text-muted-foreground">卡片按 4:5 裁切，竖图效果最好；上传后自动压缩成 WebP。</p>
-        </div>
+        <fieldset className="space-y-2 sm:col-span-2">
+          <legend className="text-sm font-medium">图片来源</legend>
+          <div className="flex gap-4 text-sm">
+            <label className="flex items-center gap-1.5">
+              <input type="radio" name="showcase-source" checked={source === 'generated'} onChange={() => setSource('generated')} />
+              从我的生成图挑选
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" name="showcase-source" checked={source === 'upload'} onChange={() => setSource('upload')} />
+              上传图片
+            </label>
+          </div>
+          {source === 'generated' ? (
+            <div>
+              {candidatesError ? <AdminError message={candidatesError} onRetry={() => void loadCandidates()} /> : null}
+              {candidates === null && !candidatesError ? <AdminLoading /> : null}
+              {candidates?.length === 0 ? <AdminEmpty>你还没有生成过图片</AdminEmpty> : null}
+              {candidates && candidates.length > 0 ? (
+                <ul aria-label="我的生成图" className="grid max-h-[420px] grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-5 lg:grid-cols-7">
+                  {candidates.map((candidate) => {
+                    const selected = candidate.file_id === selectedFileId;
+                    return (
+                      <li key={candidate.file_id}>
+                        <button
+                          type="button"
+                          aria-pressed={selected}
+                          aria-label={candidate.prompt.slice(0, 40) || '生成图'}
+                          title={candidate.prompt}
+                          onClick={() => selectCandidate(candidate)}
+                          className={cn(
+                            'relative block aspect-[4/5] w-full overflow-hidden rounded-lg border bg-muted',
+                            selected ? 'border-primary ring-2 ring-primary' : 'border-border/60',
+                          )}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element -- 签名地址的缩略图，原样展示 */}
+                          <img src={candidate.thumbnail_url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          {candidate.in_pool ? (
+                            <span className="absolute inset-x-0 bottom-0 bg-black/60 py-0.5 text-center text-[11px] text-white">已在图片池</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+              <p className="mt-1.5 text-xs text-muted-foreground">只列你自己生成过的图；选中后提示词默认用生成时的原文，可以改。</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5 sm:w-1/2">
+              <Label htmlFor="showcase-file">图片</Label>
+              <Input
+                id="showcase-file"
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">卡片按 4:5 裁切，竖图效果最好；上传后自动压缩成 WebP。</p>
+            </div>
+          )}
+        </fieldset>
         <div className="space-y-1.5">
           <Label htmlFor="showcase-label">标签</Label>
           <Input

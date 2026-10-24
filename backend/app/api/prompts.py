@@ -1,17 +1,26 @@
 # app/api/prompts.py
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_audit_service, get_current_admin_user
+from app.api.deps import get_admin_audit_service, get_current_admin_user, get_file_service
 from app.db.database import get_db
 from app.db.models import User as UserModel
 from app.schemas.response import success
 from app.services import home_showcase_service
 from app.services.admin_audit_service import AdminAuditService
+from app.services.file_service import FileService
 from app.services.prompt_examples_service import get_prompt_examples
 
 router = APIRouter()
 admin_router = APIRouter()
+
+
+class ShowcaseFromGeneratedRequest(BaseModel):
+    file_id: str = Field(min_length=1, max_length=64)
+    label: str
+    prompt: str
+    object_position: str | None = None
 
 
 @router.get("/examples")
@@ -58,6 +67,57 @@ def list_showcase_admin(
         data={"images": [home_showcase_service.serialize_showcase_image(row) for row in rows]},
         request_id=request.state.request_id,
     )
+
+
+@admin_router.get("/generated")
+async def list_generated_for_showcase(
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: UserModel = Depends(get_current_admin_user),
+    file_service: FileService = Depends(get_file_service),
+):
+    """当前管理员自己生成过的图片，供挑进图片池；不列其他用户的图。"""
+    in_pool = {row.source_file_id for row in home_showcase_service.list_showcase_images(db) if row.source_file_id}
+    images = []
+    for image in home_showcase_service.list_generated_images(db, str(admin.id)):
+        thumbnail_url = await file_service.get_file_url(image["file_id"], str(admin.id), "thumbnail")
+        if thumbnail_url is None:
+            continue
+        images.append({**image, "thumbnail_url": thumbnail_url, "in_pool": image["file_id"] in in_pool})
+    return success(data={"images": images}, request_id=request.state.request_id)
+
+
+@admin_router.post("/from-generated")
+async def add_showcase_from_generated(
+    payload: ShowcaseFromGeneratedRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: UserModel = Depends(get_current_admin_user),
+    file_service: FileService = Depends(get_file_service),
+    audit_service: AdminAuditService = Depends(get_admin_audit_service),
+):
+    # 按当前管理员取文件，别人的图取不到
+    file_content = await file_service.get_file_content(payload.file_id, str(admin.id), "processed")
+    if file_content is None:
+        raise HTTPException(status_code=404, detail="图片不存在或无权访问")
+    row = await home_showcase_service.add_showcase_image(
+        db,
+        content=file_content[0],
+        label=payload.label,
+        prompt=payload.prompt,
+        object_position=payload.object_position,
+        created_by=str(admin.id),
+        source_file_id=payload.file_id,
+    )
+    audit_service._record(
+        admin=admin,
+        action="admin.home_showcase.create",
+        resource_type="home_showcase_image",
+        resource_id=row.id,
+        request_id=request.state.request_id,
+        metadata={"label": row.label, "source_file_id": payload.file_id},
+    )
+    return success(data=home_showcase_service.serialize_showcase_image(row), request_id=request.state.request_id)
 
 
 @admin_router.post("")

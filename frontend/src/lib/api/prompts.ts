@@ -29,6 +29,8 @@ export interface ShowcaseImage {
   prompt: string;
   /** 卡片按 4:5 裁切；主体不在中间的图指定保留区域 */
   object_position: 'top' | 'bottom' | null;
+  /** 从管理员生成图挑来时的原文件 */
+  source_file_id: string | null;
   image_url: string;
   width: number;
   height: number;
@@ -61,6 +63,39 @@ export async function uploadShowcaseImage(input: {
   return apiRequest<ShowcaseImage>(`${API_BASE_URL}/api/admin/home-showcase`, {
     method: 'POST',
     body: formData,
+  });
+}
+
+/** 当前管理员自己生成过的图，供挑进图片池 */
+export interface GeneratedShowcaseCandidate {
+  file_id: string;
+  /** 生成这张图时的提示词 */
+  prompt: string;
+  width: number | null;
+  height: number | null;
+  thumbnail_url: string;
+  in_pool: boolean;
+}
+
+export async function fetchGeneratedShowcaseCandidates(): Promise<{ images: GeneratedShowcaseCandidate[] }> {
+  return apiRequest<{ images: GeneratedShowcaseCandidate[] }>(`${API_BASE_URL}/api/admin/home-showcase/generated`);
+}
+
+export async function addShowcaseFromGenerated(input: {
+  fileId: string;
+  label: string;
+  prompt: string;
+  objectPosition: 'top' | 'bottom' | null;
+}): Promise<ShowcaseImage> {
+  return apiRequest<ShowcaseImage>(`${API_BASE_URL}/api/admin/home-showcase/from-generated`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      file_id: input.fileId,
+      label: input.label,
+      prompt: input.prompt,
+      object_position: input.objectPosition,
+    }),
   });
 }
 
