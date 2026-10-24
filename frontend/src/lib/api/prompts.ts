@@ -81,14 +81,27 @@ export interface GeneratedShowcaseCandidate {
   in_pool: boolean;
 }
 
-export interface GeneratedShowcaseCandidatesPage {
-  images: GeneratedShowcaseCandidate[];
-  /** 下一页的起点，没有更多时为 null */
-  next_cursor: string | null;
+/** 一张图和由它编辑、重画出来的各个版本，新的在前 */
+export interface GeneratedShowcaseGroup {
+  /** 链上最早那张图的 file_id，不随新版本或筛选变化 */
+  key: string;
+  versions: GeneratedShowcaseCandidate[];
 }
 
-export async function fetchGeneratedShowcaseCandidates(cursor?: string | null): Promise<GeneratedShowcaseCandidatesPage> {
-  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+export interface GeneratedShowcaseCandidatesPage {
+  groups: GeneratedShowcaseGroup[];
+  /** 下一页的起点，没有更多时为 null */
+  next_offset: number | null;
+}
+
+export async function fetchGeneratedShowcaseCandidates(options: {
+  offset?: number;
+  hideInPool?: boolean;
+} = {}): Promise<GeneratedShowcaseCandidatesPage> {
+  const params = new URLSearchParams();
+  if (options.offset) params.set('offset', String(options.offset));
+  if (options.hideInPool) params.set('hide_in_pool', 'true');
+  const query = params.toString() ? `?${params.toString()}` : '';
   return apiRequest<GeneratedShowcaseCandidatesPage>(`${API_BASE_URL}/api/admin/home-showcase/generated${query}`);
 }
 

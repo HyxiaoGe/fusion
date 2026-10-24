@@ -12,12 +12,12 @@ import io
 import uuid
 
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import Text, and_, cast, or_
+from sqlalchemy import Text, cast
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logger import app_logger as logger
-from app.db.models import Conversation, HomeShowcaseImage, Message
+from app.db.models import Conversation, HomeShowcaseImage, Message, ToolCallLog
 from app.services.storage import get_storage, get_storage_for_backend
 
 MAX_LABEL_CHARS = 12
@@ -31,8 +31,8 @@ _WEBP_QUALITY = 82
 _FULL_LONG_SIDE = 1600
 _FULL_WEBP_QUALITY = 85
 _STORAGE_PREFIX = "home-showcase"
-# 挑选列表每页看这么多条带生成图的回复（通常一条一张图），往后翻页继续
-GENERATED_PAGE_MESSAGES = 20
+# 挑选列表每页的组数（一组是一张图和它的各个编辑版本）
+GENERATED_PAGE_GROUPS = 20
 
 
 class ShowcaseImageError(ValueError):
@@ -146,45 +146,45 @@ async def add_showcase_image(
     return row
 
 
-def list_generated_images(
+def list_generated_groups(
     db: Session,
     user_id: str,
     *,
-    after_message_id: str | None = None,
-    page_messages: int = GENERATED_PAGE_MESSAGES,
-) -> tuple[list[dict], str | None]:
-    """该用户生成过的图片（新的在前），带生成时的名称和提示词，供挑进图片池。
+    exclude_file_ids: frozenset[str] = frozenset(),
+    offset: int = 0,
+    page_size: int = GENERATED_PAGE_GROUPS,
+) -> tuple[list[dict], int | None]:
+    """该用户生成过的图片，按编辑链分组，供挑进图片池。
 
-    按回复分页：``after_message_id`` 是上一页最后一条回复，返回本页图片和下一页的起点（没有更多时为 None）。
+    同一组是一张图和由它编辑、重画出来的各个版本，依据生图时的工具调用记录（编辑带 source_image_id，
+    重画带 regenerate，归到同会话里的上一张图）；不按画面相似度猜。每组版本新的在前，组按最新版本时间新的在前。
+    ``exclude_file_ids`` 里的版本不列出（如已在图片池），整组都被排除时这组不出现。按组分页，返回本页和下一页的偏移；
+    每组是 ``{"key": 链上最早那张图的 file_id, "versions": [...]}``，key 不随排除和新版本变化。
     """
-    query = (
-        db.query(Message.id, Message.content)
+    rows = (
+        db.query(Message.conversation_id, Message.content)
         .join(Conversation, Conversation.id == Message.conversation_id)
         .filter(
             Conversation.user_id == user_id,
             Message.role == "assistant",
             cast(Message.content, Text).like('%"generated_image"%'),
         )
+        .order_by(Message.created_at.asc(), Message.id.asc())
+        .all()
     )
-    if after_message_id is not None:
-        cursor_at = db.query(Message.created_at).filter(Message.id == after_message_id).scalar_subquery()
-        query = query.filter(
-            or_(
-                Message.created_at < cursor_at,
-                and_(Message.created_at == cursor_at, Message.id < after_message_id),
-            )
-        )
-    rows = query.order_by(Message.created_at.desc(), Message.id.desc()).limit(page_messages).all()
     images: list[dict] = []
-    seen: set[str] = set()
-    for _message_id, content in rows:
+    log_ids: dict[str, str] = {}
+    conversation_of: dict[str, str] = {}
+    for conversation_id, content in rows:
         for block in content if isinstance(content, list) else []:
             if not isinstance(block, dict) or block.get("type") != "generated_image":
                 continue
             file_id = block.get("file_id")
-            if not isinstance(file_id, str) or not file_id or file_id in seen:
+            if not isinstance(file_id, str) or not file_id or file_id in conversation_of:
                 continue
-            seen.add(file_id)
+            conversation_of[file_id] = conversation_id
+            if isinstance(block.get("tool_call_log_id"), str) and block["tool_call_log_id"]:
+                log_ids[file_id] = block["tool_call_log_id"]
             images.append(
                 {
                     "file_id": file_id,
@@ -194,8 +194,54 @@ def list_generated_images(
                     "height": block.get("height"),
                 }
             )
-    next_cursor = rows[-1][0] if len(rows) == page_messages else None
-    return images, next_cursor
+
+    params_by_log = (
+        dict(
+            db.query(ToolCallLog.id, ToolCallLog.input_params)
+            .filter(ToolCallLog.user_id == user_id, ToolCallLog.id.in_(list(log_ids.values())))
+            .all()
+        )
+        if log_ids
+        else {}
+    )
+    parent: dict[str, str] = {image["file_id"]: image["file_id"] for image in images}
+
+    def root(file_id: str) -> str:
+        while parent[file_id] != file_id:
+            parent[file_id] = parent[parent[file_id]]
+            file_id = parent[file_id]
+        return file_id
+
+    last_in_conversation: dict[str, str] = {}
+    for image in images:
+        file_id = image["file_id"]
+        params = params_by_log.get(log_ids.get(file_id, ""))
+        params = params if isinstance(params, dict) else {}
+        source = params.get("source_image_id")
+        if isinstance(source, str) and source in parent:
+            parent[root(file_id)] = root(source)
+        elif params.get("regenerate") is True and conversation_of[file_id] in last_in_conversation:
+            parent[root(file_id)] = root(last_in_conversation[conversation_of[file_id]])
+        last_in_conversation[conversation_of[file_id]] = file_id
+
+    groups: dict[str, list[dict]] = {}
+    for image in images:
+        groups.setdefault(root(image["file_id"]), []).append(image)
+    # images 按时间正序：组内倒过来新的在前，组按最新版本在时间线上的位置倒序
+    timeline = {image["file_id"]: index for index, image in enumerate(images)}
+    ordered = sorted(
+        ({"key": key, "versions": list(reversed(versions))} for key, versions in groups.items()),
+        key=lambda group: timeline[group["versions"][0]["file_id"]],
+        reverse=True,
+    )
+    visible = []
+    for group in ordered:
+        kept = [image for image in group["versions"] if image["file_id"] not in exclude_file_ids]
+        if kept:
+            visible.append({"key": group["key"], "versions": kept})
+    page = visible[offset : offset + page_size]
+    next_offset = offset + page_size if offset + page_size < len(visible) else None
+    return page, next_offset
 
 
 async def delete_showcase_image(db: Session, image_id: str) -> bool:
