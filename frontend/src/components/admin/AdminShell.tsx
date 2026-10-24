@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, ArrowLeft, Boxes, Eye, MessagesSquare, Network, Route, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowLeft, Boxes, Eye, Images, MessagesSquare, Network, Route, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react';
 import { adminPaths } from '@/lib/admin/adminRoutes';
 import styles from './AdminSurface.module.css';
 
@@ -35,6 +35,12 @@ const ADMIN_NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
     items: [
       { href: adminPaths.mcp, label: 'MCP 服务', icon: Network },
       { href: adminPaths.usage, label: '服务用量', icon: Activity },
+    ],
+  },
+  {
+    label: '运营',
+    items: [
+      { href: adminPaths.homeShowcase, label: '首页示例图', icon: Images },
     ],
   },
 ];

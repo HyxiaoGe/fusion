@@ -3,7 +3,9 @@ import Image from 'next/image';
 import { Sparkles, Wand2 } from 'lucide-react';
 import {
   fetchPromptExamples,
+  fetchShowcaseImages,
   type PromptExample,
+  type ShowcaseImage,
 } from '@/lib/api/prompts';
 import type { Entitlements } from '@/lib/api/user';
 import { preloadChatMessageList } from '@/components/lazy/preloaders';
@@ -11,70 +13,6 @@ import { useRenderProbe } from '@/lib/debug/perfProbe';
 import { cn } from '@/lib/utils';
 import glassSurface from '@/components/ui/GlassSurface.module.css';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
-
-interface ShowcaseImage {
-  id: string;
-  src: string;
-  /** 卡片角标：这张图代表的风格或能力 */
-  label: string;
-  /** 点击后填入输入框的提示词，用户可改了再发 */
-  prompt: string;
-  /** 卡片按 4:5 裁切；主体不在中间的图（如顶部标题）指定保留区域 */
-  objectPosition?: string;
-}
-
-// 从过往生成的图里挑的代表作，覆盖插画、海报、带中文字、头像、写实摄影几类；不放真实品牌和 IP。
-const SHOWCASE_IMAGES: ShowcaseImage[] = [
-  {
-    id: 'watercolor-cat',
-    src: '/assets/home-showcase/watercolor-cat.webp',
-    label: '水彩插画',
-    prompt: '画一只戴红白格纹围巾的橘猫坐在雪地里，水彩风格，温馨治愈',
-  },
-  {
-    id: 'cafe-opening-poster',
-    src: '/assets/home-showcase/cafe-opening-poster.webp',
-    label: '中文海报',
-    prompt: '帮我做一张竖版咖啡馆开业海报，暖色调，主标题「新店开业」，副标题「香气与暖意，正式营业」',
-    objectPosition: 'top',
-  },
-  {
-    id: 'cyberpunk-rain',
-    src: '/assets/home-showcase/cyberpunk-rain.webp',
-    label: '电影感海报',
-    prompt: '画一张竖版赛博朋克雨夜街景海报：霓虹招牌倒映在湿漉漉的街面上，一个穿风衣的人背对镜头走在雨中',
-  },
-  {
-    id: 'home-cooking',
-    src: '/assets/home-showcase/home-cooking.webp',
-    label: '美食摄影',
-    prompt: '生成一张家常菜俯拍照：红烧肉、番茄炒蛋、清炒时蔬和一碗鸡汤，热气腾腾，写实摄影风格',
-  },
-  {
-    id: 'astronaut-shiba',
-    src: '/assets/home-showcase/astronaut-shiba.webp',
-    label: '卡通头像',
-    prompt: '画一个柴犬宇航员头像，戴透明头盔，背景是星空和地球，卡通风格',
-  },
-  {
-    id: 'paris-bakery',
-    src: '/assets/home-showcase/paris-bakery.webp',
-    label: '街景摄影',
-    prompt: '生成一张巴黎街头面包店的照片：红色复古自行车停在门口，车篮里插着法棍，阳光斜照',
-  },
-  {
-    id: 'egret-watercolor',
-    src: '/assets/home-showcase/egret-watercolor.webp',
-    label: '水彩风景',
-    prompt: '画一只清晨湖边的白鹭，薄雾和芦苇，水彩风格，留白多一些',
-  },
-  {
-    id: 'lighthouse-sunset',
-    src: '/assets/home-showcase/lighthouse-sunset.webp',
-    label: '风光摄影',
-    prompt: '生成一张海边灯塔的夕阳照片：海浪拍打礁石，天空是金橙色和粉紫色',
-  },
-];
 
 // 后端灵感目录仍是真源；这组内容只负责保证 SSR 首帧有真实可用的入口，避免强刷后整块内容后插入。
 const FALLBACK_INSPIRATIONS = [
@@ -172,9 +110,10 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
   useRenderProbe('HomePage');
   // 生图要等权益确认开通才展示，避免游客或未开通的用户点了才发现用不了。
   const canGenerateImages = features?.image_generation === true;
+  const [showcasePool, setShowcasePool] = useState<ShowcaseImage[]>([]);
   const showcaseImages = useMemo(
-    () => (canGenerateImages ? SHOWCASE_IMAGES : []),
-    [canGenerateImages],
+    () => (canGenerateImages ? showcasePool : []),
+    [canGenerateImages, showcasePool],
   );
   const [showcaseStartIndex, setShowcaseStartIndex] = useState(0);
   const [isShowcaseFlipped, setIsShowcaseFlipped] = useState(false);
@@ -238,6 +177,21 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
       flipTimeoutsRef.current = [];
     };
   }, []);
+
+  useEffect(() => {
+    if (!canGenerateImages) return undefined;
+    let cancelled = false;
+    void fetchShowcaseImages()
+      .then((data) => {
+        if (!cancelled) setShowcasePool(data.images);
+      })
+      .catch(() => {
+        // 示例图取不到时不展示这一块，首页其他内容照常
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canGenerateImages]);
 
   useEffect(() => {
     if (inspirationPool.length === 0) return undefined;
@@ -387,11 +341,12 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                     className="group relative block aspect-[4/5] w-full overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-fdv2-xs transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none"
                   >
                     <Image
-                      src={image.src}
+                      src={image.image_url}
                       alt={image.prompt}
                       fill
+                      unoptimized
                       sizes="(min-width: 640px) 184px, 45vw"
-                      style={image.objectPosition ? { objectPosition: image.objectPosition } : undefined}
+                      style={image.object_position ? { objectPosition: image.object_position } : undefined}
                       className="object-cover transition-transform duration-500 group-hover:scale-[1.03] motion-reduce:transition-none"
                     />
                     <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/60 to-transparent px-3 pb-2.5 pt-8 text-left">

@@ -693,6 +693,24 @@ class PromptExample(Base):
     expires_at = Column(DateTime, nullable=True)
 
 
+class HomeShowcaseImage(Base):
+    """首页生图示例卡片：管理员挑选的图片和「做同款」提示词，首页按添加顺序轮换展示。"""
+
+    __tablename__ = "home_showcase_images"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    label = Column(String(20), nullable=False)
+    prompt = Column(Text, nullable=False)
+    # 卡片按 4:5 裁切；主体不在中间的图指定保留区域（top / bottom），默认居中
+    object_position = Column(String(16), nullable=True)
+    storage_key = Column(String, nullable=False)
+    storage_backend = Column(String(32), nullable=False)
+    width = Column(Integer, nullable=False)
+    height = Column(Integer, nullable=False)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+
 class McpServer(Base):
     """管理员维护的远程 MCP 服务配置，不保存凭证原文。"""
 

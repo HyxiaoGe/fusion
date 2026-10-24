@@ -1,10 +1,17 @@
 # app/api/prompts.py
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_admin_audit_service, get_current_admin_user
+from app.db.database import get_db
+from app.db.models import User as UserModel
 from app.schemas.response import success
+from app.services import home_showcase_service
+from app.services.admin_audit_service import AdminAuditService
 from app.services.prompt_examples_service import get_prompt_examples
 
 router = APIRouter()
+admin_router = APIRouter()
 
 
 @router.get("/examples")
@@ -15,3 +22,90 @@ async def get_examples(
     """获取动态示例问题（无需鉴权，供首页展示）"""
     data = await get_prompt_examples(limit)
     return success(data=data, request_id=request.state.request_id)
+
+
+@router.get("/showcase")
+def get_showcase(request: Request, db: Session = Depends(get_db)):
+    """首页生图示例卡片（无需鉴权，前端按用户是否开通生图决定展示）"""
+    rows = home_showcase_service.list_showcase_images(db)
+    return success(
+        data={"images": [home_showcase_service.serialize_showcase_image(row) for row in rows]},
+        request_id=request.state.request_id,
+    )
+
+
+@router.get("/showcase/{image_id}/image")
+async def get_showcase_image(image_id: str, db: Session = Depends(get_db)):
+    content = await home_showcase_service.read_showcase_image(db, image_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    # 每张图的 id 唯一且内容不再变化，可以长期缓存
+    return Response(
+        content=content,
+        media_type="image/webp",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@admin_router.get("")
+def list_showcase_admin(
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin_user),
+):
+    rows = home_showcase_service.list_showcase_images(db)
+    return success(
+        data={"images": [home_showcase_service.serialize_showcase_image(row) for row in rows]},
+        request_id=request.state.request_id,
+    )
+
+
+@admin_router.post("")
+async def add_showcase_admin(
+    request: Request,
+    file: UploadFile = File(...),
+    label: str = Form(...),
+    prompt: str = Form(...),
+    object_position: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    admin: UserModel = Depends(get_current_admin_user),
+    audit_service: AdminAuditService = Depends(get_admin_audit_service),
+):
+    content = await file.read()
+    row = await home_showcase_service.add_showcase_image(
+        db,
+        content=content,
+        label=label,
+        prompt=prompt,
+        object_position=object_position,
+        created_by=str(admin.id),
+    )
+    audit_service._record(
+        admin=admin,
+        action="admin.home_showcase.create",
+        resource_type="home_showcase_image",
+        resource_id=row.id,
+        request_id=request.state.request_id,
+        metadata={"label": row.label},
+    )
+    return success(data=home_showcase_service.serialize_showcase_image(row), request_id=request.state.request_id)
+
+
+@admin_router.delete("/{image_id}")
+async def delete_showcase_admin(
+    image_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: UserModel = Depends(get_current_admin_user),
+    audit_service: AdminAuditService = Depends(get_admin_audit_service),
+):
+    if not await home_showcase_service.delete_showcase_image(db, image_id):
+        raise HTTPException(status_code=404, detail="图片不存在")
+    audit_service._record(
+        admin=admin,
+        action="admin.home_showcase.delete",
+        resource_type="home_showcase_image",
+        resource_id=image_id,
+        request_id=request.state.request_id,
+    )
+    return success(data={"id": image_id}, request_id=request.state.request_id)

@@ -1,13 +1,15 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchPromptExamplesMock, preloadChatMessageListMock } = vi.hoisted(() => ({
+const { fetchPromptExamplesMock, fetchShowcaseImagesMock, preloadChatMessageListMock } = vi.hoisted(() => ({
   fetchPromptExamplesMock: vi.fn(),
+  fetchShowcaseImagesMock: vi.fn(),
   preloadChatMessageListMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api/prompts', () => ({
   fetchPromptExamples: fetchPromptExamplesMock,
+  fetchShowcaseImages: fetchShowcaseImagesMock,
 }));
 
 vi.mock('@/components/lazy/preloaders', () => ({
@@ -16,7 +18,7 @@ vi.mock('@/components/lazy/preloaders', () => ({
 
 vi.mock('next/image', () => ({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  default: function MockNextImage({ alt = '', fill, sizes, ...props }: any) {
+  default: function MockNextImage({ alt = '', fill, sizes, unoptimized, ...props }: any) {
     // 测试环境只需要普通 img 承载 next/image props
     // eslint-disable-next-line @next/next/no-img-element
     return <img alt={alt} {...props} />;
@@ -39,6 +41,24 @@ const GUEST_FEATURES = Object.fromEntries(
   Object.keys(REGISTERED_FEATURES).map((key) => [key, false]),
 ) as typeof REGISTERED_FEATURES;
 
+const SHOWCASE_IMAGES = [
+  { label: '水彩插画', prompt: '画一只水彩风格的橘猫' },
+  { label: '中文海报', prompt: '设计一张咖啡店开业海报' },
+  { label: '赛博朋克', prompt: '画一条雨夜的赛博朋克街道' },
+  { label: '美食摄影', prompt: '拍一桌家常菜' },
+  { label: '萌宠头像', prompt: '画一只宇航员柴犬头像' },
+  { label: '街景插画', prompt: '画一家巴黎面包店' },
+  { label: '国风水墨', prompt: '画一只水墨白鹭' },
+  { label: '风景摄影', prompt: '拍一张海边灯塔的夕阳' },
+].map((image, index) => ({
+  ...image,
+  id: `showcase-${index}`,
+  object_position: null,
+  image_url: `/api/prompts/showcase/showcase-${index}/image`,
+  width: 480,
+  height: 600,
+}));
+
 function showcaseLabels(): string[] {
   return screen.getAllByTestId('showcase-card').map(
     (card) => within(card).getByRole('button').getAttribute('aria-label') ?? '',
@@ -49,6 +69,8 @@ describe('HomePage', () => {
   beforeEach(() => {
     preloadChatMessageListMock.mockReset();
     fetchPromptExamplesMock.mockReset();
+    fetchShowcaseImagesMock.mockReset();
+    fetchShowcaseImagesMock.mockResolvedValue({ images: SHOWCASE_IMAGES });
     fetchPromptExamplesMock.mockResolvedValue({
       examples: [
         { question: '今天有哪些值得关注的 AI 进展？', category: 'tech' },
@@ -72,26 +94,31 @@ describe('HomePage', () => {
     });
   });
 
-  it('点击生图卡片只填入同款提示词，不直接创建会话', () => {
+  it('点击生图卡片只填入同款提示词，不直接创建会话', async () => {
     const onSelectPrompt = vi.fn();
 
     render(<HomePage onSelectPrompt={onSelectPrompt} features={REGISTERED_FEATURES} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '做同款：水彩插画' }));
+    fireEvent.click(await screen.findByRole('button', { name: '做同款：水彩插画' }));
 
     expect(onSelectPrompt).toHaveBeenCalledTimes(1);
     expect(onSelectPrompt).toHaveBeenCalledWith(expect.stringContaining('橘猫'));
   });
 
-  it('生图卡片只在确认开通生图后展示', () => {
+  it('生图卡片只在确认开通生图后请求并展示', async () => {
     const { rerender } = render(<HomePage onSelectPrompt={vi.fn()} />);
     expect(screen.queryByTestId('image-showcase')).toBeNull();
 
     rerender(<HomePage onSelectPrompt={vi.fn()} features={GUEST_FEATURES} />);
     expect(screen.queryByTestId('image-showcase')).toBeNull();
+    expect(fetchShowcaseImagesMock).not.toHaveBeenCalled();
 
     rerender(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
-    expect(screen.getAllByTestId('showcase-card')).toHaveLength(4);
+    expect(await screen.findAllByTestId('showcase-card')).toHaveLength(4);
+    expect(screen.getByRole('img', { name: '画一只水彩风格的橘猫' })).toHaveAttribute(
+      'src',
+      '/api/prompts/showcase/showcase-0/image',
+    );
     expect(screen.getByRole('region', { name: '今日灵感' })).toBeInTheDocument();
   });
 
@@ -99,6 +126,9 @@ describe('HomePage', () => {
     vi.useFakeTimers();
     try {
       render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
       const firstPage = showcaseLabels();
       expect(firstPage).toHaveLength(4);
 
@@ -138,6 +168,9 @@ describe('HomePage', () => {
     vi.useFakeTimers();
     try {
       render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
       const firstPage = showcaseLabels();
 
       fireEvent.mouseEnter(screen.getByTestId('image-showcase'));
@@ -188,6 +221,16 @@ describe('HomePage', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('示例图取不到时不展示生图区域，今日灵感照常', async () => {
+    fetchShowcaseImagesMock.mockRejectedValue(new Error('offline'));
+
+    render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
+
+    await waitFor(() => expect(fetchShowcaseImagesMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('image-showcase')).toBeNull();
+    expect(screen.getByRole('region', { name: '今日灵感' })).toBeInTheDocument();
   });
 
   it('首屏立即稳定展示两行灵感', () => {

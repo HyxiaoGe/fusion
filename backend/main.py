@@ -420,6 +420,7 @@ app.include_router(changelogs.router, prefix="/api/changelogs", tags=["changelog
 app.include_router(changelogs.admin_router, prefix="/api/admin/changelogs", tags=["admin-changelogs"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(prompts.router, prefix="/api/prompts", tags=["prompts"])
+app.include_router(prompts.admin_router, prefix="/api/admin/home-showcase", tags=["admin-home-showcase"])
 app.include_router(trajectory.router, prefix="/api", tags=["trajectory"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(admin_audit.router, prefix="/api/admin/audit", tags=["admin-audit"])
