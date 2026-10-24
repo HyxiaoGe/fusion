@@ -1,6 +1,6 @@
 """首页生图示例卡片的图片池。
 
-管理员上传图片或从自己生成过的图里挑，写好「做同款」提示词，首页按添加顺序轮换展示。每张图存两份 WebP：
+管理员从自己生成过的图里挑，写好「做同款」提示词，首页每次进入时打乱顺序轮换展示。每张图存两份 WebP：
 短边 480px 的卡片图，和长边 1600px 的大图（点开卡片查看细节用），经公开接口读取：首页是匿名可见的，
 不能用用户私有文件的签名地址。
 """
@@ -36,7 +36,7 @@ GENERATED_PAGE_GROUPS = 20
 
 
 class ShowcaseImageError(ValueError):
-    """上传的图片或文字不符合要求，信息可直接展示给管理员。"""
+    """图片或文字不符合要求，信息可直接展示给管理员。"""
 
 
 def list_showcase_images(db: Session) -> list[HomeShowcaseImage]:
@@ -107,7 +107,7 @@ async def add_showcase_image(
     if object_position is not None and object_position not in OBJECT_POSITIONS:
         raise ShowcaseImageError("裁切位置只能是 top 或 bottom")
     if not content:
-        raise ShowcaseImageError("请上传图片")
+        raise ShowcaseImageError("图片内容为空")
     if len(content) > settings.MAX_FILE_SIZE:
         raise ShowcaseImageError("图片超过大小上限")
 
