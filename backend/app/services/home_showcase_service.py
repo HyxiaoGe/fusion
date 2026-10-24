@@ -12,7 +12,7 @@ import io
 import uuid
 
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import Text, cast
+from sqlalchemy import Text, and_, cast, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -31,8 +31,8 @@ _WEBP_QUALITY = 82
 _FULL_LONG_SIDE = 1600
 _FULL_WEBP_QUALITY = 85
 _STORAGE_PREFIX = "home-showcase"
-# 挑选列表只看最近这么多条带生成图的回复
-_GENERATED_MESSAGE_LIMIT = 100
+# 挑选列表每页看这么多条带生成图的回复（通常一条一张图），往后翻页继续
+GENERATED_PAGE_MESSAGES = 20
 
 
 class ShowcaseImageError(ValueError):
@@ -146,24 +146,38 @@ async def add_showcase_image(
     return row
 
 
-def list_generated_images(db: Session, user_id: str) -> list[dict]:
-    """该用户最近生成过的图片（新的在前），带生成时的提示词，供挑进图片池。"""
+def list_generated_images(
+    db: Session,
+    user_id: str,
+    *,
+    after_message_id: str | None = None,
+    page_messages: int = GENERATED_PAGE_MESSAGES,
+) -> tuple[list[dict], str | None]:
+    """该用户生成过的图片（新的在前），带生成时的名称和提示词，供挑进图片池。
 
-    rows = (
-        db.query(Message.content)
+    按回复分页：``after_message_id`` 是上一页最后一条回复，返回本页图片和下一页的起点（没有更多时为 None）。
+    """
+    query = (
+        db.query(Message.id, Message.content)
         .join(Conversation, Conversation.id == Message.conversation_id)
         .filter(
             Conversation.user_id == user_id,
             Message.role == "assistant",
             cast(Message.content, Text).like('%"generated_image"%'),
         )
-        .order_by(Message.created_at.desc(), Message.id.desc())
-        .limit(_GENERATED_MESSAGE_LIMIT)
-        .all()
     )
+    if after_message_id is not None:
+        cursor_at = db.query(Message.created_at).filter(Message.id == after_message_id).scalar_subquery()
+        query = query.filter(
+            or_(
+                Message.created_at < cursor_at,
+                and_(Message.created_at == cursor_at, Message.id < after_message_id),
+            )
+        )
+    rows = query.order_by(Message.created_at.desc(), Message.id.desc()).limit(page_messages).all()
     images: list[dict] = []
     seen: set[str] = set()
-    for (content,) in rows:
+    for _message_id, content in rows:
         for block in content if isinstance(content, list) else []:
             if not isinstance(block, dict) or block.get("type") != "generated_image":
                 continue
@@ -180,7 +194,8 @@ def list_generated_images(db: Session, user_id: str) -> list[dict]:
                     "height": block.get("height"),
                 }
             )
-    return images
+    next_cursor = rows[-1][0] if len(rows) == page_messages else None
+    return images, next_cursor
 
 
 async def delete_showcase_image(db: Session, image_id: str) -> bool:

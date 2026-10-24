@@ -1,4 +1,6 @@
 # app/api/prompts.py
+import asyncio
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -82,19 +84,24 @@ def list_showcase_admin(
 @admin_router.get("/generated")
 async def list_generated_for_showcase(
     request: Request,
+    cursor: str | None = Query(default=None, max_length=64),
     db: Session = Depends(get_db),
     admin: UserModel = Depends(get_current_admin_user),
     file_service: FileService = Depends(get_file_service),
 ):
     """当前管理员自己生成过的图片，供挑进图片池；不列其他用户的图。"""
     in_pool = {row.source_file_id for row in home_showcase_service.list_showcase_images(db) if row.source_file_id}
-    images = []
-    for image in home_showcase_service.list_generated_images(db, str(admin.id)):
-        thumbnail_url = await file_service.get_file_url(image["file_id"], str(admin.id), "thumbnail")
-        if thumbnail_url is None:
-            continue
-        images.append({**image, "thumbnail_url": thumbnail_url, "in_pool": image["file_id"] in in_pool})
-    return success(data={"images": images}, request_id=request.state.request_id)
+    page, next_cursor = home_showcase_service.list_generated_images(db, str(admin.id), after_message_id=cursor)
+    # 签发缩略图地址要逐张确认存储对象存在，并发进行
+    thumbnail_urls = await asyncio.gather(
+        *(file_service.get_file_url(image["file_id"], str(admin.id), "thumbnail") for image in page)
+    )
+    images = [
+        {**image, "thumbnail_url": url, "in_pool": image["file_id"] in in_pool}
+        for image, url in zip(page, thumbnail_urls, strict=True)
+        if url is not None
+    ]
+    return success(data={"images": images, "next_cursor": next_cursor}, request_id=request.state.request_id)
 
 
 @admin_router.post("/from-generated")

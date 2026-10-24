@@ -50,6 +50,7 @@ describe('HomeShowcaseManager', () => {
         { file_id: 'f-new', prompt: '一张通货膨胀成因的信息图海报', title: '信息图', width: 864, height: 1312, thumbnail_url: '/signed/f-new', in_pool: false },
         { file_id: 'f-old', prompt: '水墨白鹭', title: null, width: 864, height: 864, thumbnail_url: '/signed/f-old', in_pool: true },
       ],
+      next_cursor: null,
     });
     fetchAdminShowcaseImagesMock.mockResolvedValue({
       images: [showcaseImage('cat', '水彩插画', '画一只水彩风格的橘猫')],
@@ -88,6 +89,30 @@ describe('HomeShowcaseManager', () => {
     // 旧图没有名称，标签留空等手填
     fireEvent.click(within(picker).getByRole('button', { name: '水墨白鹭' }));
     expect(screen.getByLabelText('标签')).toHaveValue('');
+  });
+
+  it('生成图列表按页加载更早的图，跨页重复的图只保留一张', async () => {
+    fetchGeneratedShowcaseCandidatesMock
+      .mockResolvedValueOnce({
+        images: [{ file_id: 'f-1', prompt: '第一页', title: null, width: 1, height: 1, thumbnail_url: '/t/1', in_pool: false }],
+        next_cursor: 'm-20',
+      })
+      .mockResolvedValueOnce({
+        images: [
+          { file_id: 'f-1', prompt: '第一页', title: null, width: 1, height: 1, thumbnail_url: '/t/1', in_pool: false },
+          { file_id: 'f-2', prompt: '第二页', title: null, width: 1, height: 1, thumbnail_url: '/t/2', in_pool: false },
+        ],
+        next_cursor: null,
+      });
+    render(<HomeShowcaseManager />);
+
+    const picker = await screen.findByRole('list', { name: '我的生成图' });
+    fireEvent.click(within(picker).getByRole('button', { name: '加载更早的图' }));
+
+    await waitFor(() => expect(within(picker).getByRole('button', { name: '第二页' })).toBeInTheDocument());
+    expect(fetchGeneratedShowcaseCandidatesMock).toHaveBeenLastCalledWith('m-20');
+    expect(within(picker).getAllByRole('button', { name: '第一页' })).toHaveLength(1);
+    expect(within(picker).queryByRole('button', { name: '加载更早的图' })).toBeNull();
   });
 
   it('上传图片、标签、提示词和裁切位置后追加到图片池末尾', async () => {
