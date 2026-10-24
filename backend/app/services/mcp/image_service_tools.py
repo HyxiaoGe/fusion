@@ -40,7 +40,7 @@ ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"
 # image-service 的画质档：standard 为 Seedream 5.0 Flash，high 为 Seedream 5.0 Pro；省略时用服务默认模型。
 IMAGE_QUALITIES = ("standard", "high")
 _ALLOWED_ARGUMENTS = frozenset(
-    {"prompt", "aspect_ratio", "style", "regenerate", "reference_subject", "quality", "source_image_id"}
+    {"prompt", "aspect_ratio", "style", "title", "regenerate", "reference_subject", "quality", "source_image_id"}
 )
 # image-service 结构化错误码（P0 设计 §2.1）；不认识的码按通用上游失败处理。
 KNOWN_ERROR_CODES = frozenset({
@@ -57,6 +57,8 @@ KNOWN_ERROR_CODES = frozenset({
 })
 MAX_PROMPT_CHARS = 1_000
 MAX_STYLE_CHARS = 60
+# 图片的简短名称，只在 Fusion 里展示（如首页示例图的标签），不交给 image-service；与示例图标签上限一致
+MAX_TITLE_CHARS = 12
 MAX_REFERENCE_SUBJECT_CHARS = 80
 # 要编辑的图片编号即 Fusion 文件 ID（UUID）。
 _SOURCE_IMAGE_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
@@ -160,6 +162,11 @@ def build_generate_image_definition() -> dict[str, Any]:
                         "type": "string",
                         "maxLength": MAX_STYLE_CHARS,
                         "description": render_runtime_prompt("image_service.style"),
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": MAX_TITLE_CHARS,
+                        "description": render_runtime_prompt("image_service.title"),
                     },
                     "regenerate": {
                         "type": "boolean",
@@ -443,6 +450,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
                 "width": stored.get("width"),
                 "height": stored.get("height"),
                 "prompt": arguments["prompt"],
+                "title": _title(args),
                 "aspect_ratio": arguments["aspect_ratio"],
                 "quality": arguments.get("quality"),
                 "model": outcome.model,
@@ -533,6 +541,7 @@ class ImageGenerationToolHandler(BaseToolHandler):
             width=data.get("width"),
             height=data.get("height"),
             prompt=data["prompt"],
+            title=data.get("title"),
             aspect_ratio=data.get("aspect_ratio"),
             model=data.get("model"),
             tool_call_log_id=log_id,
@@ -582,6 +591,7 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
     if quality is not None and quality not in IMAGE_QUALITIES:
         raise ImageGenerationError("invalid_arguments")
     _source_image_id(args)
+    _title(args)
     # 主力/备用模型由 image-service 的 DEFAULT_MODEL / DEFAULT_FALLBACK_MODEL 决定，便于切换。
     arguments: dict[str, Any] = {
         "prompt": prompt.strip(),
@@ -605,6 +615,16 @@ def _normalized_arguments(args: Any) -> dict[str, Any]:
         if reference_subject.strip():
             arguments["reference_subject"] = reference_subject.strip()
     return arguments
+
+
+def _title(args: dict) -> str | None:
+    """图片的简短名称，只存进生成图块，不进发给 image-service 的参数。"""
+    value = args.get("title")
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value.strip()) > MAX_TITLE_CHARS:
+        raise ImageGenerationError("invalid_arguments")
+    return value.strip() or None
 
 
 def _source_image_id(args: dict) -> str | None:

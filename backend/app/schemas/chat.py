@@ -894,6 +894,8 @@ class GeneratedImageBlock(BaseModel):
     mime_type: str = Field(min_length=1, max_length=40)
     width: Optional[int] = Field(default=None, ge=1, le=20_000)
     height: Optional[int] = Field(default=None, ge=1, le=20_000)
+    # 模型给这张图起的简短名称，挑进首页示例图时作为标签
+    title: Optional[str] = Field(default=None, max_length=12)
     prompt: str = Field(min_length=1, max_length=1_000)
     aspect_ratio: Optional[str] = Field(default=None, max_length=8)
     model: Optional[str] = Field(default=None, max_length=80)

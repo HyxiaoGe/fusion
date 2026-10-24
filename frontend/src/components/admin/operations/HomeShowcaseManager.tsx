@@ -34,7 +34,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 /** 首页生图示例卡片的图片池：首页按添加顺序每次展示 4 张，点击把提示词填入输入框。
- * 图片可以上传，也可以从当前管理员自己生成过的图里挑（默认沿用生成时的提示词）。 */
+ * 图片可以上传，也可以从当前管理员自己生成过的图里挑（默认沿用生成时的名称和提示词）。 */
 export default function HomeShowcaseManager() {
   const [images, setImages] = useState<ShowcaseImage[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -79,6 +79,7 @@ export default function HomeShowcaseManager() {
 
   const selectCandidate = (candidate: GeneratedShowcaseCandidate) => {
     setSelectedFileId(candidate.file_id);
+    setLabel((candidate.title ?? '').slice(0, LABEL_MAX));
     setPrompt(candidate.prompt.slice(0, PROMPT_MAX));
   };
 
@@ -192,7 +193,7 @@ export default function HomeShowcaseManager() {
                   })}
                 </ul>
               ) : null}
-              <p className="mt-1.5 text-xs text-muted-foreground">只列你自己生成过的图；选中后提示词默认用生成时的原文，可以改。</p>
+              <p className="mt-1.5 text-xs text-muted-foreground">只列你自己生成过的图；选中后标签和提示词默认用生成时的名称和原文，可以改。</p>
             </div>
           ) : (
             <div className="space-y-1.5 sm:w-1/2">
