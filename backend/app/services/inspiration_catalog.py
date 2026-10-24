@@ -69,13 +69,6 @@ INSPIRATION_CAPABILITIES: tuple[InspirationCapability, ...] = (
         ttl_hours=7 * 24,
     ),
     InspirationCapability(
-        key="writing",
-        label="写作与润色",
-        guidance="写文案、改写、润色、翻译一段具体的话，问题里直接带上要处理的原文",
-        count=4,
-        ttl_hours=7 * 24,
-    ),
-    InspirationCapability(
         key="knowledge",
         label="知识问答",
         guidance="生活、健康、科学、历史等常识性问题",
