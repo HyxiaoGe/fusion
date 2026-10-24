@@ -103,7 +103,7 @@ describe('HomePage', () => {
       expect(firstPage).toHaveLength(4);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(12_001);
+        await vi.advanceTimersByTimeAsync(6_001);
       });
       const cards = screen.getAllByTestId('showcase-card');
       expect(cards[0]).toHaveStyle({ transform: 'rotateX(90deg)' });
@@ -123,7 +123,7 @@ describe('HomePage', () => {
       expect(screen.getAllByTestId('showcase-card')[0]).toHaveStyle({ transform: 'rotateX(0deg)' });
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(12_001);
+        await vi.advanceTimersByTimeAsync(6_001);
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(700);
@@ -148,7 +148,7 @@ describe('HomePage', () => {
 
       fireEvent.mouseLeave(screen.getByTestId('image-showcase'));
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(12_701);
+        await vi.advanceTimersByTimeAsync(6_701);
       });
       expect(showcaseLabels()).not.toEqual(firstPage);
     } finally {
