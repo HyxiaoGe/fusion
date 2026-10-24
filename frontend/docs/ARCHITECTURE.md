@@ -23,7 +23,6 @@
 | `stream` | `streamSlice.ts` | 实时流式内容（content blocks + typewriter 效果） |
 | `models` | `modelsSlice.ts` | 可用模型列表、当前选择模型 |
 | `fileUpload` | `fileUploadSlice.ts` | 文件上传进度与处理状态 |
-| `promptTemplates` | `promptTemplatesSlice.ts` | 提示词模板（Dexie 持久化） |
 | `settings` | `settingsSlice.ts` | 头像选择、设置对话框 |
 | `theme` | `themeSlice.ts` | 主题模式（light/dark/system） |
 
@@ -67,7 +66,6 @@ src/
 │   │   ├── streamStatus.ts # 流状态查询
 │   │   └── title.ts        # 标题生成
 │   ├── auth/authService.ts # OAuth 登录流程（GitHub/Google）
-│   ├── db/promptTemplates.ts # Dexie 提示词模板存储
 │   ├── config/modelConfig.ts # 模型配置获取与缓存
 │   ├── i18n/               # i18next 配置 + 语言包
 │   └── utils/              # 工具函数

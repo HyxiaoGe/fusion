@@ -1,39 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ArrowUpRight,
-  BarChart3,
-  BookOpenCheck,
-  CalendarRange,
-  CloudSun,
-  Code2,
-  FileText,
-  ImagePlus,
-  Languages,
-  Library,
-  ListChecks,
-  MapPinned,
-  PenLine,
-  RefreshCw,
-  Search,
-  Sparkles,
-  UtensilsCrossed,
-  type LucideIcon,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import PromptTemplateList from '@/components/prompts/PromptTemplateList';
-import type { PromptTemplateListItem } from '@/components/prompts/PromptTemplateItem';
+import Image from 'next/image';
+import { Sparkles, Wand2 } from 'lucide-react';
 import {
   fetchPromptExamples,
-  fetchPromptTemplates,
   type PromptExample,
-  type PromptTemplateCatalogItem,
 } from '@/lib/api/prompts';
 import type { Entitlements } from '@/lib/api/user';
 import { preloadChatMessageList } from '@/components/lazy/preloaders';
@@ -42,150 +12,64 @@ import { cn } from '@/lib/utils';
 import glassSurface from '@/components/ui/GlassSurface.module.css';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 
-interface StarterPrompt {
+interface ShowcaseImage {
   id: string;
-  title: string;
-  description: string;
+  src: string;
+  /** 卡片角标：这张图代表的风格或能力 */
+  label: string;
+  /** 点击后填入输入框的提示词，用户可改了再发 */
   prompt: string;
-  category: string;
-  icon: LucideIcon;
-  tone: string;
-  /** 需要的功能开关（权益 features 的键），全部开启才展示 */
-  requires: FeatureKey[];
 }
 
-type FeatureKey = keyof Entitlements['features'];
-
-const FALLBACK_STARTER_PROMPTS: StarterPrompt[] = [
+// 从过往生成的图里挑的代表作，覆盖插画、海报、带中文字、头像、写实摄影几类；不放真实品牌和 IP。
+const SHOWCASE_IMAGES: ShowcaseImage[] = [
   {
-    id: 'research',
-    title: '深度调研',
-    description: '梳理结论、争议和可靠来源',
-    prompt: '请围绕以下主题进行联网调研，给出关键结论、主要争议和可靠来源：\n\n【在这里填写主题】',
-    category: '研究',
-    icon: Search,
-    tone: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    requires: [],
+    id: 'watercolor-cat',
+    src: '/assets/home-showcase/watercolor-cat.webp',
+    label: '水彩插画',
+    prompt: '画一只戴红白格纹围巾的橘猫坐在雪地里，水彩风格，温馨治愈',
   },
   {
-    id: 'image',
-    title: '生成图片',
-    description: '描述画面，生成插画、海报或头像',
-    prompt: '请帮我生成一张图片：画面是【主体和场景】，风格【插画/写实/水彩等】，用途【头像/海报/壁纸】，比例【1:1/16:9/9:16】。',
-    category: '创作',
-    icon: ImagePlus,
-    tone: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
-    requires: ['image_generation'],
+    id: 'cafe-opening-poster',
+    src: '/assets/home-showcase/cafe-opening-poster.webp',
+    label: '中文海报',
+    prompt: '帮我做一张竖版咖啡馆开业海报，暖色调，主标题「新店开业」，副标题「香气与暖意，正式营业」',
   },
   {
-    id: 'file',
-    title: '解读一份文件',
-    description: '提炼重点、数据、风险和行动项',
-    prompt: '请阅读我接下来上传的文件，先总结核心内容，再列出关键数据、风险点和建议行动。',
-    category: '文件',
-    icon: FileText,
-    tone: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
-    requires: ['file_upload'],
+    id: 'cyberpunk-rain',
+    src: '/assets/home-showcase/cyberpunk-rain.webp',
+    label: '电影感海报',
+    prompt: '画一张竖版赛博朋克雨夜街景海报：霓虹招牌倒映在湿漉漉的街面上，一个穿风衣的人背对镜头走在雨中',
   },
   {
-    id: 'code-review',
-    title: '审查代码',
-    description: '检查正确性、性能和安全风险',
-    prompt: '请审查下面这段代码，重点检查正确性、可维护性、性能和安全风险，并给出可以直接应用的修改建议：\n\n```\n【粘贴代码】\n```',
-    category: '编程',
-    icon: Code2,
-    tone: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    requires: [],
+    id: 'home-cooking',
+    src: '/assets/home-showcase/home-cooking.webp',
+    label: '美食摄影',
+    prompt: '生成一张家常菜俯拍照：红烧肉、番茄炒蛋、清炒时蔬和一碗鸡汤，热气腾腾，写实摄影风格',
   },
   {
-    id: 'writing',
-    title: '起草与润色',
-    description: '优化结构、表达和目标语气',
-    prompt: '请帮我起草或润色下面的内容。保持原意，优化结构、表达和语气，并说明主要修改点：\n\n【粘贴内容】',
-    category: '写作',
-    icon: PenLine,
-    tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    requires: [],
+    id: 'astronaut-shiba',
+    src: '/assets/home-showcase/astronaut-shiba.webp',
+    label: '卡通头像',
+    prompt: '画一个柴犬宇航员头像，戴透明头盔，背景是星空和地球，卡通风格',
   },
   {
-    id: 'data',
-    title: '分析数据',
-    description: '发现趋势、异常和可行动洞察',
-    prompt: '请分析我提供的数据，说明关键趋势、异常点、可能原因和下一步行动建议。必要时用表格呈现。\n\n【粘贴数据或上传文件】',
-    category: '分析',
-    icon: BarChart3,
-    tone: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
-    requires: [],
+    id: 'paris-bakery',
+    src: '/assets/home-showcase/paris-bakery.webp',
+    label: '街景摄影',
+    prompt: '生成一张巴黎街头面包店的照片：红色复古自行车停在门口，车篮里插着法棍，阳光斜照',
   },
   {
-    id: 'plan',
-    title: '制定计划',
-    description: '拆解目标、里程碑和风险',
-    prompt: '请把下面的目标拆成一份可执行计划，包含优先级、里程碑、依赖、风险和验收标准：\n\n【描述目标】',
-    category: '规划',
-    icon: ListChecks,
-    tone: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
-    requires: [],
+    id: 'egret-watercolor',
+    src: '/assets/home-showcase/egret-watercolor.webp',
+    label: '水彩风景',
+    prompt: '画一只清晨湖边的白鹭，薄雾和芦苇，水彩风格，留白多一些',
   },
   {
-    id: 'learning',
-    title: '快速学习',
-    description: '从核心概念到练习路径',
-    prompt: '我想快速掌握下面这个主题。请先解释核心概念，再给出循序渐进的学习路径、例子和练习：\n\n【填写主题】',
-    category: '学习',
-    icon: BookOpenCheck,
-    tone: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
-    requires: [],
-  },
-  {
-    id: 'translation',
-    title: '翻译与本地化',
-    description: '保留语气并适配目标受众',
-    prompt: '请把下面的内容翻译并本地化为【目标语言/地区】。保留原意和语气，同时让表达符合当地习惯：\n\n【粘贴内容】',
-    category: '写作',
-    icon: Languages,
-    tone: 'bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400',
-    requires: [],
-  },
-  {
-    id: 'commute-planning',
-    title: '规划通勤',
-    description: '对比路线、耗时和换乘成本',
-    prompt: '我从【出发地】前往【目的地】，计划【出发时间】出发。请比较驾车、公共交通、骑行和步行等可用方式，给出具体路线，并根据用时、距离、换乘和步行距离推荐合适方案。',
-    category: '出行',
-    icon: MapPinned,
-    tone: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
-    requires: ['map'],
-  },
-  {
-    id: 'weekend-itinerary',
-    title: '安排周末行程',
-    description: '串联地点、时间和交通路线',
-    prompt: '我计划【日期/时间】从【出发地】出发，想去【地点1、地点2、地点3】，一共【人数】人，偏好【兴趣】，预算【预算】。请推荐合理的游玩顺序，并规划每段路线和时间安排。',
-    category: '出行',
-    icon: CalendarRange,
-    tone: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-    requires: ['map'],
-  },
-  {
-    id: 'dining-entertainment',
-    title: '聚餐与娱乐',
-    description: '推荐地点并规划饭后转场',
-    prompt: '我计划【日期/时间】在【区域】和【人数】人聚餐，偏好【餐饮类型】，总预算【预算】，饭后想【娱乐活动】。请推荐合适地点，并规划聚餐与娱乐之间的转场路线。',
-    category: '出行',
-    icon: UtensilsCrossed,
-    tone: 'bg-teal-500/10 text-teal-600 dark:text-teal-400',
-    requires: ['map'],
-  },
-  {
-    id: 'weather-planning',
-    title: '天气与出行',
-    description: '查看预报并安排合适活动',
-    prompt: '请查询【城市+区县】在【日期】的天气预报，说明气温、降水和风力，并结合【计划的活动】给出穿衣、雨具和出行建议。',
-    category: '出行',
-    icon: CloudSun,
-    tone: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
-    requires: ['mcp_tools'],
+    id: 'lighthouse-sunset',
+    src: '/assets/home-showcase/lighthouse-sunset.webp',
+    label: '风光摄影',
+    prompt: '生成一张海边灯塔的夕阳照片：海浪拍打礁石，天空是金橙色和粉紫色',
   },
 ];
 
@@ -205,8 +89,8 @@ const FALLBACK_INSPIRATIONS = [
   '为发布公告调整表达和语气',
 ];
 
-const STARTER_PAGE_SIZE = 4;
-const STARTER_ROTATE_INTERVAL = 12_000;
+const SHOWCASE_PAGE_SIZE = 4;
+const SHOWCASE_ROTATE_INTERVAL = 12_000;
 const INSPIRATION_FETCH_LIMIT = 50;
 const INSPIRATION_ROTATE_INTERVAL = 15_000;
 const CAROUSEL_FLIP_STAGGER = 80;
@@ -215,104 +99,6 @@ const CAROUSEL_FLIP_BACK_DELAY = 50;
 const INSPIRATION_ROW_COUNT = 2;
 const INSPIRATION_GAP = 8;
 const DEFAULT_INSPIRATION_WIDTH = 768;
-
-const ICONS_BY_KEY: Record<string, LucideIcon> = {
-  search: Search,
-  'file-text': FileText,
-  code: Code2,
-  'code-2': Code2,
-  'pen-line': PenLine,
-  'bar-chart': BarChart3,
-  'bar-chart-3': BarChart3,
-  'list-checks': ListChecks,
-  'book-open-check': BookOpenCheck,
-  languages: Languages,
-  'image-plus': ImagePlus,
-  'map-pinned': MapPinned,
-  'calendar-range': CalendarRange,
-  'utensils-crossed': UtensilsCrossed,
-  'cloud-sun': CloudSun,
-};
-
-const TONES_BY_KEY: Record<string, string> = {
-  blue: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  violet: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
-  emerald: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  cyan: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
-  rose: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
-  indigo: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
-  fuchsia: 'bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400',
-  sky: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
-  orange: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-  teal: 'bg-teal-500/10 text-teal-600 dark:text-teal-400',
-};
-
-type LibraryTemplate = PromptTemplateListItem & { requires: FeatureKey[] };
-
-const FALLBACK_LIBRARY_TEMPLATES: LibraryTemplate[] = [
-  ...FALLBACK_STARTER_PROMPTS.map((starter) => ({
-    id: starter.id,
-    title: starter.title,
-    content: starter.prompt,
-    category: starter.category,
-    isSystem: true,
-    requires: starter.requires,
-  })),
-  {
-    id: 'template-code-explanation',
-    title: '代码解释',
-    content: '请解释以下代码的功能，并分析其时间和空间复杂度：\n\n```\n<在此处放置代码>\n```',
-    category: '编程',
-    isSystem: true,
-    requires: [],
-  },
-  {
-    id: 'template-text-summary',
-    title: '文本总结',
-    content: '请总结以下文本的要点：\n\n<在此处放置文本>',
-    category: '写作',
-    isSystem: true,
-    requires: [],
-  },
-  {
-    id: 'template-question-answering',
-    title: '问题解答',
-    content: '我需要回答以下问题，请提供详细的解释：\n\n<在此处放置问题>',
-    category: '学习',
-    isSystem: true,
-    requires: [],
-  },
-];
-
-function toStarterPrompt(item: PromptTemplateCatalogItem): StarterPrompt {
-  return {
-    id: item.id,
-    title: item.title,
-    description: item.description,
-    prompt: item.content,
-    category: item.category,
-    icon: ICONS_BY_KEY[item.icon_key] ?? Sparkles,
-    tone: TONES_BY_KEY[item.tone] ?? TONES_BY_KEY.blue,
-    requires: item.required_capabilities,
-  };
-}
-
-function toLibraryTemplate(item: PromptTemplateCatalogItem): LibraryTemplate {
-  return {
-    id: item.id,
-    title: item.title,
-    content: item.content,
-    category: item.category,
-    isSystem: true,
-    requires: item.required_capabilities,
-  };
-}
-
-/** 卡片所需功能都已确认开启才可用；权益未加载时只展示不需要额外功能的卡片。 */
-function isAvailable(requires: FeatureKey[], features: Entitlements['features'] | null): boolean {
-  return requires.every((feature) => features?.[feature] === true);
-}
 
 function estimateInspirationWidth(question: string): number {
   const textWidth = Array.from(question).reduce((width, character) => (
@@ -381,19 +167,15 @@ interface HomePageProps {
 
 const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) => {
   useRenderProbe('HomePage');
-  const [starterStartIndex, setStarterStartIndex] = useState(0);
-  const [catalogStarters, setCatalogStarters] = useState(FALLBACK_STARTER_PROMPTS);
-  const starterPrompts = useMemo(
-    () => catalogStarters.filter((starter) => isAvailable(starter.requires, features)),
-    [catalogStarters, features],
+  // 生图要等权益确认开通才展示，避免游客或未开通的用户点了才发现用不了。
+  const canGenerateImages = features?.image_generation === true;
+  const showcaseImages = useMemo(
+    () => (canGenerateImages ? SHOWCASE_IMAGES : []),
+    [canGenerateImages],
   );
-  const [areStartersFlipped, setAreStartersFlipped] = useState(false);
-  const [isStarterPaused, setIsStarterPaused] = useState(false);
-  const [catalogTemplates, setCatalogTemplates] = useState(FALLBACK_LIBRARY_TEMPLATES);
-  const libraryTemplates = useMemo(
-    () => catalogTemplates.filter((template) => isAvailable(template.requires, features)),
-    [catalogTemplates, features],
-  );
+  const [showcaseStartIndex, setShowcaseStartIndex] = useState(0);
+  const [isShowcaseFlipped, setIsShowcaseFlipped] = useState(false);
+  const [isShowcasePaused, setIsShowcasePaused] = useState(false);
   const [inspirationExamples, setInspirationExamples] = useState<PromptExample[] | null>(null);
   const inspirationPool = useMemo(() => {
     const pool = inspirationExamples ? toInspirationPool(inspirationExamples, features) : [];
@@ -409,20 +191,19 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
   });
   const [areInspirationsFlipped, setAreInspirationsFlipped] = useState(false);
   const [isInspirationPaused, setIsInspirationPaused] = useState(false);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
   const inspirationContainerRef = useRef<HTMLDivElement>(null);
   const inspirationMeasureRef = useRef<HTMLDivElement>(null);
-  const starterFlipTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const showcaseFlipTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const flipTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
-  const visibleStarters = useMemo(() => {
-    if (starterPrompts.length <= STARTER_PAGE_SIZE) {
-      return starterPrompts;
+  const visibleShowcase = useMemo(() => {
+    if (showcaseImages.length <= SHOWCASE_PAGE_SIZE) {
+      return showcaseImages;
     }
     return Array.from(
-      { length: STARTER_PAGE_SIZE },
-      (_, offset) => starterPrompts[(starterStartIndex + offset) % starterPrompts.length],
+      { length: SHOWCASE_PAGE_SIZE },
+      (_, offset) => showcaseImages[(showcaseStartIndex + offset) % showcaseImages.length],
     );
-  }, [starterPrompts, starterStartIndex]);
+  }, [showcaseImages, showcaseStartIndex]);
   const inspirations = useMemo(() => fitInspirationRows(
     inspirationPool,
     inspirationStartIndex,
@@ -446,33 +227,10 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
         // 动态目录暂不可用时保留首帧兜底，避免灵感区域消失并引发布局跳动。
       });
 
-    void fetchPromptTemplates()
-      .then((data) => {
-        if (cancelled) return;
-        const enabledItems = data.items
-          .filter((item) => item.enabled)
-          .sort((left, right) => left.sort_order - right.sort_order);
-        const remoteStarters = enabledItems
-          .filter((item) => item.kind === 'starter')
-          .map(toStarterPrompt);
-        const remoteTemplates = enabledItems.map(toLibraryTemplate);
-
-        if (remoteStarters.length >= STARTER_PAGE_SIZE) {
-          setCatalogStarters(remoteStarters);
-          setStarterStartIndex(0);
-        }
-        if (remoteTemplates.length > 0) {
-          setCatalogTemplates(remoteTemplates);
-        }
-      })
-      .catch(() => {
-        // 后端目录不可用时保留内置兜底，首页仍可正常启动任务。
-      });
-
     return () => {
       cancelled = true;
-      starterFlipTimeoutsRef.current.forEach(clearTimeout);
-      starterFlipTimeoutsRef.current = [];
+      showcaseFlipTimeoutsRef.current.forEach(clearTimeout);
+      showcaseFlipTimeoutsRef.current = [];
       flipTimeoutsRef.current.forEach(clearTimeout);
       flipTimeoutsRef.current = [];
     };
@@ -553,35 +311,30 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
     isInspirationPaused,
   ]);
 
-  const showNextPage = useCallback(() => {
-    if (starterPrompts.length <= STARTER_PAGE_SIZE) return;
+  const showNextShowcasePage = useCallback(() => {
+    if (showcaseImages.length <= SHOWCASE_PAGE_SIZE) return;
 
-    starterFlipTimeoutsRef.current.forEach(clearTimeout);
-    starterFlipTimeoutsRef.current = [];
-    setAreStartersFlipped(true);
+    showcaseFlipTimeoutsRef.current.forEach(clearTimeout);
+    showcaseFlipTimeoutsRef.current = [];
+    setIsShowcaseFlipped(true);
 
-    const replaceDelay = visibleStarters.length * CAROUSEL_FLIP_STAGGER
+    const replaceDelay = SHOWCASE_PAGE_SIZE * CAROUSEL_FLIP_STAGGER
       + CAROUSEL_REPLACE_PADDING;
-    starterFlipTimeoutsRef.current.push(setTimeout(() => {
-      setStarterStartIndex((current) => (
-        (current + STARTER_PAGE_SIZE) % starterPrompts.length
+    showcaseFlipTimeoutsRef.current.push(setTimeout(() => {
+      setShowcaseStartIndex((current) => (
+        (current + SHOWCASE_PAGE_SIZE) % showcaseImages.length
       ));
-      starterFlipTimeoutsRef.current.push(setTimeout(() => {
-        setAreStartersFlipped(false);
+      showcaseFlipTimeoutsRef.current.push(setTimeout(() => {
+        setIsShowcaseFlipped(false);
       }, CAROUSEL_FLIP_BACK_DELAY));
     }, replaceDelay));
-  }, [starterPrompts.length, visibleStarters.length]);
+  }, [showcaseImages.length]);
 
   useEffect(() => {
-    if (isStarterPaused || starterPrompts.length <= STARTER_PAGE_SIZE) return undefined;
-    const intervalId = window.setInterval(showNextPage, STARTER_ROTATE_INTERVAL);
+    if (isShowcasePaused || showcaseImages.length <= SHOWCASE_PAGE_SIZE) return undefined;
+    const intervalId = window.setInterval(showNextShowcasePage, SHOWCASE_ROTATE_INTERVAL);
     return () => window.clearInterval(intervalId);
-  }, [isStarterPaused, showNextPage, starterPrompts.length]);
-
-  const selectTemplate = useCallback((content: string) => {
-    setTemplatesOpen(false);
-    onSelectPrompt(content);
-  }, [onSelectPrompt]);
+  }, [isShowcasePaused, showNextShowcasePage, showcaseImages.length]);
 
   return (
     <div className="flex min-h-full items-center justify-center px-4 pb-20 pt-8 sm:pb-24">
@@ -595,86 +348,65 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
             今天想完成什么？
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            选择一个方向填入输入框，再补充你的材料和要求
+            直接输入，或者从下面挑一个开始
           </p>
         </div>
 
-        <div
-          data-testid="starter-prompts"
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
-          style={{ contain: 'layout' }}
-          onMouseEnter={() => setIsStarterPaused(true)}
-          onMouseLeave={() => setIsStarterPaused(false)}
-          onFocusCapture={() => setIsStarterPaused(true)}
-          onBlurCapture={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) {
-              setIsStarterPaused(false);
-            }
-          }}
-        >
-          {visibleStarters.map((starter, index) => {
-            const Icon = starter.icon;
-            return (
-              <div
-                key={starter.id}
-                data-testid="starter-card"
-                style={{
-                  backfaceVisibility: 'hidden',
-                  opacity: areStartersFlipped ? 0 : 1,
-                  transform: areStartersFlipped ? 'rotateX(90deg)' : 'rotateX(0deg)',
-                  transition: 'opacity 300ms ease, transform 300ms ease',
-                  transitionDelay: `${index * CAROUSEL_FLIP_STAGGER}ms`,
-                  willChange: 'opacity, transform',
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => onSelectPrompt(starter.prompt)}
-                  onPointerMove={pointGlassLight}
-                  onPointerLeave={resetGlassLight}
-                  className={cn(
-                    'group flex min-h-24 w-full items-center gap-4 rounded-2xl p-4 text-left hover:-translate-y-0.5 motion-reduce:transform-none',
-                    glassSurface.surface,
-                    glassSurface.card,
-                    glassSurface.interactive,
-                  )}
+        {visibleShowcase.length > 0 ? (
+          <section aria-labelledby="image-showcase-title">
+            <h2 id="image-showcase-title" className="sr-only">生图示例</h2>
+            <div
+              data-testid="image-showcase"
+              className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+              style={{ contain: 'layout' }}
+              onMouseEnter={() => setIsShowcasePaused(true)}
+              onMouseLeave={() => setIsShowcasePaused(false)}
+              onFocusCapture={() => setIsShowcasePaused(true)}
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) {
+                  setIsShowcasePaused(false);
+                }
+              }}
+            >
+              {visibleShowcase.map((image, index) => (
+                <div
+                  key={image.id}
+                  data-testid="showcase-card"
+                  style={{
+                    backfaceVisibility: 'hidden',
+                    opacity: isShowcaseFlipped ? 0 : 1,
+                    transform: isShowcaseFlipped ? 'rotateX(90deg)' : 'rotateX(0deg)',
+                    transition: 'opacity 300ms ease, transform 300ms ease',
+                    transitionDelay: `${index * CAROUSEL_FLIP_STAGGER}ms`,
+                    willChange: 'opacity, transform',
+                  }}
                 >
-                  <GlassHoverLens />
-                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${starter.tone}`}>
-                    <Icon className="h-5 w-5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium text-foreground">{starter.title}</span>
-                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                      {starter.description}
+                  <button
+                    type="button"
+                    onClick={() => onSelectPrompt(image.prompt)}
+                    aria-label={`做同款：${image.label}`}
+                    className="group relative block aspect-[4/5] w-full overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-fdv2-xs transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none"
+                  >
+                    <Image
+                      src={image.src}
+                      alt={image.prompt}
+                      fill
+                      sizes="(min-width: 640px) 184px, 45vw"
+                      className="object-cover transition-transform duration-500 group-hover:scale-[1.03] motion-reduce:transition-none"
+                    />
+                    <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/60 to-transparent px-3 pb-2.5 pt-8 text-left">
+                      <span className="text-xs font-medium text-white">{image.label}</span>
+                      <span className="flex items-center gap-1 text-[11px] text-white/85 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                        <Wand2 className="h-3 w-3" aria-hidden="true" />
+                        做同款
+                      </span>
                     </span>
-                  </span>
-                  <ArrowUpRight
-                    className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 motion-reduce:transition-none"
-                    aria-hidden="true"
-                  />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-4 flex items-center justify-center gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={showNextPage} className="gap-1.5 text-muted-foreground">
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-            换一批
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setTemplatesOpen(true)}
-            className="gap-1.5 text-muted-foreground"
-          >
-            <Library className="h-3.5 w-3.5" aria-hidden="true" />
-            更多模板
-          </Button>
-        </div>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {inspirations.length > 0 ? (
           <section
@@ -745,20 +477,6 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
         ) : null}
       </div>
 
-      <Dialog open={templatesOpen} onOpenChange={setTemplatesOpen}>
-        <DialogContent className="h-[min(36rem,80vh)] overflow-hidden sm:max-w-2xl" closeLabel="关闭模板库">
-          <DialogHeader className="sr-only">
-            <DialogTitle>提示词模板</DialogTitle>
-            <DialogDescription>选择一个模板并填入消息输入框</DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 overflow-hidden pr-1">
-            <PromptTemplateList
-              templates={libraryTemplates}
-              onSelectTemplate={selectTemplate}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

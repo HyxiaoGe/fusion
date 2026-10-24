@@ -4,7 +4,6 @@ import conversationDetailInvalidationMiddleware from './middleware/conversationD
 import conversationReducer from './slices/conversationSlice';
 import fileUploadReducer from './slices/fileUploadSlice';
 import modelsReducer from './slices/modelsSlice';
-import promptTemplatesReducer from './slices/promptTemplatesSlice';
 import settingsReducer from './slices/settingsSlice';
 import streamReducer from './slices/streamSlice';
 import themeReducer from './slices/themeSlice';
@@ -19,7 +18,6 @@ export const store = configureStore({
         stream: streamReducer,
         models: modelsReducer,
         fileUpload: fileUploadReducer,
-        promptTemplates: promptTemplatesReducer,
         settings: settingsReducer,
         auth: authReducer,
         guest: guestReducer,
