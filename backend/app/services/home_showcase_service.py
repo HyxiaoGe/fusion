@@ -1,7 +1,8 @@
 """首页生图示例卡片的图片池。
 
-管理员上传图片或从自己生成过的图里挑，写好「做同款」提示词，首页按添加顺序轮换展示。图片统一转成短边 480px 的 WebP
-存进文件存储，经公开接口读取：首页是匿名可见的，不能用用户私有文件的签名地址。
+管理员上传图片或从自己生成过的图里挑，写好「做同款」提示词，首页按添加顺序轮换展示。每张图存两份 WebP：
+短边 480px 的卡片图，和长边 1600px 的大图（点开卡片查看细节用），经公开接口读取：首页是匿名可见的，
+不能用用户私有文件的签名地址。
 """
 
 from __future__ import annotations
@@ -26,6 +27,9 @@ OBJECT_POSITIONS = frozenset({"top", "bottom"})
 # 卡片在桌面端约 184px 宽，480px 短边覆盖 2 倍屏
 _SHORT_SIDE = 480
 _WEBP_QUALITY = 82
+# 点开卡片看细节的大图
+_FULL_LONG_SIDE = 1600
+_FULL_WEBP_QUALITY = 85
 _STORAGE_PREFIX = "home-showcase"
 # 挑选列表只看最近这么多条带生成图的回复
 _GENERATED_MESSAGE_LIMIT = 100
@@ -47,6 +51,7 @@ def serialize_showcase_image(row: HomeShowcaseImage) -> dict:
         "object_position": row.object_position,
         "source_file_id": row.source_file_id,
         "image_url": f"/api/prompts/showcase/{row.id}/image",
+        "full_image_url": f"/api/prompts/showcase/{row.id}/image/full",
         "width": row.width,
         "height": row.height,
     }
@@ -61,19 +66,29 @@ def _normalize_text(value: str, *, field: str, limit: int) -> str:
     return text
 
 
-def _to_webp(content: bytes) -> tuple[bytes, int, int]:
+def full_storage_key(image_id: str) -> str:
+    return f"{_STORAGE_PREFIX}/{image_id}-full.webp"
+
+
+def _scaled_webp(image: Image.Image, scale: float, quality: int) -> tuple[bytes, int, int]:
+    if scale < 1:
+        image = image.resize((round(image.width * scale), round(image.height * scale)), Image.Resampling.LANCZOS)
+    output = io.BytesIO()
+    image.save(output, format="WEBP", quality=quality, method=6)
+    return output.getvalue(), image.width, image.height
+
+
+def _to_webp(content: bytes) -> tuple[bytes, int, int, bytes]:
+    """返回卡片图（及其宽高）和大图。"""
     try:
         image = Image.open(io.BytesIO(content))
         image = ImageOps.exif_transpose(image) or image
         image = image.convert("RGB")
     except (UnidentifiedImageError, OSError) as exc:
         raise ShowcaseImageError("图片无法读取，请换一张") from exc
-    scale = _SHORT_SIDE / min(image.size)
-    if scale < 1:
-        image = image.resize((round(image.width * scale), round(image.height * scale)), Image.Resampling.LANCZOS)
-    output = io.BytesIO()
-    image.save(output, format="WEBP", quality=_WEBP_QUALITY, method=6)
-    return output.getvalue(), image.width, image.height
+    card, width, height = _scaled_webp(image, _SHORT_SIDE / min(image.size), _WEBP_QUALITY)
+    full, _, _ = _scaled_webp(image, _FULL_LONG_SIDE / max(image.size), _FULL_WEBP_QUALITY)
+    return card, width, height, full
 
 
 async def add_showcase_image(
@@ -96,11 +111,17 @@ async def add_showcase_image(
     if len(content) > settings.MAX_FILE_SIZE:
         raise ShowcaseImageError("图片超过大小上限")
 
-    data, width, height = await asyncio.to_thread(_to_webp, content)
+    data, width, height, full_data = await asyncio.to_thread(_to_webp, content)
     image_id = str(uuid.uuid4())
     storage_key = f"{_STORAGE_PREFIX}/{image_id}.webp"
+    full_key = full_storage_key(image_id)
     storage = get_storage()
     await storage.upload(storage_key, data, "image/webp")
+    try:
+        await storage.upload(full_key, full_data, "image/webp")
+    except BaseException:
+        await _delete_object(settings.STORAGE_BACKEND, storage_key)
+        raise
     row = HomeShowcaseImage(
         id=image_id,
         label=label,
@@ -119,6 +140,7 @@ async def add_showcase_image(
     except BaseException:
         db.rollback()
         await _delete_object(settings.STORAGE_BACKEND, storage_key)
+        await _delete_object(settings.STORAGE_BACKEND, full_key)
         raise
     db.refresh(row)
     return row
@@ -169,14 +191,19 @@ async def delete_showcase_image(db: Session, image_id: str) -> bool:
     db.delete(row)
     db.commit()
     await _delete_object(backend, storage_key)
+    await _delete_object(backend, full_storage_key(image_id))
     return True
 
 
-async def read_showcase_image(db: Session, image_id: str) -> bytes | None:
+async def read_showcase_image(db: Session, image_id: str, *, full: bool = False) -> bytes | None:
     row = db.get(HomeShowcaseImage, image_id)
     if row is None:
         return None
-    return await get_storage_for_backend(row.storage_backend).download(row.storage_key)
+    key = full_storage_key(row.id) if full else row.storage_key
+    try:
+        return await get_storage_for_backend(row.storage_backend).download(key)
+    except FileNotFoundError:
+        return None
 
 
 async def _delete_object(backend: str, storage_key: str) -> None:

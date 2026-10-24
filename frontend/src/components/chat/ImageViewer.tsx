@@ -57,6 +57,8 @@ interface ImageViewerProps {
   alt?: string;
   /** 第三方图片不带 Referer 请求，避免被源站防盗链拦截 */
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
+  /** 图片下方的说明与操作（如首页示例图的提示词和「做同款」） */
+  footer?: React.ReactNode;
   onClose: () => void;
 }
 
@@ -65,7 +67,7 @@ interface ImageViewerProps {
  * - 消息气泡：传 fileBlock，自动请求原图 URL
  * - 输入框预览：传 imageUrl（blob URL），直接展示
  */
-const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, alt, referrerPolicy, onClose }) => {
+const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, alt, referrerPolicy, footer, onClose }) => {
   const [fullImageUrl, setFullImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -178,7 +180,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, alt, ref
         </button>
         <div
           data-testid="image-preview-dismiss-surface"
-          className="absolute inset-0 flex h-full w-full items-center justify-center px-4 py-12"
+          className="absolute inset-0 flex h-full w-full flex-col items-center justify-center gap-4 px-4 py-12"
           onClick={onClose}
         >
           {isLoading ? (
@@ -224,10 +226,15 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, alt, ref
               src={fullImageUrl}
               alt={altText}
               referrerPolicy={referrerPolicy}
-              className="max-w-[85vw] max-h-[85vh] object-contain rounded-lg"
+              className={`max-w-[85vw] object-contain rounded-lg ${footer ? 'max-h-[calc(85vh_-_10rem)]' : 'max-h-[85vh]'}`}
               onClick={(event) => event.stopPropagation()}
               onError={handleImageError}
             />
+          ) : null}
+          {footer ? (
+            <div className="relative z-[55]" onClick={(event) => event.stopPropagation()}>
+              {footer}
+            </div>
           ) : null}
         </div>
       </DialogContent>

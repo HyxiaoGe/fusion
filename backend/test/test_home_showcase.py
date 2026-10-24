@@ -27,6 +27,8 @@ class FakeStorage:
         return key
 
     async def download(self, key):
+        if key not in self.objects:
+            raise FileNotFoundError(key)
         return self.objects[key]
 
     async def delete(self, key):
@@ -69,12 +71,14 @@ def _add(db, **overrides):
     return asyncio.run(home_showcase_service.add_showcase_image(db, **values))
 
 
-def test_add_converts_to_webp_with_480_short_side(db, storage):
-    row = _add(db, object_position="top")
+def test_add_stores_480_short_side_card_and_1600_long_side_full_webp(db, storage):
+    row = _add(db, content=_png(2000, 3000), object_position="top")
 
     assert (row.width, row.height) == (480, 720)
     stored = Image.open(io.BytesIO(storage.objects[row.storage_key]))
     assert stored.format == "WEBP" and stored.size == (480, 720)
+    full = Image.open(io.BytesIO(storage.objects[home_showcase_service.full_storage_key(row.id)]))
+    assert full.format == "WEBP" and full.size == (1067, 1600)
     assert home_showcase_service.serialize_showcase_image(row) == {
         "id": row.id,
         "label": "水彩插画",
@@ -82,6 +86,7 @@ def test_add_converts_to_webp_with_480_short_side(db, storage):
         "object_position": "top",
         "source_file_id": None,
         "image_url": f"/api/prompts/showcase/{row.id}/image",
+        "full_image_url": f"/api/prompts/showcase/{row.id}/image/full",
         "width": 480,
         "height": 720,
     }
@@ -209,10 +214,15 @@ def test_admin_upload_then_public_list_and_image(db, storage):
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/webp"
     assert "immutable" in response.headers["cache-control"]
+    full = client.get(image["full_image_url"])
+    assert full.status_code == 200
+    assert Image.open(io.BytesIO(full.content)).size == (600, 600)
 
     assert client.delete(f"/api/admin/home-showcase/{image['id']}").status_code == 200
     assert client.get("/api/prompts/showcase").json()["data"]["images"] == []
     assert client.get(image["image_url"]).status_code == 404
+    assert client.get(image["full_image_url"]).status_code == 404
+    assert storage.objects == {}
 
 
 def test_admin_picks_own_generated_image_into_pool(db, storage):

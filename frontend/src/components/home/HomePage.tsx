@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { Sparkles, Wand2 } from 'lucide-react';
+import { Maximize2, Sparkles, Wand2 } from 'lucide-react';
+import ImageViewer from '@/components/chat/ImageViewer';
 import {
   fetchPromptExamples,
   fetchShowcaseImages,
@@ -118,6 +119,7 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
   const [showcaseStartIndex, setShowcaseStartIndex] = useState(0);
   const [isShowcaseFlipped, setIsShowcaseFlipped] = useState(false);
   const [isShowcasePaused, setIsShowcasePaused] = useState(false);
+  const [previewImage, setPreviewImage] = useState<ShowcaseImage | null>(null);
   const [inspirationExamples, setInspirationExamples] = useState<PromptExample[] | null>(null);
   const inspirationPool = useMemo(() => {
     const pool = inspirationExamples ? toInspirationPool(inspirationExamples, features) : [];
@@ -279,7 +281,8 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
   }, [showNextInspirations, showNextShowcasePage]);
 
   // 任一区域悬停或聚焦都暂停两边，保持同时翻牌。
-  const isCarouselPaused = isShowcasePaused || isInspirationPaused;
+  // 打开大图时卡片停在原处，关掉后焦点能回到点开的那张卡片
+  const isCarouselPaused = isShowcasePaused || isInspirationPaused || previewImage !== null;
   useEffect(() => {
     if (isCarouselPaused) return undefined;
     const intervalId = window.setInterval(
@@ -336,8 +339,8 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                 >
                   <button
                     type="button"
-                    onClick={() => onSelectPrompt(image.prompt)}
-                    aria-label={`做同款：${image.label}`}
+                    onClick={() => setPreviewImage(image)}
+                    aria-label={`查看大图：${image.label}`}
                     className="group relative block aspect-[4/5] w-full overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-fdv2-xs transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none"
                   >
                     <Image
@@ -352,14 +355,38 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                     <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/60 to-transparent px-3 pb-2.5 pt-8 text-left">
                       <span className="text-xs font-medium text-white">{image.label}</span>
                       <span className="flex items-center gap-1 text-[11px] text-white/90 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-                        <Wand2 className="h-3 w-3" aria-hidden="true" />
-                        做同款
+                        <Maximize2 className="h-3 w-3" aria-hidden="true" />
+                        查看
                       </span>
                     </span>
                   </button>
                 </div>
               ))}
             </div>
+            <ImageViewer
+              imageUrl={previewImage?.full_image_url ?? null}
+              alt={previewImage?.label}
+              onClose={() => setPreviewImage(null)}
+              footer={previewImage ? (
+                <div className="w-[min(92vw,640px)] rounded-xl border border-white/15 bg-black/60 p-4 text-white shadow-2xl backdrop-blur">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">{previewImage.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectPrompt(previewImage.prompt);
+                        setPreviewImage(null);
+                      }}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-sm font-medium text-black transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    >
+                      <Wand2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      做同款
+                    </button>
+                  </div>
+                  <p className="mt-2 max-h-24 overflow-y-auto text-xs leading-relaxed text-white/80">{previewImage.prompt}</p>
+                </div>
+              ) : null}
+            />
           </section>
         ) : null}
 

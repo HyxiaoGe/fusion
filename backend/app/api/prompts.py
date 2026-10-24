@@ -45,7 +45,17 @@ def get_showcase(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/showcase/{image_id}/image")
 async def get_showcase_image(image_id: str, db: Session = Depends(get_db)):
-    content = await home_showcase_service.read_showcase_image(db, image_id)
+    return await _showcase_image_response(db, image_id, full=False)
+
+
+@router.get("/showcase/{image_id}/image/full")
+async def get_showcase_full_image(image_id: str, db: Session = Depends(get_db)):
+    """点开卡片查看细节用的大图"""
+    return await _showcase_image_response(db, image_id, full=True)
+
+
+async def _showcase_image_response(db: Session, image_id: str, *, full: bool) -> Response:
+    content = await home_showcase_service.read_showcase_image(db, image_id, full=full)
     if content is None:
         raise HTTPException(status_code=404, detail="图片不存在")
     # 每张图的 id 唯一且内容不再变化，可以长期缓存

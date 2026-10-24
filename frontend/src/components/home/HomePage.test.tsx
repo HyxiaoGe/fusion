@@ -56,13 +56,15 @@ const SHOWCASE_IMAGES = [
   object_position: null,
   source_file_id: null,
   image_url: `/api/prompts/showcase/showcase-${index}/image`,
+  full_image_url: `/api/prompts/showcase/showcase-${index}/image/full`,
   width: 480,
   height: 600,
 }));
 
 function showcaseLabels(): string[] {
   return screen.getAllByTestId('showcase-card').map(
-    (card) => within(card).getByRole('button').getAttribute('aria-label') ?? '',
+    // 打开大图时背景被设为 aria-hidden，按 hidden 一并查
+    (card) => within(card).getByRole('button', { hidden: true }).getAttribute('aria-label') ?? '',
   );
 }
 
@@ -95,15 +97,45 @@ describe('HomePage', () => {
     });
   });
 
-  it('点击生图卡片只填入同款提示词，不直接创建会话', async () => {
+  it('点击生图卡片打开大图和提示词，点「做同款」才填入提示词并关闭', async () => {
     const onSelectPrompt = vi.fn();
 
     render(<HomePage onSelectPrompt={onSelectPrompt} features={REGISTERED_FEATURES} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '做同款：水彩插画' }));
+    fireEvent.click(await screen.findByRole('button', { name: '查看大图：水彩插画' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(onSelectPrompt).not.toHaveBeenCalled();
+    expect(within(dialog).getByText('画一只水彩风格的橘猫')).toBeInTheDocument();
+    expect(await within(dialog).findByRole('img', { name: '水彩插画' })).toHaveAttribute(
+      'src',
+      '/api/prompts/showcase/showcase-0/image/full',
+    );
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '做同款' }));
 
     expect(onSelectPrompt).toHaveBeenCalledTimes(1);
-    expect(onSelectPrompt).toHaveBeenCalledWith(expect.stringContaining('橘猫'));
+    expect(onSelectPrompt).toHaveBeenCalledWith('画一只水彩风格的橘猫');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('打开大图期间生图卡片不轮换', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const firstPage = showcaseLabels();
+
+      fireEvent.click(screen.getByRole('button', { name: '查看大图：水彩插画' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(showcaseLabels()).toEqual(firstPage);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('生图卡片只在确认开通生图后请求并展示', async () => {

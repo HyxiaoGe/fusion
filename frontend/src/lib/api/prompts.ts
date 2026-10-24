@@ -32,6 +32,8 @@ export interface ShowcaseImage {
   /** 从管理员生成图挑来时的原文件 */
   source_file_id: string | null;
   image_url: string;
+  /** 点开卡片查看细节的大图（长边 1600px） */
+  full_image_url: string;
   width: number;
   height: number;
 }
