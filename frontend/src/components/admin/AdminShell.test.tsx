@@ -31,11 +31,12 @@ describe('AdminShell', () => {
     expect(nav).toHaveTextContent('审计');
     expect(nav).toHaveTextContent('模型');
     expect(nav).toHaveTextContent('服务');
+    expect(nav).toHaveTextContent('运营');
     const hrefs = Array.from(nav.querySelectorAll('a')).map(link => link.getAttribute('href'));
     expect(hrefs).toEqual([
       '/admin/users', '/admin/conversations', '/admin/audit-log',
       '/admin/models', '/admin/model-visibility', '/admin/quality/itinerary',
-      '/admin/mcp', '/admin/usage',
+      '/admin/mcp', '/admin/usage', '/admin/home-showcase',
     ]);
     expect(screen.getByRole('link', { name: '对话' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: '用户' })).not.toHaveAttribute('aria-current');

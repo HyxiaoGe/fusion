@@ -20,3 +20,50 @@ interface PromptExamplesResponse {
 export async function fetchPromptExamples(limit: number = 8): Promise<PromptExamplesResponse> {
   return apiRequest<PromptExamplesResponse>(`${API_BASE_URL}/api/prompts/examples?limit=${limit}`);
 }
+
+export interface ShowcaseImage {
+  id: string;
+  /** 卡片角标：这张图代表的风格或能力 */
+  label: string;
+  /** 点击后填入输入框的提示词，用户可改了再发 */
+  prompt: string;
+  /** 卡片按 4:5 裁切；主体不在中间的图指定保留区域 */
+  object_position: 'top' | 'bottom' | null;
+  image_url: string;
+  width: number;
+  height: number;
+}
+
+interface ShowcaseImagesResponse {
+  images: ShowcaseImage[];
+}
+
+/** 首页生图示例卡片，管理员在管理中心维护 */
+export async function fetchShowcaseImages(): Promise<ShowcaseImagesResponse> {
+  return apiRequest<ShowcaseImagesResponse>(`${API_BASE_URL}/api/prompts/showcase`);
+}
+
+export async function fetchAdminShowcaseImages(): Promise<ShowcaseImagesResponse> {
+  return apiRequest<ShowcaseImagesResponse>(`${API_BASE_URL}/api/admin/home-showcase`);
+}
+
+export async function uploadShowcaseImage(input: {
+  file: File;
+  label: string;
+  prompt: string;
+  objectPosition: 'top' | 'bottom' | null;
+}): Promise<ShowcaseImage> {
+  const formData = new FormData();
+  formData.append('file', input.file);
+  formData.append('label', input.label);
+  formData.append('prompt', input.prompt);
+  if (input.objectPosition) formData.append('object_position', input.objectPosition);
+  return apiRequest<ShowcaseImage>(`${API_BASE_URL}/api/admin/home-showcase`, {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+export async function deleteShowcaseImage(id: string): Promise<void> {
+  await apiRequest(`${API_BASE_URL}/api/admin/home-showcase/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
