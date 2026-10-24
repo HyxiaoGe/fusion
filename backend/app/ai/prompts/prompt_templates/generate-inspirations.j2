@@ -4,12 +4,23 @@ Today is {{ today }} (Beijing time).
 
 Capabilities (key: what the prompts should ask for, and how many to write):
 {{ capabilities }}
+{% if headlines %}
+Trending headlines from major Chinese platforms in the latest crawl (platform in parentheses):
+{{ headlines }}
 
+Base every news and research prompt on one of these headlines, so the home page reflects what people are talking about today. Prompts for all other capabilities ignore the headlines:
+- news: ask about the background, latest developments or impact of the event.
+- research: turn a product, company or industry from the headlines into a comparison or analysis question.
+- Use each headline at most once, and spread prompts across different topics and platforms.
+- Skip headlines that are unsuitable as a casual home page suggestion: disasters, accidents and safety incidents of any kind, crime, political or military conflicts, celebrity gossip and private lives, and anything that reads like a rumor.
+- Do not ask whether to buy, sell or hold a specific stock, fund or other financial product; ask about the market or industry instead.
+- Name the topic using only what the headline says; do not add numbers, quotes or claims that are not in it.
+{% endif %}
 Requirements:
 1. Write every prompt in natural, casual Simplified Chinese, the way a real user would type it, within 25 characters.
 2. Each prompt must be answerable by the matching capability without any follow-up from the user.
 3. When a prompt depends on time, use relative words such as today, tomorrow or this week (written in Chinese), or a date on or after today. Never mention a date before today.
-4. Do not invent specific news events, prices or facts. Ask open questions instead.
+4. Do not invent specific news events, prices or facts.{% if not headlines %} Ask open questions instead.{% endif %}
 5. Vary cities, topics and styles across prompts; no two prompts should be near-duplicates.
 
 Return only a JSON object whose keys are the capability keys above and whose values are arrays of prompt strings, with no other text.

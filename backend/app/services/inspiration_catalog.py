@@ -50,7 +50,7 @@ INSPIRATION_CAPABILITIES: tuple[InspirationCapability, ...] = (
     InspirationCapability(
         key="news",
         label="联网查新闻",
-        guidance="让 AI 联网查最近的新闻和动态，用开放式问法，例如「最近 AI 圈有什么大新闻」，不要编造具体事件",
+        guidance="让 AI 联网查新闻：围绕当下的热点问来龙去脉、最新进展或影响",
         count=5,
         ttl_hours=30,
     ),
@@ -64,7 +64,7 @@ INSPIRATION_CAPABILITIES: tuple[InspirationCapability, ...] = (
     InspirationCapability(
         key="research",
         label="调研分析",
-        guidance="需要查多方资料再对比分析的问题：选购对比、行业现状、方案优劣",
+        guidance="需要查多方资料再对比分析的问题：选购对比、行业现状、方案优劣，可以围绕热点里的产品、公司或行业",
         count=4,
         ttl_hours=7 * 24,
     ),

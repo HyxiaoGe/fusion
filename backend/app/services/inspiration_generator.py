@@ -2,6 +2,7 @@
 
 用辅助模型按 inspiration_catalog 的每个功能出当天的题，写入示例池；每道题按功能设有效期，
 天气、新闻这类时效题第二天就下架。每天凌晨跑一次，多个 worker 用 Redis 锁保证同一天只跑一份。
+新闻、调研题参考 TrendRadar 当天热榜标题出题；热榜取不到时记警告，这两类退回开放式问法。
 出题失败只记日志，池子里还没过期的题照常展示。
 """
 
@@ -17,6 +18,7 @@ import litellm
 from app.ai.llm_observability import merge_litellm_kwargs
 from app.ai.prompts import prompt_manager
 from app.core.revocation import get_redis
+from app.services.external.trends_client import fetch_latest_headlines
 from app.services.inspiration_catalog import INSPIRATION_CAPABILITIES
 from app.services.prompt_examples_service import store_prompt_examples
 from app.services.utility_model import UTILITY_MODEL_ID, resolve_utility_model
@@ -30,6 +32,8 @@ _TIMEOUT_SECONDS = 90
 _MAX_TOKENS = 2048
 _MAX_QUESTION_CHARS = 40
 _LOCK_TTL_SECONDS = 6 * 3600
+# 热榜按各平台排名交错返回，60 条约覆盖每个平台前五；够模型挑，又不至于把提示词撑太长。
+_HEADLINE_LIMIT = 60
 
 
 def _capabilities_text() -> str:
@@ -75,10 +79,16 @@ async def generate_daily_inspirations(*, now: datetime | None = None) -> int:
 
     current = (now or datetime.now(_CHINA_TZ)).astimezone(_CHINA_TZ).replace(tzinfo=None)
     today: date = current.date()
+    try:
+        headlines = await fetch_latest_headlines(limit=_HEADLINE_LIMIT, scene="daily_inspiration")
+    except Exception as exc:
+        logger.warning("今日灵感取热榜失败，新闻与调研题改用开放式问法: %s", type(exc).__name__)
+        headlines = []
     prompt, prompt_metadata = prompt_manager.format_prompt_with_metadata(
         "generate_inspirations",
         today=f"{today.isoformat()} 星期{_WEEKDAYS[today.weekday()]}",
         capabilities=_capabilities_text(),
+        headlines="\n".join(f"- {headline}" for headline in headlines),
     )
     model, _, kwargs = resolve_utility_model(UTILITY_MODEL_ID)
     response = await litellm.acompletion(

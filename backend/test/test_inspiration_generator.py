@@ -59,18 +59,45 @@ def test_generate_stores_parsed_questions():
         choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)))]
     )
     store = AsyncMock(return_value=len(payload))
+    headlines = AsyncMock(return_value=["某品牌发布新款折叠屏手机（微博）", "国产大模型更新推理能力（知乎）"])
     with (
+        patch.object(inspiration_generator, "fetch_latest_headlines", headlines),
         patch.object(inspiration_generator.litellm, "acompletion", AsyncMock(return_value=response)) as completion,
         patch.object(inspiration_generator, "store_prompt_examples", store),
     ):
         added = asyncio.run(inspiration_generator.generate_daily_inspirations())
 
     assert added == len(payload)
+    assert headlines.await_args.kwargs == {"limit": 60, "scene": "daily_inspiration"}
     prompt = completion.await_args.kwargs["messages"][0]["content"]
     assert "image:" in prompt and "星期" in prompt
+    assert "- 某品牌发布新款折叠屏手机（微博）" in prompt
+    assert "Base every news and research prompt on one of these headlines" in prompt
+    assert "Ask open questions instead" not in prompt
     stored, kwargs = store.await_args.args[0], store.await_args.kwargs
     assert kwargs == {"source": "catalog"}
     assert {item["category"] for item in stored} == set(payload)
+
+
+def test_generate_falls_back_to_open_questions_when_headlines_unavailable():
+    payload = {"news": ["最近科技圈有什么值得关注的事"]}
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)))]
+    )
+    store = AsyncMock(return_value=1)
+    with (
+        patch.object(
+            inspiration_generator, "fetch_latest_headlines", AsyncMock(side_effect=RuntimeError("gateway down"))
+        ),
+        patch.object(inspiration_generator.litellm, "acompletion", AsyncMock(return_value=response)) as completion,
+        patch.object(inspiration_generator, "store_prompt_examples", store),
+    ):
+        added = asyncio.run(inspiration_generator.generate_daily_inspirations())
+
+    assert added == 1
+    prompt = completion.await_args.kwargs["messages"][0]["content"]
+    assert "Trending headlines" not in prompt
+    assert "Ask open questions instead" in prompt
 
 
 class _FakeRedis:
