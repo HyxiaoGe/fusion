@@ -119,7 +119,8 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
   const [showcaseStartIndex, setShowcaseStartIndex] = useState(0);
   const [isShowcaseFlipped, setIsShowcaseFlipped] = useState(false);
   const [isShowcasePaused, setIsShowcasePaused] = useState(false);
-  const [previewImage, setPreviewImage] = useState<ShowcaseImage | null>(null);
+  // 预览中的图在整个图片池里的位置，左右切换按池顺序循环
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [inspirationExamples, setInspirationExamples] = useState<PromptExample[] | null>(null);
   const inspirationPool = useMemo(() => {
     const pool = inspirationExamples ? toInspirationPool(inspirationExamples, features) : [];
@@ -139,6 +140,20 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
   const inspirationMeasureRef = useRef<HTMLDivElement>(null);
   const showcaseFlipTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const flipTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const previewImage = previewIndex !== null ? showcaseImages[previewIndex] ?? null : null;
+  const stepPreview = useCallback((delta: number) => {
+    setPreviewIndex((current) => (
+      current === null ? null : (current + delta + showcaseImages.length) % showcaseImages.length
+    ));
+  }, [showcaseImages.length]);
+  useEffect(() => {
+    if (previewIndex === null || showcaseImages.length < 2) return;
+    // 预取左右两张大图，切换时不用再等加载
+    for (const delta of [-1, 1]) {
+      const neighbor = showcaseImages[(previewIndex + delta + showcaseImages.length) % showcaseImages.length];
+      new window.Image().src = neighbor.full_image_url;
+    }
+  }, [previewIndex, showcaseImages]);
   const visibleShowcase = useMemo(() => {
     if (showcaseImages.length <= SHOWCASE_PAGE_SIZE) {
       return showcaseImages;
@@ -339,7 +354,7 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                 >
                   <button
                     type="button"
-                    onClick={() => setPreviewImage(image)}
+                    onClick={() => setPreviewIndex(showcaseImages.findIndex((item) => item.id === image.id))}
                     aria-label={`查看大图：${image.label}`}
                     className="group relative block aspect-[4/5] w-full overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-fdv2-xs transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none"
                   >
@@ -366,16 +381,25 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
             <ImageViewer
               imageUrl={previewImage?.full_image_url ?? null}
               alt={previewImage?.label}
-              onClose={() => setPreviewImage(null)}
+              onClose={() => setPreviewIndex(null)}
+              onPrevious={showcaseImages.length > 1 ? () => stepPreview(-1) : undefined}
+              onNext={showcaseImages.length > 1 ? () => stepPreview(1) : undefined}
               footer={previewImage ? (
                 <div className="w-[min(92vw,640px)] rounded-xl border border-white/15 bg-black/60 p-4 text-white shadow-2xl backdrop-blur">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium">{previewImage.label}</span>
+                    <span className="flex items-baseline gap-2">
+                      <span className="text-sm font-medium">{previewImage.label}</span>
+                      {showcaseImages.length > 1 ? (
+                        <span className="text-xs tabular-nums text-white/60">
+                          {(previewIndex ?? 0) + 1} / {showcaseImages.length}
+                        </span>
+                      ) : null}
+                    </span>
                     <button
                       type="button"
                       onClick={() => {
                         onSelectPrompt(previewImage.prompt);
-                        setPreviewImage(null);
+                        setPreviewIndex(null);
                       }}
                       className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-sm font-medium text-black transition-colors hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                     >

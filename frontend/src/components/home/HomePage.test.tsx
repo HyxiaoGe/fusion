@@ -119,6 +119,28 @@ describe('HomePage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('预览里按钮和左右方向键按图片池顺序循环切换', async () => {
+    render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看大图：水彩插画' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('1 / 8')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一张' }));
+    expect(within(dialog).getByText('设计一张咖啡店开业海报')).toBeInTheDocument();
+    expect(within(dialog).getByText('2 / 8')).toBeInTheDocument();
+
+    fireEvent.keyDown(dialog, { key: 'ArrowLeft' });
+    fireEvent.keyDown(dialog, { key: 'ArrowLeft' });
+    // 第一张往前回到池里最后一张（不在当前这组卡片里）
+    expect(within(dialog).getByText('拍一张海边灯塔的夕阳')).toBeInTheDocument();
+    expect(within(dialog).getByText('8 / 8')).toBeInTheDocument();
+    expect(await within(dialog).findByRole('img', { name: '风景摄影' })).toHaveAttribute(
+      'src',
+      '/api/prompts/showcase/showcase-7/image/full',
+    );
+  });
+
   it('打开大图期间生图卡片不轮换', async () => {
     vi.useFakeTimers();
     try {

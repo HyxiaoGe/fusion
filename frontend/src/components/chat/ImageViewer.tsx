@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
-import { ImageOff, Loader2, RefreshCw, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ImageOff, Loader2, RefreshCw, X } from 'lucide-react';
 import { getFileUrl } from '@/lib/api/files';
 import type { FileBlock } from '@/types/conversation';
 import ZoomableImage from './ZoomableImage';
@@ -48,6 +48,8 @@ export function __clearImageViewerUrlCacheForTest() {
   resolvedFileUrlCache.clear();
 }
 
+const NAV_BUTTON_CLASS = 'fixed top-1/2 z-[60] flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/25 bg-black/55 text-white shadow-lg backdrop-blur transition-colors hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-white/70';
+
 interface ImageViewerProps {
   /** 模式一：传入 FileBlock，自动加载原图（消息气泡中使用） */
   fileBlock?: FileBlock | null;
@@ -59,6 +61,9 @@ interface ImageViewerProps {
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
   /** 图片下方的说明与操作（如首页示例图的提示词和「做同款」） */
   footer?: React.ReactNode;
+  /** 传入时显示左右切换按钮，并响应键盘左右方向键 */
+  onPrevious?: () => void;
+  onNext?: () => void;
   onClose: () => void;
 }
 
@@ -67,7 +72,16 @@ interface ImageViewerProps {
  * - 消息气泡：传 fileBlock，自动请求原图 URL
  * - 输入框预览：传 imageUrl（blob URL），直接展示
  */
-const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, alt, referrerPolicy, footer, onClose }) => {
+const ImageViewer: React.FC<ImageViewerProps> = ({
+  fileBlock,
+  imageUrl,
+  alt,
+  referrerPolicy,
+  footer,
+  onPrevious,
+  onNext,
+  onClose,
+}) => {
   const [fullImageUrl, setFullImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -165,6 +179,15 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, alt, ref
           event.preventDefault();
           onClose();
         }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft' && onPrevious) {
+            event.preventDefault();
+            onPrevious();
+          } else if (event.key === 'ArrowRight' && onNext) {
+            event.preventDefault();
+            onNext();
+          }
+        }}
       >
         <VisuallyHidden.Root>
           <DialogTitle>{altText}</DialogTitle>
@@ -178,6 +201,26 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ fileBlock, imageUrl, alt, ref
         >
           <X className="h-4 w-4" aria-hidden="true" />
         </button>
+        {onPrevious ? (
+          <button
+            type="button"
+            aria-label="上一张"
+            onClick={onPrevious}
+            className={`${NAV_BUTTON_CLASS} left-3 sm:left-6`}
+          >
+            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+          </button>
+        ) : null}
+        {onNext ? (
+          <button
+            type="button"
+            aria-label="下一张"
+            onClick={onNext}
+            className={`${NAV_BUTTON_CLASS} right-3 sm:right-6`}
+          >
+            <ChevronRight className="h-5 w-5" aria-hidden="true" />
+          </button>
+        ) : null}
         <div
           data-testid="image-preview-dismiss-surface"
           className="absolute inset-0 flex h-full w-full flex-col items-center justify-center gap-4 px-4 py-12"
