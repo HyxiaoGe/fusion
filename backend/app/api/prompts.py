@@ -1,7 +1,7 @@
 # app/api/prompts.py
 import asyncio
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -144,37 +144,6 @@ async def add_showcase_from_generated(
         resource_id=row.id,
         request_id=request.state.request_id,
         metadata={"label": row.label, "source_file_id": payload.file_id},
-    )
-    return success(data=home_showcase_service.serialize_showcase_image(row), request_id=request.state.request_id)
-
-
-@admin_router.post("")
-async def add_showcase_admin(
-    request: Request,
-    file: UploadFile = File(...),
-    label: str = Form(...),
-    prompt: str = Form(...),
-    object_position: str | None = Form(default=None),
-    db: Session = Depends(get_db),
-    admin: UserModel = Depends(get_current_admin_user),
-    audit_service: AdminAuditService = Depends(get_admin_audit_service),
-):
-    content = await file.read()
-    row = await home_showcase_service.add_showcase_image(
-        db,
-        content=content,
-        label=label,
-        prompt=prompt,
-        object_position=object_position,
-        created_by=str(admin.id),
-    )
-    audit_service._record(
-        admin=admin,
-        action="admin.home_showcase.create",
-        resource_type="home_showcase_image",
-        resource_id=row.id,
-        request_id=request.state.request_id,
-        metadata={"label": row.label},
     )
     return success(data=home_showcase_service.serialize_showcase_image(row), request_id=request.state.request_id)
 

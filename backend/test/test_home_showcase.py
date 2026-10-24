@@ -245,13 +245,13 @@ def _client(db, *, admin=True):
     return TestClient(app), audit_calls
 
 
-def test_admin_upload_then_public_list_and_image(db, storage):
+def test_admin_pool_image_then_public_list_images_and_unpublish(db, storage):
+    _seed_generated(db)
     client, audit_calls = _client(db)
 
     created = client.post(
-        "/api/admin/home-showcase",
-        files={"file": ("cat.png", _png(600, 600), "image/png")},
-        data={"label": "水彩插画", "prompt": "画一只水彩风格的橘猫"},
+        "/api/admin/home-showcase/from-generated",
+        json={"file_id": "f-a", "label": "水彩插画", "prompt": "初版"},
     )
     assert created.status_code == 200
     image = created.json()["data"]
@@ -266,12 +266,28 @@ def test_admin_upload_then_public_list_and_image(db, storage):
     assert "immutable" in response.headers["cache-control"]
     full = client.get(image["full_image_url"])
     assert full.status_code == 200
-    assert Image.open(io.BytesIO(full.content)).size == (600, 600)
+    assert Image.open(io.BytesIO(full.content)).size == (864, 1312)
 
+    # 下架即移出图片池，原图回到挑选列表
     assert client.delete(f"/api/admin/home-showcase/{image['id']}").status_code == 200
     assert client.get("/api/prompts/showcase").json()["data"]["images"] == []
     assert client.get(image["image_url"]).status_code == 404
     assert client.get(image["full_image_url"]).status_code == 404
+    assert storage.objects == {}
+    hidden = client.get("/api/admin/home-showcase/generated", params={"hide_in_pool": "true"}).json()["data"]
+    assert [item["file_id"] for item in hidden["groups"][0]["versions"]] == ["f-e", "f-b", "f-a"]
+
+
+def test_manual_upload_endpoint_is_gone(db, storage):
+    client, _ = _client(db)
+
+    response = client.post(
+        "/api/admin/home-showcase",
+        files={"file": ("cat.png", _png(600, 600), "image/png")},
+        data={"label": "水彩插画", "prompt": "画一只水彩风格的橘猫"},
+    )
+
+    assert response.status_code == 405
     assert storage.objects == {}
 
 
@@ -325,12 +341,12 @@ def test_admin_picks_own_generated_image_into_pool(db, storage):
 
 
 def test_admin_endpoints_require_admin(db, storage):
+    _seed_generated(db)
     client, _ = _client(db, admin=False)
 
     response = client.post(
-        "/api/admin/home-showcase",
-        files={"file": ("cat.png", _png(600, 600), "image/png")},
-        data={"label": "水彩插画", "prompt": "画一只水彩风格的橘猫"},
+        "/api/admin/home-showcase/from-generated",
+        json={"file_id": "f-a", "label": "水彩插画", "prompt": "初版"},
     )
 
     assert response.status_code in {401, 403}
