@@ -93,9 +93,9 @@ const FALLBACK_INSPIRATIONS = [
 ];
 
 const SHOWCASE_PAGE_SIZE = 4;
-const SHOWCASE_ROTATE_INTERVAL = 6_000;
+// 生图卡片和今日灵感共用一个节拍同时翻牌
+const CAROUSEL_ROTATE_INTERVAL = 6_000;
 const INSPIRATION_FETCH_LIMIT = 50;
-const INSPIRATION_ROTATE_INTERVAL = 15_000;
 const CAROUSEL_FLIP_STAGGER = 80;
 const CAROUSEL_REPLACE_PADDING = 300;
 const CAROUSEL_FLIP_BACK_DELAY = 50;
@@ -270,49 +270,31 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
     return () => observer.disconnect();
   }, [inspirationPool]);
 
-  useEffect(() => {
-    if (
-      isInspirationPaused
-      || inspirations.length === 0
-      || inspirationPool.length <= inspirations.length
-    ) {
-      return undefined;
-    }
+  const showNextInspirations = useCallback(() => {
+    if (inspirations.length === 0 || inspirationPool.length <= inspirations.length) return;
 
-    const intervalId = window.setInterval(() => {
-      const nextStartIndex = (inspirationStartIndex + inspirations.length) % inspirationPool.length;
-      const nextInspirations = fitInspirationRows(
-        inspirationPool,
-        nextStartIndex,
-        inspirationLayout.containerWidth,
-        inspirationLayout.measuredWidths,
-      );
-      if (nextInspirations.length === 0) return;
+    const nextStartIndex = (inspirationStartIndex + inspirations.length) % inspirationPool.length;
+    const nextInspirations = fitInspirationRows(
+      inspirationPool,
+      nextStartIndex,
+      inspirationLayout.containerWidth,
+      inspirationLayout.measuredWidths,
+    );
+    if (nextInspirations.length === 0) return;
 
-      flipTimeoutsRef.current.forEach(clearTimeout);
-      flipTimeoutsRef.current = [];
-      setAreInspirationsFlipped(true);
+    flipTimeoutsRef.current.forEach(clearTimeout);
+    flipTimeoutsRef.current = [];
+    setAreInspirationsFlipped(true);
 
-      const replaceDelay = inspirations.length * CAROUSEL_FLIP_STAGGER
-        + CAROUSEL_REPLACE_PADDING;
+    const replaceDelay = inspirations.length * CAROUSEL_FLIP_STAGGER
+      + CAROUSEL_REPLACE_PADDING;
+    flipTimeoutsRef.current.push(setTimeout(() => {
+      setInspirationStartIndex(nextStartIndex);
       flipTimeoutsRef.current.push(setTimeout(() => {
-        setInspirationStartIndex(nextStartIndex);
-        flipTimeoutsRef.current.push(setTimeout(() => {
-          setAreInspirationsFlipped(false);
-        }, CAROUSEL_FLIP_BACK_DELAY));
-      }, replaceDelay));
-    }, INSPIRATION_ROTATE_INTERVAL);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [
-    inspirationLayout,
-    inspirationPool,
-    inspirationStartIndex,
-    inspirations,
-    isInspirationPaused,
-  ]);
+        setAreInspirationsFlipped(false);
+      }, CAROUSEL_FLIP_BACK_DELAY));
+    }, replaceDelay));
+  }, [inspirationLayout, inspirationPool, inspirationStartIndex, inspirations]);
 
   const showNextShowcasePage = useCallback(() => {
     if (showcaseImages.length <= SHOWCASE_PAGE_SIZE) return;
@@ -333,11 +315,25 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
     }, replaceDelay));
   }, [showcaseImages.length]);
 
+  // 翻牌回调随轮换状态更新；计时器只读最新回调，避免每次翻牌后重建而拉长周期。
+  const rotateCarouselsRef = useRef(() => {});
   useEffect(() => {
-    if (isShowcasePaused || showcaseImages.length <= SHOWCASE_PAGE_SIZE) return undefined;
-    const intervalId = window.setInterval(showNextShowcasePage, SHOWCASE_ROTATE_INTERVAL);
+    rotateCarouselsRef.current = () => {
+      showNextShowcasePage();
+      showNextInspirations();
+    };
+  }, [showNextInspirations, showNextShowcasePage]);
+
+  // 任一区域悬停或聚焦都暂停两边，保持同时翻牌。
+  const isCarouselPaused = isShowcasePaused || isInspirationPaused;
+  useEffect(() => {
+    if (isCarouselPaused) return undefined;
+    const intervalId = window.setInterval(
+      () => rotateCarouselsRef.current(),
+      CAROUSEL_ROTATE_INTERVAL,
+    );
     return () => window.clearInterval(intervalId);
-  }, [isShowcasePaused, showNextShowcasePage, showcaseImages.length]);
+  }, [isCarouselPaused]);
 
   return (
     <div className="flex min-h-full items-center justify-center px-4 pb-20 pt-8 sm:pb-24">
