@@ -237,6 +237,8 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"prompt": "x", "model": "doubao-seedream-5-0-pro"},
             {"prompt": "x", "source_image_id": 5},
             {"prompt": "x", "reference_images": [SOURCE_URL]},
+            {"prompt": "x", "title": 3},
+            {"prompt": "x", "title": "超" * 13},
         ):
             with self.subTest(args=args):
                 self.assertTrue(handler.validate_arguments(args))
@@ -325,6 +327,18 @@ class ImageServiceToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(properties["quality"]["enum"], ["standard", "high"])
         self.assertNotIn("model", properties)
         self.assertNotIn("search the web", properties["prompt"]["description"])
+
+    async def test_title_is_kept_on_block_but_not_sent_to_service(self):
+        handler, client, *_ = self.build_handler()
+
+        titled = await handler.execute({"prompt": "a fox", "title": " 水彩插画 "})
+        untitled = await handler.execute({"prompt": "a fox", "title": " "})
+
+        self.assertNotIn("title", client.calls[0][2])
+        self.assertEqual(handler.build_content_block(titled, "blk_1", "log_1").title, "水彩插画")
+        self.assertIsNone(handler.build_content_block(untitled, "blk_2", "log_2").title)
+        properties = build_generate_image_definition()["function"]["parameters"]["properties"]
+        self.assertEqual(properties["title"]["maxLength"], 12)
 
     async def test_reference_subject_is_passed_only_when_given(self):
         handler, client, *_ = self.build_handler()

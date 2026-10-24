@@ -121,8 +121,9 @@ def _seed_generated(db):
     db.add(Conversation(id="conv-1", user_id="admin-1", title="生图", model_id="m"))
     db.add(Conversation(id="conv-2", user_id="user-2", title="别人的", model_id="m"))
 
-    def image_block(file_id, prompt):
-        return {"type": "generated_image", "file_id": file_id, "prompt": prompt, "width": 864, "height": 1312}
+    def image_block(file_id, prompt, title=None):
+        block = {"type": "generated_image", "file_id": file_id, "prompt": prompt, "width": 864, "height": 1312}
+        return {**block, "title": title} if title else block
 
     db.add(Message(id="m1", conversation_id="conv-1", role="assistant", content=[image_block("f-old", "旧图")]))
     db.add(
@@ -130,7 +131,11 @@ def _seed_generated(db):
             id="m2",
             conversation_id="conv-1",
             role="assistant",
-            content=[{"type": "text", "content": "好的"}, image_block("f-new", "新图"), image_block("f-old", "旧图")],
+            content=[
+                {"type": "text", "content": "好的"},
+                image_block("f-new", "新图", "信息图"),
+                image_block("f-old", "旧图"),
+            ],
         )
     )
     db.add(Message(id="m3", conversation_id="conv-1", role="user", content=[image_block("f-user", "用户消息")]))
@@ -147,8 +152,8 @@ def test_list_generated_images_only_own_assistant_images_newest_first(db):
     images = home_showcase_service.list_generated_images(db, "admin-1")
 
     assert images == [
-        {"file_id": "f-new", "prompt": "新图", "width": 864, "height": 1312},
-        {"file_id": "f-old", "prompt": "旧图", "width": 864, "height": 1312},
+        {"file_id": "f-new", "prompt": "新图", "title": "信息图", "width": 864, "height": 1312},
+        {"file_id": "f-old", "prompt": "旧图", "title": None, "width": 864, "height": 1312},
     ]
 
 

@@ -71,6 +71,8 @@ export interface GeneratedShowcaseCandidate {
   file_id: string;
   /** 生成这张图时的提示词 */
   prompt: string;
+  /** 模型生成时起的简短名称，旧图没有 */
+  title: string | null;
   width: number | null;
   height: number | null;
   thumbnail_url: string;

@@ -47,8 +47,8 @@ describe('HomeShowcaseManager', () => {
     addShowcaseFromGeneratedMock.mockReset();
     fetchGeneratedShowcaseCandidatesMock.mockResolvedValue({
       images: [
-        { file_id: 'f-new', prompt: '一张通货膨胀成因的信息图海报', width: 864, height: 1312, thumbnail_url: '/signed/f-new', in_pool: false },
-        { file_id: 'f-old', prompt: '水墨白鹭', width: 864, height: 864, thumbnail_url: '/signed/f-old', in_pool: true },
+        { file_id: 'f-new', prompt: '一张通货膨胀成因的信息图海报', title: '信息图', width: 864, height: 1312, thumbnail_url: '/signed/f-new', in_pool: false },
+        { file_id: 'f-old', prompt: '水墨白鹭', title: null, width: 864, height: 864, thumbnail_url: '/signed/f-old', in_pool: true },
       ],
     });
     fetchAdminShowcaseImagesMock.mockResolvedValue({
@@ -56,7 +56,7 @@ describe('HomeShowcaseManager', () => {
     });
   });
 
-  it('从自己的生成图挑选，提示词默认沿用生成时的原文，加入后标为已在图片池', async () => {
+  it('从自己的生成图挑选，标签和提示词默认沿用生成时的名称和原文，加入后标为已在图片池', async () => {
     addShowcaseFromGeneratedMock.mockResolvedValue(
       showcaseImage('infographic', '信息图', '一张通货膨胀成因的信息图海报', 'f-new'),
     );
@@ -66,8 +66,8 @@ describe('HomeShowcaseManager', () => {
     expect(within(picker).getAllByText('已在图片池')).toHaveLength(1);
     fireEvent.click(within(picker).getByRole('button', { name: '一张通货膨胀成因的信息图海报' }));
     expect(screen.getByLabelText('做同款提示词')).toHaveValue('一张通货膨胀成因的信息图海报');
+    expect(screen.getByLabelText('标签')).toHaveValue('信息图');
 
-    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '信息图' } });
     fireEvent.click(screen.getByRole('button', { name: /添加到图片池/ }));
 
     await waitFor(() => expect(addShowcaseFromGeneratedMock).toHaveBeenCalledWith({
@@ -84,6 +84,10 @@ describe('HomeShowcaseManager', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除信息图' }));
     fireEvent.click(screen.getByRole('button', { name: '确认删除信息图' }));
     await waitFor(() => expect(within(picker).getAllByText('已在图片池')).toHaveLength(1));
+
+    // 旧图没有名称，标签留空等手填
+    fireEvent.click(within(picker).getByRole('button', { name: '水墨白鹭' }));
+    expect(screen.getByLabelText('标签')).toHaveValue('');
   });
 
   it('上传图片、标签、提示词和裁切位置后追加到图片池末尾', async () => {

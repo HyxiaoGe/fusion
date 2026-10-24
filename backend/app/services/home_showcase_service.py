@@ -153,6 +153,7 @@ def list_generated_images(db: Session, user_id: str) -> list[dict]:
                 {
                     "file_id": file_id,
                     "prompt": str(block.get("prompt") or ""),
+                    "title": block.get("title") if isinstance(block.get("title"), str) else None,
                     "width": block.get("width"),
                     "height": block.get("height"),
                 }
