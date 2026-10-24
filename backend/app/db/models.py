@@ -708,6 +708,8 @@ class HomeShowcaseImage(Base):
     width = Column(Integer, nullable=False)
     height = Column(Integer, nullable=False)
     created_by = Column(String, nullable=True)
+    # 从管理员生成过的图里挑来的，记下原文件，挑选列表据此标出已在图片池
+    source_file_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
 
 

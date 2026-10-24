@@ -54,6 +54,7 @@ const SHOWCASE_IMAGES = [
   ...image,
   id: `showcase-${index}`,
   object_position: null,
+  source_file_id: null,
   image_url: `/api/prompts/showcase/showcase-${index}/image`,
   width: 480,
   height: 600,

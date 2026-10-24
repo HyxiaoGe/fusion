@@ -1,6 +1,6 @@
 """首页生图示例卡片的图片池。
 
-管理员上传图片并写好「做同款」提示词，首页按添加顺序轮换展示。图片统一转成短边 480px 的 WebP
+管理员上传图片或从自己生成过的图里挑，写好「做同款」提示词，首页按添加顺序轮换展示。图片统一转成短边 480px 的 WebP
 存进文件存储，经公开接口读取：首页是匿名可见的，不能用用户私有文件的签名地址。
 """
 
@@ -11,20 +11,24 @@ import io
 import uuid
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from sqlalchemy import Text, cast
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logger import app_logger as logger
-from app.db.models import HomeShowcaseImage
+from app.db.models import Conversation, HomeShowcaseImage, Message
 from app.services.storage import get_storage, get_storage_for_backend
 
 MAX_LABEL_CHARS = 12
-MAX_PROMPT_CHARS = 500
+# 与生图提示词上限一致，挑生成图时可以直接沿用原提示词
+MAX_PROMPT_CHARS = 1000
 OBJECT_POSITIONS = frozenset({"top", "bottom"})
 # 卡片在桌面端约 184px 宽，480px 短边覆盖 2 倍屏
 _SHORT_SIDE = 480
 _WEBP_QUALITY = 82
 _STORAGE_PREFIX = "home-showcase"
+# 挑选列表只看最近这么多条带生成图的回复
+_GENERATED_MESSAGE_LIMIT = 100
 
 
 class ShowcaseImageError(ValueError):
@@ -41,6 +45,7 @@ def serialize_showcase_image(row: HomeShowcaseImage) -> dict:
         "label": row.label,
         "prompt": row.prompt,
         "object_position": row.object_position,
+        "source_file_id": row.source_file_id,
         "image_url": f"/api/prompts/showcase/{row.id}/image",
         "width": row.width,
         "height": row.height,
@@ -79,6 +84,7 @@ async def add_showcase_image(
     prompt: str,
     object_position: str | None,
     created_by: str,
+    source_file_id: str | None = None,
 ) -> HomeShowcaseImage:
     label = _normalize_text(label, field="标签", limit=MAX_LABEL_CHARS)
     prompt = _normalize_text(prompt, field="提示词", limit=MAX_PROMPT_CHARS)
@@ -105,6 +111,7 @@ async def add_showcase_image(
         width=width,
         height=height,
         created_by=created_by,
+        source_file_id=source_file_id,
     )
     try:
         db.add(row)
@@ -115,6 +122,42 @@ async def add_showcase_image(
         raise
     db.refresh(row)
     return row
+
+
+def list_generated_images(db: Session, user_id: str) -> list[dict]:
+    """该用户最近生成过的图片（新的在前），带生成时的提示词，供挑进图片池。"""
+
+    rows = (
+        db.query(Message.content)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(
+            Conversation.user_id == user_id,
+            Message.role == "assistant",
+            cast(Message.content, Text).like('%"generated_image"%'),
+        )
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(_GENERATED_MESSAGE_LIMIT)
+        .all()
+    )
+    images: list[dict] = []
+    seen: set[str] = set()
+    for (content,) in rows:
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict) or block.get("type") != "generated_image":
+                continue
+            file_id = block.get("file_id")
+            if not isinstance(file_id, str) or not file_id or file_id in seen:
+                continue
+            seen.add(file_id)
+            images.append(
+                {
+                    "file_id": file_id,
+                    "prompt": str(block.get("prompt") or ""),
+                    "width": block.get("width"),
+                    "height": block.get("height"),
+                }
+            )
+    return images
 
 
 async def delete_showcase_image(db: Session, image_id: str) -> bool:
