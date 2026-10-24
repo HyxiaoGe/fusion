@@ -78,6 +78,12 @@ describe('HomeShowcaseManager', () => {
     }));
     await waitFor(() => expect(within(picker).getAllByText('已在图片池')).toHaveLength(2));
     expect(uploadShowcaseImageMock).not.toHaveBeenCalled();
+
+    // 从池里删掉后，挑选列表里的标记跟着撤掉
+    deleteShowcaseImageMock.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole('button', { name: '删除信息图' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认删除信息图' }));
+    await waitFor(() => expect(within(picker).getAllByText('已在图片池')).toHaveLength(1));
   });
 
   it('上传图片、标签、提示词和裁切位置后追加到图片池末尾', async () => {
