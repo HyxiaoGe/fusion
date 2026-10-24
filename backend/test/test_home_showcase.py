@@ -154,12 +154,28 @@ def _seed_generated(db):
 def test_list_generated_images_only_own_assistant_images_newest_first(db):
     _seed_generated(db)
 
-    images = home_showcase_service.list_generated_images(db, "admin-1")
+    images, next_cursor = home_showcase_service.list_generated_images(db, "admin-1")
 
+    assert next_cursor is None
     assert images == [
         {"file_id": "f-new", "prompt": "新图", "title": "信息图", "width": 864, "height": 1312},
         {"file_id": "f-old", "prompt": "旧图", "title": None, "width": 864, "height": 1312},
     ]
+
+
+def test_list_generated_images_pages_by_message(db):
+    _seed_generated(db)
+
+    first, cursor = home_showcase_service.list_generated_images(db, "admin-1", page_messages=1)
+    second, last_cursor = home_showcase_service.list_generated_images(
+        db, "admin-1", after_message_id=cursor, page_messages=1
+    )
+
+    # 第一页是最新那条回复里的两张图，第二页是更早一条回复（同一张图在第二页不再去重，由前端合并）
+    assert (cursor, [image["file_id"] for image in first]) == ("m2", ["f-new", "f-old"])
+    assert [image["file_id"] for image in second] == ["f-old"]
+    assert last_cursor == "m1"
+    assert home_showcase_service.list_generated_images(db, "admin-1", after_message_id=last_cursor) == ([], None)
 
 
 class FakeFileService:
@@ -229,7 +245,9 @@ def test_admin_picks_own_generated_image_into_pool(db, storage):
     _seed_generated(db)
     client, audit_calls = _client(db)
 
-    generated = client.get("/api/admin/home-showcase/generated").json()["data"]["images"]
+    listed = client.get("/api/admin/home-showcase/generated").json()["data"]
+    assert listed["next_cursor"] is None
+    generated = listed["images"]
     assert [(item["file_id"], item["thumbnail_url"], item["in_pool"]) for item in generated] == [
         ("f-new", "/signed/f-new/thumbnail", False),
         ("f-old", "/signed/f-old/thumbnail", False),

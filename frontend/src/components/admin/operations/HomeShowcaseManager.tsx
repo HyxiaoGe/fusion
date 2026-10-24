@@ -41,6 +41,8 @@ export default function HomeShowcaseManager() {
   const [source, setSource] = useState<'generated' | 'upload'>('generated');
   const [candidates, setCandidates] = useState<GeneratedShowcaseCandidate[] | null>(null);
   const [candidatesError, setCandidatesError] = useState<string | null>(null);
+  const [candidatesCursor, setCandidatesCursor] = useState<string | null>(null);
+  const [loadingMoreCandidates, setLoadingMoreCandidates] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [label, setLabel] = useState('');
@@ -67,10 +69,30 @@ export default function HomeShowcaseManager() {
     try {
       const data = await fetchGeneratedShowcaseCandidates();
       setCandidates(data.images);
+      setCandidatesCursor(data.next_cursor);
     } catch (error) {
       setCandidatesError(errorMessage(error, '生成图列表加载失败'));
     }
   }, []);
+
+  const loadMoreCandidates = async () => {
+    if (!candidatesCursor || loadingMoreCandidates) return;
+    setLoadingMoreCandidates(true);
+    setCandidatesError(null);
+    try {
+      const data = await fetchGeneratedShowcaseCandidates(candidatesCursor);
+      setCandidates((current) => {
+        // 同一张图可能出现在相邻两页的不同回复里
+        const known = new Set((current ?? []).map((candidate) => candidate.file_id));
+        return [...(current ?? []), ...data.images.filter((candidate) => !known.has(candidate.file_id))];
+      });
+      setCandidatesCursor(data.next_cursor);
+    } catch (error) {
+      setCandidatesError(errorMessage(error, '生成图列表加载失败'));
+    } finally {
+      setLoadingMoreCandidates(false);
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -191,6 +213,19 @@ export default function HomeShowcaseManager() {
                       </li>
                     );
                   })}
+                  {candidatesCursor ? (
+                    <li className="col-span-full flex justify-center py-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={loadingMoreCandidates}
+                        onClick={() => void loadMoreCandidates()}
+                      >
+                        {loadingMoreCandidates ? '加载中…' : '加载更早的图'}
+                      </Button>
+                    </li>
+                  ) : null}
                 </ul>
               ) : null}
               <p className="mt-1.5 text-xs text-muted-foreground">只列你自己生成过的图；选中后标签和提示词默认用生成时的名称和原文，可以改。</p>
@@ -268,6 +303,8 @@ export default function HomeShowcaseManager() {
               <img
                 src={image.image_url}
                 alt={image.prompt}
+                loading="lazy"
+                decoding="async"
                 className="aspect-[4/5] w-full bg-muted object-cover"
                 style={image.object_position ? { objectPosition: image.object_position } : undefined}
               />

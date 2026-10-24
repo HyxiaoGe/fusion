@@ -42,6 +42,16 @@ const INSPIRATION_ROW_COUNT = 2;
 const INSPIRATION_GAP = 8;
 const DEFAULT_INSPIRATION_WIDTH = 768;
 
+/** 每次进首页打乱示例图顺序，图片池变大后新加的图也有同等机会被看到 */
+function shuffled<T>(items: readonly T[]): T[] {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+
 function estimateInspirationWidth(question: string): number {
   const textWidth = Array.from(question).reduce((width, character) => (
     width + (/[^\u0000-\u00ff]/.test(character) ? 12 : 7)
@@ -200,7 +210,7 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
     let cancelled = false;
     void fetchShowcaseImages()
       .then((data) => {
-        if (!cancelled) setShowcasePool(data.images);
+        if (!cancelled) setShowcasePool(shuffled(data.images));
       })
       .catch(() => {
         // 示例图取不到时不展示这一块，首页其他内容照常

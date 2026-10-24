@@ -81,8 +81,15 @@ export interface GeneratedShowcaseCandidate {
   in_pool: boolean;
 }
 
-export async function fetchGeneratedShowcaseCandidates(): Promise<{ images: GeneratedShowcaseCandidate[] }> {
-  return apiRequest<{ images: GeneratedShowcaseCandidate[] }>(`${API_BASE_URL}/api/admin/home-showcase/generated`);
+export interface GeneratedShowcaseCandidatesPage {
+  images: GeneratedShowcaseCandidate[];
+  /** 下一页的起点，没有更多时为 null */
+  next_cursor: string | null;
+}
+
+export async function fetchGeneratedShowcaseCandidates(cursor?: string | null): Promise<GeneratedShowcaseCandidatesPage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  return apiRequest<GeneratedShowcaseCandidatesPage>(`${API_BASE_URL}/api/admin/home-showcase/generated${query}`);
 }
 
 export async function addShowcaseFromGenerated(input: {

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 const { fetchPromptExamplesMock, fetchShowcaseImagesMock, preloadChatMessageListMock } = vi.hoisted(() => ({
   fetchPromptExamplesMock: vi.fn(),
@@ -69,7 +69,15 @@ function showcaseLabels(): string[] {
 }
 
 describe('HomePage', () => {
+  let randomSpy: MockInstance<() => number>;
+
+  afterEach(() => {
+    randomSpy.mockRestore();
+  });
+
   beforeEach(() => {
+    // 示例图每次进首页会打乱；随机数取接近 1 时洗牌不交换，其余用例按池原顺序断言
+    randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.999999);
     preloadChatMessageListMock.mockReset();
     fetchPromptExamplesMock.mockReset();
     fetchShowcaseImagesMock.mockReset();
@@ -139,6 +147,20 @@ describe('HomePage', () => {
       'src',
       '/api/prompts/showcase/showcase-7/image/full',
     );
+  });
+
+  it('每次进首页打乱示例图顺序', async () => {
+    randomSpy.mockReturnValue(0);
+
+    render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
+    await screen.findAllByTestId('showcase-card');
+
+    expect(showcaseLabels()).toEqual([
+      '查看大图：中文海报',
+      '查看大图：赛博朋克',
+      '查看大图：美食摄影',
+      '查看大图：萌宠头像',
+    ]);
   });
 
   it('打开大图期间生图卡片不轮换', async () => {
