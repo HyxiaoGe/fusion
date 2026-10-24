@@ -19,6 +19,8 @@ interface ShowcaseImage {
   label: string;
   /** 点击后填入输入框的提示词，用户可改了再发 */
   prompt: string;
+  /** 卡片按 4:5 裁切；主体不在中间的图（如顶部标题）指定保留区域 */
+  objectPosition?: string;
 }
 
 // 从过往生成的图里挑的代表作，覆盖插画、海报、带中文字、头像、写实摄影几类；不放真实品牌和 IP。
@@ -34,6 +36,7 @@ const SHOWCASE_IMAGES: ShowcaseImage[] = [
     src: '/assets/home-showcase/cafe-opening-poster.webp',
     label: '中文海报',
     prompt: '帮我做一张竖版咖啡馆开业海报，暖色调，主标题「新店开业」，副标题「香气与暖意，正式营业」',
+    objectPosition: 'top',
   },
   {
     id: 'cyberpunk-rain',
@@ -392,6 +395,7 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                       alt={image.prompt}
                       fill
                       sizes="(min-width: 640px) 184px, 45vw"
+                      style={image.objectPosition ? { objectPosition: image.objectPosition } : undefined}
                       className="object-cover transition-transform duration-500 group-hover:scale-[1.03] motion-reduce:transition-none"
                     />
                     <span className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/60 to-transparent px-3 pb-2.5 pt-8 text-left">
