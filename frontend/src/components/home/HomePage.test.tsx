@@ -156,6 +156,40 @@ describe('HomePage', () => {
     }
   });
 
+  it('生图卡片和今日灵感按同一节拍同时翻牌，悬停任一区域两边都暂停', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<HomePage onSelectPrompt={vi.fn()} features={REGISTERED_FEATURES} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const firstInspiration = () => within(screen.getByTestId('inspiration-cloud')).getAllByRole('button')[0];
+
+      // 每次 act 结束才会执行翻牌引起的 effect，分段推进才能暴露「翻牌后重建计时器拉长周期」。
+      for (const untilTick of [6_001, 4_999]) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(untilTick);
+        });
+        expect(screen.getAllByTestId('showcase-card')[0]).toHaveStyle({ transform: 'rotateX(90deg)' });
+        expect(firstInspiration()).toHaveStyle({ transform: 'rotateX(90deg)' });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000);
+        });
+        expect(screen.getAllByTestId('showcase-card')[0]).toHaveStyle({ transform: 'rotateX(0deg)' });
+        expect(firstInspiration()).toHaveStyle({ transform: 'rotateX(0deg)' });
+      }
+
+      const showcaseBefore = showcaseLabels();
+      fireEvent.mouseEnter(screen.getByTestId('inspiration-cloud').closest('section') ?? screen.getByTestId('inspiration-cloud'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(showcaseLabels()).toEqual(showcaseBefore);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('首屏立即稳定展示两行灵感', () => {
     fetchPromptExamplesMock.mockReturnValue(new Promise(() => {}));
 
@@ -222,7 +256,7 @@ describe('HomePage', () => {
       expect(beforeRotation.length).toBeGreaterThan(4);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(16000);
+        await vi.advanceTimersByTimeAsync(7_001);
       });
 
       const afterRotation = within(inspirationRegion).getAllByRole('button').map(
