@@ -3,13 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   fetchAdminShowcaseImagesMock,
-  uploadShowcaseImageMock,
   deleteShowcaseImageMock,
   fetchGeneratedShowcaseCandidatesMock,
   addShowcaseFromGeneratedMock,
 } = vi.hoisted(() => ({
   fetchAdminShowcaseImagesMock: vi.fn(),
-  uploadShowcaseImageMock: vi.fn(),
   deleteShowcaseImageMock: vi.fn(),
   fetchGeneratedShowcaseCandidatesMock: vi.fn(),
   addShowcaseFromGeneratedMock: vi.fn(),
@@ -17,7 +15,6 @@ const {
 
 vi.mock('@/lib/api/prompts', () => ({
   fetchAdminShowcaseImages: fetchAdminShowcaseImagesMock,
-  uploadShowcaseImage: uploadShowcaseImageMock,
   deleteShowcaseImage: deleteShowcaseImageMock,
   fetchGeneratedShowcaseCandidates: fetchGeneratedShowcaseCandidatesMock,
   addShowcaseFromGenerated: addShowcaseFromGeneratedMock,
@@ -53,7 +50,6 @@ function showcaseImage(id: string, label: string, prompt: string, sourceFileId: 
 describe('HomeShowcaseManager', () => {
   beforeEach(() => {
     fetchAdminShowcaseImagesMock.mockReset();
-    uploadShowcaseImageMock.mockReset();
     deleteShowcaseImageMock.mockReset();
     fetchGeneratedShowcaseCandidatesMock.mockReset();
     addShowcaseFromGeneratedMock.mockReset();
@@ -92,13 +88,16 @@ describe('HomeShowcaseManager', () => {
       objectPosition: null,
     }));
     await waitFor(() => expect(within(picker).getAllByText('已在图片池')).toHaveLength(2));
-    expect(uploadShowcaseImageMock).not.toHaveBeenCalled();
 
-    // 从池里删掉后，挑选列表里的标记跟着撤掉
+    // 下架后原地刷新挑选列表，以后端返回为准，不清空列表
     deleteShowcaseImageMock.mockResolvedValue(undefined);
-    fireEvent.click(screen.getByRole('button', { name: '删除信息图' }));
-    fireEvent.click(screen.getByRole('button', { name: '确认删除信息图' }));
+    fireEvent.click(screen.getByRole('button', { name: '下架信息图' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认下架信息图' }));
+    await waitFor(() => expect(deleteShowcaseImageMock).toHaveBeenCalledWith('infographic'));
+    await waitFor(() => expect(fetchGeneratedShowcaseCandidatesMock).toHaveBeenCalledTimes(3));
+    expect(fetchGeneratedShowcaseCandidatesMock).toHaveBeenLastCalledWith({ hideInPool: false });
     await waitFor(() => expect(within(picker).getAllByText('已在图片池')).toHaveLength(1));
+    expect(screen.getByRole('list', { name: '我的生成图' })).toBe(picker);
 
     // 旧图没有名称，标签留空等手填
     fireEvent.click(within(picker).getByRole('button', { name: '水墨白鹭' }));
@@ -193,26 +192,23 @@ describe('HomeShowcaseManager', () => {
     expect(within(picker).queryByRole('button', { name: '加载更早的图' })).toBeNull();
   });
 
-  it('上传图片、标签、提示词和裁切位置后追加到图片池末尾', async () => {
-    uploadShowcaseImageMock.mockResolvedValue(showcaseImage('poster', '中文海报', '设计一张咖啡店开业海报'));
+  it('标签去掉首尾空格、带上裁切位置，加入后追加到图片池末尾', async () => {
+    addShowcaseFromGeneratedMock.mockResolvedValue(showcaseImage('poster', '中文海报', '水墨白鹭', 'f-old'));
     render(<HomeShowcaseManager />);
-    expect(await screen.findByText('水彩插画')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('上传图片'));
+    fireEvent.click(await screen.findByLabelText('隐藏已在图片池的图'));
+    const picker = await screen.findByRole('list', { name: '我的生成图' });
 
     const submit = screen.getByRole('button', { name: /添加到图片池/ });
     expect(submit).toBeDisabled();
-
-    const file = new File(['png'], 'poster.png', { type: 'image/png' });
-    fireEvent.change(screen.getByLabelText('图片'), { target: { files: [file] } });
+    fireEvent.click(within(picker).getByRole('button', { name: '水墨白鹭' }));
     fireEvent.change(screen.getByLabelText('标签'), { target: { value: ' 中文海报 ' } });
-    fireEvent.change(screen.getByLabelText('做同款提示词'), { target: { value: '设计一张咖啡店开业海报' } });
     fireEvent.click(screen.getByLabelText('保留顶部'));
     fireEvent.click(submit);
 
-    await waitFor(() => expect(uploadShowcaseImageMock).toHaveBeenCalledWith({
-      file,
+    await waitFor(() => expect(addShowcaseFromGeneratedMock).toHaveBeenCalledWith({
+      fileId: 'f-old',
       label: '中文海报',
-      prompt: '设计一张咖啡店开业海报',
+      prompt: '水墨白鹭',
       objectPosition: 'top',
     }));
     const pool = screen.getByRole('list', { name: '图片池' });
@@ -224,28 +220,33 @@ describe('HomeShowcaseManager', () => {
     expect(screen.getByLabelText('标签')).toHaveValue('');
   });
 
-  it('上传失败时展示后端给出的原因', async () => {
-    uploadShowcaseImageMock.mockRejectedValue(new Error('图片无法读取，请换一张'));
+  it('添加失败时展示后端给出的原因', async () => {
+    addShowcaseFromGeneratedMock.mockRejectedValue(new Error('图片无法读取，请换一张'));
     render(<HomeShowcaseManager />);
-    await screen.findByText('水彩插画');
-    fireEvent.click(screen.getByLabelText('上传图片'));
+    const picker = await screen.findByRole('list', { name: '我的生成图' });
 
-    fireEvent.change(screen.getByLabelText('图片'), { target: { files: [new File(['x'], 'x.png', { type: 'image/png' })] } });
-    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '海报' } });
-    fireEvent.change(screen.getByLabelText('做同款提示词'), { target: { value: '海报' } });
+    fireEvent.click(within(picker).getByRole('button', { name: '一张通货膨胀成因的信息图海报' }));
     fireEvent.click(screen.getByRole('button', { name: /添加到图片池/ }));
 
     expect(await screen.findByText('图片无法读取，请换一张')).toBeInTheDocument();
   });
 
-  it('删除要再点一次确认', async () => {
+  it('不再提供上传图片入口', async () => {
+    render(<HomeShowcaseManager />);
+    await screen.findByRole('list', { name: '我的生成图' });
+
+    expect(screen.queryByLabelText('上传图片')).toBeNull();
+    expect(screen.queryByLabelText('图片')).toBeNull();
+  });
+
+  it('下架要再点一次确认', async () => {
     deleteShowcaseImageMock.mockResolvedValue(undefined);
     render(<HomeShowcaseManager />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '删除水彩插画' }));
+    fireEvent.click(await screen.findByRole('button', { name: '下架水彩插画' }));
     expect(deleteShowcaseImageMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: '确认删除水彩插画' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认下架水彩插画' }));
     await waitFor(() => expect(deleteShowcaseImageMock).toHaveBeenCalledWith('cat'));
     expect(await screen.findByText('图片池是空的，首页不会展示生图示例')).toBeInTheDocument();
   });

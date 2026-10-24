@@ -51,23 +51,6 @@ export async function fetchAdminShowcaseImages(): Promise<ShowcaseImagesResponse
   return apiRequest<ShowcaseImagesResponse>(`${API_BASE_URL}/api/admin/home-showcase`);
 }
 
-export async function uploadShowcaseImage(input: {
-  file: File;
-  label: string;
-  prompt: string;
-  objectPosition: 'top' | 'bottom' | null;
-}): Promise<ShowcaseImage> {
-  const formData = new FormData();
-  formData.append('file', input.file);
-  formData.append('label', input.label);
-  formData.append('prompt', input.prompt);
-  if (input.objectPosition) formData.append('object_position', input.objectPosition);
-  return apiRequest<ShowcaseImage>(`${API_BASE_URL}/api/admin/home-showcase`, {
-    method: 'POST',
-    body: formData,
-  });
-}
-
 /** 当前管理员自己生成过的图，供挑进图片池 */
 export interface GeneratedShowcaseCandidate {
   file_id: string;
