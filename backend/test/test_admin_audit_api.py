@@ -177,21 +177,160 @@ class AdminAuditApiTests(unittest.TestCase):
         self.assertEqual(allowed.json()["data"]["total"], 2)
 
     def test_sensitive_reads_are_redacted_and_write_audit_events(self):
-        user_response = self.client.get(
-            "/api/admin/audit/users/user-1",
+        users_response = self.client.get(
+            "/api/admin/audit/users",
             headers={"X-Admin-Audit-Reason": "support-investigation"},
         )
         messages_response = self.client.get("/api/admin/audit/conversations/conv-1/messages")
         events_response = self.client.get("/api/admin/audit/events")
 
-        self.assertEqual(user_response.status_code, 200)
-        self.assertNotIn("secret-token", user_response.text)
+        self.assertEqual(users_response.status_code, 200)
+        self.assertNotIn("secret-token", users_response.text)
+        self.assertNotIn("alice@example.com", users_response.text)
         self.assertEqual(messages_response.status_code, 200)
         self.assertNotIn("message-secret", messages_response.text)
         actions = [item["action"] for item in events_response.json()["data"]["items"]]
-        self.assertIn("admin.audit.user.view", actions)
+        self.assertIn("admin.audit.users.list", actions)
         self.assertIn("admin.audit.messages.list", actions)
         self.assertNotIn("message-secret", events_response.text)
+
+    def test_user_detail_route_is_removed(self):
+        self.assertEqual(self.client.get("/api/admin/audit/users/user-1").status_code, 404)
+
+    def test_users_sort_by_last_active_across_pages_and_filter_guests(self):
+        from app.db.models import Conversation, Message, User
+
+        # bob 注册最晚但从未对话，guest 注册最早但最近活跃；分页前就要按活跃时间排好。
+        self.db.add_all(
+            [
+                User(
+                    id="guest-1",
+                    username="guest-abc",
+                    nickname="游客",
+                    is_guest=True,
+                    created_at=datetime(2026, 7, 1),
+                    updated_at=datetime(2026, 7, 1),
+                ),
+                User(
+                    id="bob",
+                    username="bob",
+                    created_at=datetime(2026, 7, 20),
+                    updated_at=datetime(2026, 7, 20),
+                ),
+                Conversation(
+                    id="conv-guest",
+                    user_id="guest-1",
+                    title="游客对话",
+                    model_id="auto",
+                    created_at=datetime(2026, 7, 1),
+                    updated_at=datetime(2026, 7, 15),
+                ),
+                Message(id="g-u1", conversation_id="conv-guest", role="user", content=[], sequence=1),
+                Message(
+                    id="g-a1",
+                    conversation_id="conv-guest",
+                    role="assistant",
+                    content=[],
+                    sequence=2,
+                    usage={"input_tokens": 10, "output_tokens": 5},
+                ),
+            ]
+        )
+        self.db.commit()
+
+        first = self.client.get("/api/admin/audit/users", params={"page_size": 2}).json()["data"]
+        second = self.client.get("/api/admin/audit/users", params={"page_size": 2, "page": 2}).json()["data"]
+        ordered = [item["id"] for item in first["items"] + second["items"]]
+        guests = self.client.get("/api/admin/audit/users", params={"is_guest": "true"}).json()["data"]
+
+        self.assertEqual(ordered, ["guest-1", "user-1", "bob", "admin-1"])
+        self.assertEqual(first["items"][0]["question_count"], 1)
+        self.assertTrue(first["items"][0]["is_guest"])
+        self.assertEqual([item["id"] for item in guests["items"]], ["guest-1"])
+
+    def test_conversation_rows_count_questions_and_list_actual_answer_models(self):
+        from app.db.models import Conversation, Message
+
+        self.db.add_all(
+            [
+                Conversation(id="conv-auto", user_id="user-1", title="自动模型", model_id="auto"),
+                *[
+                    Message(id=f"q{index}", conversation_id="conv-auto", role="user", content=[], sequence=index * 2)
+                    for index in range(3)
+                ],
+                *[
+                    Message(
+                        id=f"a{index}",
+                        conversation_id="conv-auto",
+                        role="assistant",
+                        content=[],
+                        sequence=index * 2 + 1,
+                        model_id=model_id,
+                    )
+                    for index, model_id in enumerate(["mimo", "deepseek-chat", "mimo"])
+                ],
+            ]
+        )
+        self.db.commit()
+
+        response = self.client.get("/api/admin/audit/conversations/conv-auto")
+        item = response.json()["data"]
+
+        self.assertEqual(item["model_id"], "auto")
+        self.assertEqual(item["question_count"], 3)
+        self.assertEqual(item["answer_model_ids"], ["mimo", "deepseek-chat"])
+
+    def test_messages_and_runs_share_turn_numbers_in_chronological_order(self):
+        from app.db.models import AgentSession, Message
+
+        created = datetime(2026, 7, 11, 12, 0, 0)
+        self.db.add_all(
+            [
+                Message(
+                    id="msg-2",
+                    conversation_id="conv-1",
+                    role="assistant",
+                    content=[],
+                    sequence=2,
+                    model_id="deepseek-chat",
+                    usage={"input_tokens": 28759, "output_tokens": 1258, "cache_read_tokens": 24576},
+                ),
+                Message(id="msg-3", conversation_id="conv-1", role="user", content=[], sequence=3),
+                Message(id="msg-4", conversation_id="conv-1", role="assistant", content=[], sequence=4),
+            ]
+        )
+        self.db.query(Message).filter(Message.id == "msg-1").update({"sequence": 1})
+        for run_id, message_id, minute in (("run-late", "msg-4", 5), ("run-early", "msg-2", 1)):
+            self.db.add(
+                AgentSession(
+                    id=run_id,
+                    conversation_id="conv-1",
+                    message_id=message_id,
+                    user_id="user-1",
+                    model_id="mimo",
+                    provider="openai",
+                    status="completed",
+                    created_at=created.replace(minute=minute),
+                )
+            )
+        self.db.commit()
+
+        messages = self.client.get("/api/admin/audit/conversations/conv-1/messages").json()["data"]["items"]
+        runs = self.client.get("/api/admin/audit/conversations/conv-1/agent-runs").json()["data"]["items"]
+
+        self.assertEqual(
+            [(item["id"], item["turn_index"]) for item in messages],
+            [
+                ("msg-1", 1),
+                ("msg-2", 1),
+                ("msg-3", 2),
+                ("msg-4", 2),
+            ],
+        )
+        self.assertEqual(messages[1]["usage"]["cache_read_tokens"], 24576)
+        self.assertEqual([(run["id"], run["turn_index"]) for run in runs], [("run-early", 1), ("run-late", 2)])
+        self.assertEqual(runs[0]["model_id"], "mimo")
+        self.assertEqual(runs[0]["answer_model_id"], "deepseek-chat")
 
     def test_itinerary_stability_returns_bounded_safe_aggregates(self):
         from app.db.models import AgentSession, Message, ToolCallLog

@@ -185,11 +185,12 @@ class AdminAuditRepositoryTests(unittest.TestCase):
 
         self.assertEqual(user_total, 1)
         self.assertEqual(users[0]["conversation_count"], 1)
-        self.assertEqual(users[0]["message_count"], 2)
+        self.assertEqual(users[0]["question_count"], 1)
         self.assertEqual(users[0]["input_tokens"], 12)
         self.assertEqual(conversation_total, 1)
         self.assertEqual(conversations[0]["tool_call_count"], 1)
         self.assertEqual(conversations[0]["file_count"], 1)
+        self.assertEqual(conversations[0]["question_count"], 1)
         self.assertEqual(conversations[0]["latest_agent_status"], "completed")
 
     def test_partition_queries_keep_unknown_blocks_and_group_agent_steps(self):

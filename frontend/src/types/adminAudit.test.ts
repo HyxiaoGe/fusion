@@ -20,23 +20,23 @@ describe('管理员审计后端 DTO 契约', () => {
   it('锁定用户、对话、消息、Agent、工具和文件的 snake_case 字段', () => {
     const user = {
       id: 'user-1', username: 'sean', nickname: null, email_masked: 's***@example.com',
-      is_superuser: false, created_at: null, updated_at: null, last_active_at: null,
-      conversation_count: 1, message_count: 2, tool_call_count: 3,
+      is_superuser: false, is_guest: false, created_at: null, updated_at: null, last_active_at: null,
+      conversation_count: 1, question_count: 2, tool_call_count: 3,
       input_tokens: 10, output_tokens: 20,
     } satisfies AdminUserSummary;
     const conversation = {
       id: 'conv-1', title: '会话', model_id: 'gpt-5', created_at: null, updated_at: null,
       user: { id: user.id, username: user.username, nickname: user.nickname, email_masked: user.email_masked },
-      message_count: 2, tool_call_count: 3, file_count: 1,
+      answer_model_ids: ['gpt-5'], question_count: 2, tool_call_count: 3, file_count: 1,
       input_tokens: 10, output_tokens: 20, latest_agent_status: 'completed',
     } satisfies AdminConversationSummary;
     const message = {
-      id: 'message-1', role: 'assistant', content: [{ type: 'text', id: 'b1', text: '回答' }],
-      model_id: 'gpt-5', usage: { input_tokens: 10, output_tokens: 20 },
+      id: 'message-1', turn_index: 1, role: 'assistant', content: [{ type: 'text', id: 'b1', text: '回答' }],
+      model_id: 'gpt-5', usage: { input_tokens: 10, output_tokens: 20, cache_read_tokens: 5 },
       suggested_questions: [], created_at: null,
     } satisfies AdminMessageRecord;
     const run = {
-      id: 'run-1', message_id: message.id, user_id: user.id, model_id: 'gpt-5', provider: 'openai',
+      id: 'run-1', message_id: message.id, turn_index: 1, user_id: user.id, model_id: 'gpt-5', answer_model_id: 'gpt-5', provider: 'openai',
       config: { max_steps: 8 }, total_steps: 1, total_tool_calls: 1, total_duration_ms: 42,
       status: 'completed', limit_reason: null, error: null, created_at: null, progress: null,
       steps: [{

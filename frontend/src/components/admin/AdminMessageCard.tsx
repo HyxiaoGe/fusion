@@ -6,7 +6,7 @@ import { Bot, CheckCircle, ChevronDown, FileText, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import type { AdminJsonValue, AdminKnownContentBlock, AdminMessageRecord } from '@/types/adminAudit';
 import AdminSafeMarkdown from './AdminSafeMarkdown';
-import { formatAdminDate } from './AdminPanelPrimitives';
+import { formatAdminDate, formatNumber } from './AdminPanelPrimitives';
 import styles from './AdminSurface.module.css';
 
 const KNOWN_BLOCK_TYPES = new Set(['text', 'thinking', 'file', 'search', 'url_read']);
@@ -31,6 +31,7 @@ export default function AdminMessageCard({ message }: { message: AdminMessageRec
         <div className={styles.messageIdentity}>
           {isUser ? <User className="h-4 w-4" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
           <h3 className="text-sm font-medium">{isUser ? '用户' : '助手'}</h3>
+          {isUser && message.turn_index ? <span className="text-xs text-muted-foreground">第 {message.turn_index} 轮</span> : null}
           {message.model_id ? <Badge variant="outline" className="max-w-full whitespace-normal break-all">{message.model_id}</Badge> : null}
         </div>
         <div className="text-xs text-muted-foreground">
@@ -70,7 +71,9 @@ export default function AdminMessageCard({ message }: { message: AdminMessageRec
 
       {message.usage ? (
         <footer className={styles.messageFooter}>
-          输入 {message.usage.input_tokens} · 输出 {message.usage.output_tokens} tokens
+          输入 {formatNumber(message.usage.input_tokens)}
+          {message.usage.cache_read_tokens ? `（缓存命中 ${formatNumber(message.usage.cache_read_tokens)}）` : ''}
+          {' · '}输出 {formatNumber(message.usage.output_tokens)} tokens
         </footer>
       ) : null}
     </article>

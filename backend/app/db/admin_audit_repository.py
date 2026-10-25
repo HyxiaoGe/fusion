@@ -55,9 +55,18 @@ class AdminAuditRepository:
         page_size: int,
         query: str | None = None,
         is_superuser: bool | None = None,
+        is_guest: bool | None = None,
         created_from: datetime | None = None,
         created_to: datetime | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
+        last_active = (
+            self.db.query(
+                Conversation.user_id.label("user_id"),
+                func.max(Conversation.updated_at).label("last_active_at"),
+            )
+            .group_by(Conversation.user_id)
+            .subquery()
+        )
         users_query = self.db.query(User)
         if query and query.strip():
             pattern = f"%{query.strip()}%"
@@ -71,37 +80,37 @@ class AdminAuditRepository:
             )
         if is_superuser is not None:
             users_query = users_query.filter(User.is_superuser.is_(is_superuser))
+        if is_guest is not None:
+            users_query = users_query.filter(User.is_guest.is_(is_guest))
         if created_from is not None:
             users_query = users_query.filter(User.created_at >= created_from)
         if created_to is not None:
             users_query = users_query.filter(User.created_at <= created_to)
         total = users_query.count()
-        users = (
-            users_query.order_by(User.created_at.desc(), User.id.desc())
+        # 活跃时间要参与分页前的排序，否则只是页内重排；没有对话的用户排在最后。
+        rows = (
+            users_query.outerjoin(last_active, last_active.c.user_id == User.id)
+            .add_columns(last_active.c.last_active_at)
+            .order_by(last_active.c.last_active_at.desc().nullslast(), User.created_at.desc(), User.id.desc())
             .offset(self._offset(page, page_size))
             .limit(page_size)
             .all()
         )
-        user_ids = [row.id for row in users]
+        user_ids = [user.id for user, _ in rows]
         if not user_ids:
             return [], total
 
-        conversation_stats = {
-            user_id: (count, last_active)
-            for user_id, count, last_active in self.db.query(
-                Conversation.user_id,
-                func.count(Conversation.id),
-                func.max(Conversation.updated_at),
-            )
+        conversation_counts = dict(
+            self.db.query(Conversation.user_id, func.count(Conversation.id))
             .filter(Conversation.user_id.in_(user_ids))
             .group_by(Conversation.user_id)
             .all()
-        }
+        )
         message_stats = {
             user_id: (count, input_tokens or 0, output_tokens or 0)
             for user_id, count, input_tokens, output_tokens in self.db.query(
                 Conversation.user_id,
-                func.count(Message.id),
+                func.count(Message.id).filter(Message.role == "user"),
                 func.sum(cast(Message.usage["input_tokens"].as_string(), Integer)),
                 func.sum(cast(Message.usage["output_tokens"].as_string(), Integer)),
             )
@@ -117,51 +126,20 @@ class AdminAuditRepository:
             .all()
         )
         items = []
-        for user in users:
-            conversation_count, last_active = conversation_stats.get(user.id, (0, None))
-            message_count, input_tokens, output_tokens = message_stats.get(user.id, (0, 0, 0))
+        for user, last_active_at in rows:
+            question_count, input_tokens, output_tokens = message_stats.get(user.id, (0, 0, 0))
             items.append(
                 {
                     "user": user,
-                    "last_active_at": last_active,
-                    "conversation_count": conversation_count,
-                    "message_count": message_count,
+                    "last_active_at": last_active_at,
+                    "conversation_count": conversation_counts.get(user.id, 0),
+                    "question_count": question_count,
                     "tool_call_count": tool_counts.get(user.id, 0),
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                 }
             )
         return items, total
-
-    def get_user(self, user_id: str) -> dict[str, Any] | None:
-        user = self.db.query(User).filter(User.id == user_id).first()
-        if user is None:
-            return None
-        conversation_count, last_active = (
-            self.db.query(func.count(Conversation.id), func.max(Conversation.updated_at))
-            .filter(Conversation.user_id == user.id)
-            .one()
-        )
-        message_count, input_tokens, output_tokens = (
-            self.db.query(
-                func.count(Message.id),
-                func.sum(cast(Message.usage["input_tokens"].as_string(), Integer)),
-                func.sum(cast(Message.usage["output_tokens"].as_string(), Integer)),
-            )
-            .join(Conversation, Conversation.id == Message.conversation_id)
-            .filter(Conversation.user_id == user.id)
-            .one()
-        )
-        tool_count = self.db.query(func.count(ToolCallLog.id)).filter(ToolCallLog.user_id == user.id).scalar() or 0
-        return {
-            "user": user,
-            "last_active_at": last_active,
-            "conversation_count": conversation_count or 0,
-            "message_count": message_count or 0,
-            "tool_call_count": tool_count,
-            "input_tokens": input_tokens or 0,
-            "output_tokens": output_tokens or 0,
-        }
 
     def list_conversations(
         self,
@@ -234,7 +212,7 @@ class AdminAuditRepository:
             conversation_id: (count, input_tokens or 0, output_tokens or 0)
             for conversation_id, count, input_tokens, output_tokens in self.db.query(
                 Message.conversation_id,
-                func.count(Message.id),
+                func.count(Message.id).filter(Message.role == "user"),
                 func.sum(cast(Message.usage["input_tokens"].as_string(), Integer)),
                 func.sum(cast(Message.usage["output_tokens"].as_string(), Integer)),
             )
@@ -242,6 +220,20 @@ class AdminAuditRepository:
             .group_by(Message.conversation_id)
             .all()
         }
+        # 对话上存的是用户选择（可能是 auto），实际回答模型以各条回答记录为准，按回答次数排序。
+        answer_models: dict[str, list[str]] = {}
+        for conversation_id, answer_model_id, _ in (
+            self.db.query(Message.conversation_id, Message.model_id, func.count(Message.id))
+            .filter(
+                Message.conversation_id.in_(conversation_ids),
+                Message.role == "assistant",
+                Message.model_id.isnot(None),
+            )
+            .group_by(Message.conversation_id, Message.model_id)
+            .order_by(Message.conversation_id, func.count(Message.id).desc(), Message.model_id)
+            .all()
+        ):
+            answer_models.setdefault(conversation_id, []).append(answer_model_id)
         tool_counts = dict(
             self.db.query(ToolCallLog.conversation_id, func.count(ToolCallLog.id))
             .filter(ToolCallLog.conversation_id.in_(conversation_ids))
@@ -275,12 +267,13 @@ class AdminAuditRepository:
         )
         result = []
         for conversation in conversations:
-            message_count, input_tokens, output_tokens = message_stats.get(conversation.id, (0, 0, 0))
+            question_count, input_tokens, output_tokens = message_stats.get(conversation.id, (0, 0, 0))
             result.append(
                 {
                     "conversation": conversation,
                     "user": users.get(conversation.user_id),
-                    "message_count": message_count,
+                    "answer_model_ids": answer_models.get(conversation.id, []),
+                    "question_count": question_count,
                     "tool_call_count": tool_counts.get(conversation.id, 0),
                     "file_count": file_counts.get(conversation.id, 0),
                     "input_tokens": input_tokens,
@@ -300,19 +293,29 @@ class AdminAuditRepository:
         row = self.db.query(Conversation.user_id).filter(Conversation.id == conversation_id).first()
         return row[0] if row else None
 
+    @staticmethod
+    def _message_order() -> tuple[Any, ...]:
+        return (Message.sequence.asc().nullsfirst(), Message.created_at.asc(), Message.id.asc())
+
+    def message_turns(self, conversation_id: str) -> dict[str, int]:
+        """按消息顺序给每条消息标第几轮：每条用户提问开启新一轮，回答归入前一条提问。"""
+        turns: dict[str, int] = {}
+        turn = 0
+        for message_id, role in (
+            self.db.query(Message.id, Message.role)
+            .filter(Message.conversation_id == conversation_id)
+            .order_by(*self._message_order())
+            .all()
+        ):
+            if role == "user" or turn == 0:
+                turn += 1
+            turns[message_id] = turn
+        return turns
+
     def list_messages(self, conversation_id: str, *, page: int, page_size: int) -> tuple[list[Message], int]:
         query = self.db.query(Message).filter(Message.conversation_id == conversation_id)
         total = query.count()
-        rows = (
-            query.order_by(
-                Message.sequence.asc().nullsfirst(),
-                Message.created_at.asc(),
-                Message.id.asc(),
-            )
-            .offset(self._offset(page, page_size))
-            .limit(page_size)
-            .all()
-        )
+        rows = query.order_by(*self._message_order()).offset(self._offset(page, page_size)).limit(page_size).all()
         return rows, total
 
     def list_tool_calls(self, conversation_id: str, *, page: int, page_size: int) -> tuple[list[ToolCallLog], int]:
@@ -330,7 +333,7 @@ class AdminAuditRepository:
         query = self.db.query(AgentSession).filter(AgentSession.conversation_id == conversation_id)
         total = query.count()
         sessions = (
-            query.order_by(AgentSession.created_at.desc(), AgentSession.id.desc())
+            query.order_by(AgentSession.created_at.asc(), AgentSession.id.asc())
             .offset(self._offset(page, page_size))
             .limit(page_size)
             .all()
@@ -358,9 +361,16 @@ class AdminAuditRepository:
             .all()
         ):
             tools_by_run.setdefault(tool.trace_id or "", []).append(tool)
+        message_ids = [session.message_id for session in sessions if session.message_id]
+        answer_models = (
+            dict(self.db.query(Message.id, Message.model_id).filter(Message.id.in_(message_ids)).all())
+            if message_ids
+            else {}
+        )
         return [
             {
                 "session": session,
+                "answer_model_id": answer_models.get(session.message_id),
                 "steps": steps_by_run.get(session.id, []),
                 "snapshot": snapshots.get(session.id),
                 "tool_calls": tools_by_run.get(session.id, []),

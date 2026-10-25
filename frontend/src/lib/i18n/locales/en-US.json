@@ -13,7 +13,7 @@
       },
       "filters": {
         "userSearch": "Search users",
-        "role": "User permissions",
+        "accountType": "Account type",
         "registeredFrom": "Registered from",
         "registeredTo": "Registered to",
         "conversationSearch": "Search conversations",

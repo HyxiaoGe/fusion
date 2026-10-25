@@ -3,7 +3,6 @@ import { adminPaths, decodeAdminRouteSegment, legacyAdminPath, normalizeAdminRou
 
 describe('adminRoutes', () => {
   it('详情路径编码 ID，列表筛选忽略不安全值', () => {
-    expect(adminPaths.user('user / 1')).toBe('/admin/users/user%20%2F%201');
     expect(adminPaths.model('openrouter/gpt-5')).toBe('/admin/models/openrouter%2Fgpt-5');
     expect(adminPaths.conversations({ userId: ' user-1 ', modelId: 'bad\nvalue' })).toBe('/admin/conversations?user_id=user-1');
     expect(adminPaths.conversations()).toBe('/admin/conversations');
@@ -22,7 +21,7 @@ describe('adminRoutes', () => {
     ['', '/admin/users'],
     ['tab=unknown&user_id=secret', '/admin/users'],
     ['user_id=user-1', '/admin/users'],
-    ['tab=users&user_id=user-1', '/admin/users/user-1'],
+    ['tab=users&user_id=user-1', '/admin/conversations?user_id=user-1'],
     ['tab=conversations&user_id=user-1&conversation_id=conv-1', '/admin/conversations/conv-1'],
     ['tab=conversations&model_id=model-1', '/admin/conversations?model_id=model-1'],
     ['tab=models&model_id=%20model-1%20', '/admin/models/model-1'],

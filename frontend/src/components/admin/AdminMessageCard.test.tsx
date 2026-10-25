@@ -14,6 +14,7 @@ describe('AdminMessageCard 只读边界', () => {
   it('未知 block 只显示隐藏占位，不透传 JSON 内容', () => {
     render(<AdminMessageCard message={{
       id: 'msg-1',
+      turn_index: 1,
       role: 'assistant',
       model_id: 'gpt-5',
       created_at: '2026-07-11T10:00:00Z',
@@ -35,10 +36,29 @@ describe('AdminMessageCard 只读边界', () => {
     }
   });
 
+  it('用户消息标出轮次，回答用量带千分位和缓存命中', () => {
+    render(<>
+      <AdminMessageCard message={{
+        id: 'msg-q', turn_index: 20, role: 'user', created_at: null, model_id: null, usage: null,
+        content: [{ type: 'text', id: 'b1', text: '问题' }],
+      }} />
+      <AdminMessageCard message={{
+        id: 'msg-a', turn_index: 20, role: 'assistant', created_at: null, model_id: 'mimo', usage: {
+          input_tokens: 28759, output_tokens: 1258, cache_read_tokens: 24576,
+        },
+        content: [{ type: 'text', id: 'b1', text: '回答' }],
+      }} />
+    </>);
+
+    expect(screen.getByTestId('admin-message-msg-q')).toHaveTextContent('第 20 轮');
+    expect(screen.getByTestId('admin-message-msg-a')).not.toHaveTextContent('第 20 轮');
+    expect(screen.getByTestId('admin-message-msg-a')).toHaveTextContent('输入 28,759（缓存命中 24,576） · 输出 1,258 tokens');
+  });
+
   it('思考内容只在组件局部展开，不派发 Redux action', () => {
     dispatchMock.mockReset();
     render(<AdminMessageCard message={{
-      id: 'msg-2', role: 'assistant', created_at: null, model_id: null, usage: null,
+      id: 'msg-2', turn_index: null, role: 'assistant', created_at: null, model_id: null, usage: null,
       content: [{ type: 'thinking', id: 'b1', thinking: '折叠思考' }],
     }} />);
 
@@ -49,7 +69,7 @@ describe('AdminMessageCard 只读边界', () => {
 
   it('文件块只展示元数据，不渲染图片、预览或下载入口', () => {
     render(<AdminMessageCard message={{
-      id: 'msg-3', role: 'user', created_at: null, model_id: null, usage: null,
+      id: 'msg-3', turn_index: null, role: 'user', created_at: null, model_id: null, usage: null,
       content: [{ type: 'file', id: 'f1', file_id: 'file-1', filename: 'private.png', mime_type: 'image/png' }],
     }} />);
 
@@ -60,7 +80,7 @@ describe('AdminMessageCard 只读边界', () => {
 
   it('不允许用户正文通过 HTML、Markdown 图片或 iframe 发起外部请求', () => {
     const { container } = render(<AdminMessageCard message={{
-      id: 'msg-malicious', role: 'assistant', created_at: null, model_id: null, usage: null,
+      id: 'msg-malicious', turn_index: null, role: 'assistant', created_at: null, model_id: null, usage: null,
       content: [{
         type: 'text', id: 'b1',
         text: '<img src="https://tracker.invalid/raw">\n\n![跟踪图](https://tracker.invalid/md)\n\n<iframe src="https://tracker.invalid/frame"></iframe>\n\n[安全链接](https://example.com/path)',
