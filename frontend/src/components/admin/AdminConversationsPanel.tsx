@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useTranslation } from 'react-i18next';
-import { Check, ChevronsUpDown, Filter, History, RefreshCw } from 'lucide-react';
+import { Check, ChevronsUpDown, Filter, History, RefreshCw, X } from 'lucide-react';
 import { getAdminConversations, getAdminModel, getAdminModels } from '@/lib/api/adminAudit';
 import { useAdminAuditResource } from '@/hooks/useAdminAuditResource';
 import { useAdminListParams } from '@/hooks/useAdminListParams';
@@ -49,6 +49,9 @@ export default function AdminConversationsPanel() {
   };
 
   const resetFilters = () => setFilters({});
+  const filteredUserId = normalizeAdminRouteId(values.user_id);
+  // 同一用户筛选下各行用户相同，取首行身份展示；没有对话时退回显示 ID。
+  const filteredUser = filteredUserId ? resource.data?.items.find(item => item.user?.id === filteredUserId)?.user : undefined;
 
   return (
     <section className={styles.listPage}>
@@ -70,6 +73,16 @@ export default function AdminConversationsPanel() {
         <AdminFilterActions className={styles.filterActions} submitLabel="应用筛选" submitIcon={<Filter />} onReset={resetFilters} />
       </form>
 
+      {filteredUserId ? (
+        <div className={styles.activeFilter} aria-label="当前用户筛选">
+          <span className="shrink-0 text-muted-foreground">正在查看</span>
+          {filteredUser ? (
+            <span className="min-w-0 break-all"><span className="font-medium">{filteredUser.nickname || '未设置昵称'}</span> <span className="text-muted-foreground">@{filteredUser.username}</span></span>
+          ) : <code className="min-w-0 break-all">{filteredUserId}</code>}
+          <span className="shrink-0 text-muted-foreground">的对话</span>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setFilters({ ...values, user_id: '' })} aria-label="清除用户筛选"><X />清除</Button>
+        </div>
+      ) : null}
       {resource.loading ? <AdminLoading /> : resource.error ? <AdminError message={resource.error} onRetry={resource.reload} /> : null}
       {resource.data && resource.data.items.length === 0 ? <AdminEmpty>没有匹配的对话</AdminEmpty> : null}
       {resource.data && resource.data.items.length > 0 ? (
@@ -77,7 +90,7 @@ export default function AdminConversationsPanel() {
           <div className={styles.tableFrame} role="region" aria-label={t('admin.conversationsList')} tabIndex={0}>
             <table className={`${styles.table} min-w-[1280px]`}>
               <colgroup><col style={{ width: '25%' }} /><col style={{ width: '21%' }} /><col style={{ width: '14%' }} /><col style={{ width: '5%' }} /><col style={{ width: '5%' }} /><col style={{ width: '5%' }} /><col style={{ width: '10%' }} /><col style={{ width: '7%' }} /><col style={{ width: '8%' }} /></colgroup>
-              <thead><tr><th scope="col">对话 / 时间</th><th scope="col">用户</th><th scope="col">模型</th><th scope="col" className={styles.numeric}>消息</th><th scope="col" className={styles.numeric}>工具</th><th scope="col" className={styles.numeric}>文件</th><th scope="col">Agent</th><th scope="col" className={styles.numeric}>Token</th><th scope="col" className={styles.actions}>操作</th></tr></thead>
+              <thead><tr><th scope="col">对话 / 时间</th><th scope="col">用户</th><th scope="col">模型</th><th scope="col" className={styles.numeric}>提问</th><th scope="col" className={styles.numeric}>工具</th><th scope="col" className={styles.numeric}>文件</th><th scope="col">Agent</th><th scope="col" className={styles.numeric}>Token</th><th scope="col" className={styles.actions}>操作</th></tr></thead>
               <tbody>{resource.data.items.map(conversation => (
                 <tr key={conversation.id}>
                   <td>
@@ -89,9 +102,14 @@ export default function AdminConversationsPanel() {
                       ) : '时间未记录'}
                     </div>
                   </td>
-                  <td><AdminUserIdentity user={conversation.user} compact /></td>
-                  <td className={styles.modelId}>{conversation.model_id || '—'}</td>
-                  <td className={styles.numeric}>{formatNumber(conversation.message_count)}</td><td className={styles.numeric}>{formatNumber(conversation.tool_call_count)}</td><td className={styles.numeric}>{formatNumber(conversation.file_count)}</td>
+                  <td>
+                    <AdminUserIdentity user={conversation.user} compact />
+                    {conversation.user && conversation.user.id !== filteredUserId ? (
+                      <Link href={adminPaths.conversations({ userId: conversation.user.id })} className={styles.inlineLink} aria-label={`只看该用户的对话 ${conversation.user.id}`}>只看该用户</Link>
+                    ) : null}
+                  </td>
+                  <td><AdminConversationModels selected={conversation.model_id} answered={conversation.answer_model_ids} /></td>
+                  <td className={styles.numeric}>{formatNumber(conversation.question_count)}</td><td className={styles.numeric}>{formatNumber(conversation.tool_call_count)}</td><td className={styles.numeric}>{formatNumber(conversation.file_count)}</td>
                   <td>{conversation.latest_agent_status ? <AdminAgentStatus status={conversation.latest_agent_status} /> : '—'}</td>
                   <td className={styles.numeric}>{formatNumber(conversation.input_tokens + conversation.output_tokens)}</td>
                   <td className={styles.actions}><Button asChild variant="ghost" size="sm"><Link href={adminPaths.conversation(conversation.id)} aria-label={`查看对话详情 ${conversation.id}`}>查看详情</Link></Button></td>
@@ -103,6 +121,17 @@ export default function AdminConversationsPanel() {
         </>
       ) : null}
     </section>
+  );
+}
+
+/** 实际回答模型以回答记录为准；用户选的（如 auto）不在其中时另行标出。 */
+function AdminConversationModels({ selected, answered }: { selected: string | null; answered: string[] }) {
+  if (answered.length === 0) return <span className={styles.modelId}>{selected || '—'}</span>;
+  return (
+    <div className="min-w-0">
+      {answered.map(modelId => <div key={modelId} className={`${styles.modelId} break-all`}>{modelId}</div>)}
+      {selected && !answered.includes(selected) ? <div className="mt-1 text-xs text-muted-foreground">选择：{selected}</div> : null}
+    </div>
   );
 }
 

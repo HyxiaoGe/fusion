@@ -98,27 +98,24 @@ class AdminAuditService:
             "email_masked": mask_email(user.email),
         }
 
-    def _user_item(self, row: dict[str, Any], *, include_sensitive: bool = False) -> dict[str, Any]:
+    def _user_item(self, row: dict[str, Any]) -> dict[str, Any]:
         user = row["user"]
-        item = {
+        return {
             "id": user.id,
             "username": user.username,
             "nickname": user.nickname,
             "email_masked": mask_email(user.email),
             "is_superuser": bool(user.is_superuser),
+            "is_guest": bool(user.is_guest),
             "created_at": user.created_at,
             "updated_at": user.updated_at,
             "last_active_at": row["last_active_at"],
             "conversation_count": row["conversation_count"],
-            "message_count": row["message_count"],
+            "question_count": row["question_count"],
             "tool_call_count": row["tool_call_count"],
             "input_tokens": row["input_tokens"],
             "output_tokens": row["output_tokens"],
         }
-        if include_sensitive:
-            system_prompt, _ = sanitize_admin_value(user.system_prompt or "")
-            item.update({"email": user.email, "system_prompt": system_prompt})
-        return item
 
     def list_users(self, *, admin: User, request_id: str, reason: str | None, **filters: Any) -> dict[str, Any]:
         rows, total = self.repository.list_users(**filters)
@@ -138,22 +135,6 @@ class AdminAuditService:
             filters["page_size"],
         )
 
-    def get_user(self, user_id: str, *, admin: User, request_id: str, reason: str | None) -> dict[str, Any]:
-        row = self.repository.get_user(user_id)
-        if row is None:
-            raise ApiException.not_found("用户不存在")
-        item = self._user_item(row, include_sensitive=True)
-        self._record(
-            admin=admin,
-            action="admin.audit.user.view",
-            resource_type="user",
-            resource_id=user_id,
-            target_user_id=user_id,
-            request_id=request_id,
-            reason=reason,
-        )
-        return item
-
     def _conversation_item(self, row: dict[str, Any]) -> dict[str, Any]:
         conversation = row["conversation"]
         return {
@@ -163,7 +144,8 @@ class AdminAuditService:
             "created_at": conversation.created_at,
             "updated_at": conversation.updated_at,
             "user": self._user_summary(row["user"]),
-            "message_count": row["message_count"],
+            "answer_model_ids": row["answer_model_ids"],
+            "question_count": row["question_count"],
             "tool_call_count": row["tool_call_count"],
             "file_count": row["file_count"],
             "input_tokens": row["input_tokens"],
@@ -569,7 +551,7 @@ class AdminAuditService:
             return None
         usage = {
             key: item
-            for key in ("input_tokens", "output_tokens", "total_tokens")
+            for key in ("input_tokens", "output_tokens", "total_tokens", "cache_read_tokens")
             if isinstance((item := value.get(key)), int) and not isinstance(item, bool) and 0 <= item <= 1_000_000_000
         }
         return usage or None
@@ -583,9 +565,10 @@ class AdminAuditService:
         return sanitized or None
 
     @classmethod
-    def _message_item(cls, message: Message) -> dict[str, Any]:
+    def _message_item(cls, message: Message, turn_index: int | None = None) -> dict[str, Any]:
         return {
             "id": message.id,
+            "turn_index": turn_index,
             "role": message.role,
             "content": cls._message_content_projection(message.content),
             "model_id": message.model_id,
@@ -606,7 +589,8 @@ class AdminAuditService:
     ) -> dict[str, Any]:
         target_user_id = self._assert_conversation(conversation_id)
         rows, total = self.repository.list_messages(conversation_id, page=page, page_size=page_size)
-        items = [self._message_item(row) for row in rows]
+        turns = self.repository.message_turns(conversation_id)
+        items = [self._message_item(row, turns.get(row.id)) for row in rows]
         self._record(
             admin=admin,
             action="admin.audit.messages.list",
@@ -776,7 +760,7 @@ class AdminAuditService:
             "tool_calls": [AdminAuditService._tool_item(tool) for tool in tools],
         }
 
-    def _run_item(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _run_item(self, row: dict[str, Any], turn_index: int | None = None) -> dict[str, Any]:
         session = row["session"]
         raw_config = session.run_config if isinstance(session.run_config, dict) else {}
         config_projection = {
@@ -793,8 +777,10 @@ class AdminAuditService:
         return {
             "id": session.id,
             "message_id": session.message_id,
+            "turn_index": turn_index,
             "user_id": session.user_id,
             "model_id": session.model_id,
+            "answer_model_id": row.get("answer_model_id"),
             "provider": session.provider,
             "config": config,
             "total_steps": session.total_steps or 0,
@@ -881,7 +867,8 @@ class AdminAuditService:
     ) -> dict[str, Any]:
         target_user_id = self._assert_conversation(conversation_id)
         rows, total = self.repository.list_agent_runs(conversation_id, page=page, page_size=page_size)
-        items = [self._run_item(row) for row in rows]
+        turns = self.repository.message_turns(conversation_id)
+        items = [self._run_item(row, turns.get(row["session"].message_id)) for row in rows]
         self._record(
             admin=admin,
             action="admin.audit.agent_runs.list",

@@ -36,7 +36,7 @@ const conversations = ['alpha', 'beta'].map((username, index) => ({
   id: `conv-${index + 1}`,
   title: `对话 ${index + 1}`,
   user: { id: `user-${username}`, username, nickname: '同名用户', email_masked: 's***@example.com' },
-  model_id: 'gpt-5', message_count: 1, tool_call_count: 1, file_count: 0,
+  model_id: 'gpt-5', answer_model_ids: ['gpt-5'], question_count: 1, tool_call_count: 1, file_count: 0,
   latest_agent_status: 'completed', input_tokens: 1, output_tokens: 2,
   created_at: null, updated_at: null,
 }));
@@ -110,8 +110,8 @@ describe('AdminConversationsPanel', () => {
       total: 26,
       total_pages: 2,
       items: [{
-        id: `run-page-${query.page}`, message_id: null, user_id: 'user-alpha', status: 'completed',
-        model_id: 'gpt-5', provider: 'openai', total_steps: 0, total_tool_calls: 0,
+        id: `run-page-${query.page}`, message_id: null, turn_index: null, user_id: 'user-alpha', status: 'completed',
+        model_id: 'gpt-5', answer_model_id: null, provider: 'openai', total_steps: 0, total_tool_calls: 0,
         total_duration_ms: 100, limit_reason: null, config: null, error: null,
         created_at: null, progress: null, steps: [],
       }],
@@ -214,6 +214,39 @@ describe('AdminConversationsPanel', () => {
       expect.any(AbortSignal),
     ));
     expect(screen.getByLabelText('用户 ID')).toHaveValue('user-beta');
+  });
+
+  it('按用户筛选时标出正在看谁，可一键清除；其他行可点只看该用户', async () => {
+    renderPanel('user_id=user-alpha&has_tools=true');
+
+    const banner = await screen.findByLabelText('当前用户筛选');
+    await waitFor(() => expect(banner).toHaveTextContent('正在查看同名用户 @alpha的对话'));
+    expect(screen.queryByRole('link', { name: '只看该用户的对话 user-alpha' })).toBeNull();
+    expect(screen.getByRole('link', { name: '只看该用户的对话 user-beta' }))
+      .toHaveAttribute('href', '/admin/conversations?user_id=user-beta');
+
+    fireEvent.click(within(banner).getByRole('button', { name: '清除用户筛选' }));
+    expect(adminNavigation.url).toBe('/admin/conversations?has_tools=true');
+  });
+
+  it('用户筛选没有对话时退回显示用户 ID', async () => {
+    apiMocks.getAdminConversations.mockResolvedValue(emptyPage);
+    renderPanel('user_id=user-gamma');
+    expect(await screen.findByLabelText('当前用户筛选')).toHaveTextContent('user-gamma');
+  });
+
+  it('模型列显示实际回答模型，用户选择不同时另行标出', async () => {
+    apiMocks.getAdminConversations.mockResolvedValue({ ...emptyPage, items: [
+      { ...conversations[0], model_id: 'auto', answer_model_ids: ['mimo', 'deepseek-chat'] },
+      { ...conversations[1], model_id: 'gpt-5', answer_model_ids: [] },
+    ], total: 2, total_pages: 1 });
+    renderPanel();
+
+    const firstRow = (await screen.findByText('对话 1')).closest('tr') as HTMLElement;
+    expect(firstRow).toHaveTextContent('mimodeepseek-chat选择：auto');
+    const secondRow = screen.getByText('对话 2').closest('tr') as HTMLElement;
+    expect(secondRow).toHaveTextContent('gpt-5');
+    expect(secondRow).not.toHaveTextContent('选择：');
   });
 
   it('手动应用用户 ID 时写入 URL 并请求最新筛选', async () => {

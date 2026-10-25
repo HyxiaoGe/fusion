@@ -34,7 +34,6 @@ function withQuery(path: string, params: Record<string, string | undefined>): st
 
 export const adminPaths = {
   users: '/admin/users',
-  user: (userId: string) => `/admin/users/${encodeURIComponent(userId)}`,
   conversations: (filters: { userId?: string; modelId?: string } = {}) => withQuery('/admin/conversations', {
     user_id: filters.userId,
     model_id: filters.modelId,
@@ -61,6 +60,6 @@ export function legacyAdminPath(searchParams: URLSearchParams): string {
   }
   if (tab === 'models') return modelId ? adminPaths.model(modelId) : adminPaths.models;
   if (tab === 'events') return adminPaths.auditLog;
-  if (tab === 'users' && userId) return adminPaths.user(userId);
+  if (tab === 'users' && userId) return adminPaths.conversations({ userId });
   return adminPaths.users;
 }

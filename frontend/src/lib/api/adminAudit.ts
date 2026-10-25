@@ -16,7 +16,6 @@ import type {
   AdminItineraryStabilityQuery,
   AdminItineraryStabilityResponse,
   AdminToolCallRecord,
-  AdminUserDetail,
   AdminUsersQuery,
   AdminUserSummary,
 } from '@/types/adminAudit';
@@ -56,10 +55,6 @@ function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 export function getAdminUsers(query: AdminUsersQuery = {}, signal?: AbortSignal) {
   return get<AdminPage<AdminUserSummary>>(`/users${buildQuery(query)}`, signal);
-}
-
-export function getAdminUser(userId: string, signal?: AbortSignal) {
-  return get<AdminUserDetail>(`/users/${encodedId(userId)}`, signal);
 }
 
 export function getAdminConversations(query: AdminConversationsQuery = {}, signal?: AbortSignal) {

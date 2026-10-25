@@ -20,6 +20,7 @@ export interface AdminUsageSummary {
   input_tokens: number;
   output_tokens: number;
   total_tokens?: number;
+  cache_read_tokens?: number;
 }
 
 export interface AdminUserSummary {
@@ -28,19 +29,15 @@ export interface AdminUserSummary {
   nickname: string | null;
   email_masked: string | null;
   is_superuser: boolean;
+  is_guest: boolean;
   created_at: string | null;
   updated_at: string | null;
   last_active_at: string | null;
   conversation_count: number;
-  message_count: number;
+  question_count: number;
   tool_call_count: number;
   input_tokens: number;
   output_tokens: number;
-}
-
-export interface AdminUserDetail extends AdminUserSummary {
-  email: string | null;
-  system_prompt: string | null;
 }
 
 export interface AdminConversationSummary {
@@ -48,7 +45,8 @@ export interface AdminConversationSummary {
   title: string;
   user: Pick<AdminUserSummary, 'id' | 'username' | 'nickname' | 'email_masked'>;
   model_id: string | null;
-  message_count: number;
+  answer_model_ids: string[];
+  question_count: number;
   tool_call_count: number;
   file_count: number;
   latest_agent_status: string | null;
@@ -79,6 +77,7 @@ export interface AdminKnownContentBlock {
 
 export interface AdminMessageRecord {
   id: string;
+  turn_index: number | null;
   role: 'user' | 'assistant' | string;
   content: AdminKnownContentBlock[];
   model_id: string | null;
@@ -118,9 +117,11 @@ export interface AdminAgentStepRecord {
 export interface AdminAgentRunRecord {
   id: string;
   message_id: string | null;
+  turn_index: number | null;
   user_id: string;
   status: string;
   model_id: string | null;
+  answer_model_id: string | null;
   provider: string | null;
   total_steps: number;
   total_tool_calls: number;
@@ -269,6 +270,7 @@ export interface AdminUsersQuery {
   page_size?: number;
   q?: string;
   is_superuser?: boolean;
+  is_guest?: boolean;
   created_from?: string;
   created_to?: string;
 }

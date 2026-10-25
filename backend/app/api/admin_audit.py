@@ -27,6 +27,7 @@ def list_users(
     page_size: int = Query(25, ge=1, le=100),
     q: str | None = Query(None, max_length=200),
     is_superuser: bool | None = None,
+    is_guest: bool | None = None,
     created_from: datetime | None = None,
     created_to: datetime | None = None,
     reason: str | None = Header(None, alias="X-Admin-Audit-Reason", max_length=300),
@@ -40,24 +41,11 @@ def list_users(
         page_size=page_size,
         query=q,
         is_superuser=is_superuser,
+        is_guest=is_guest,
         created_from=created_from,
         created_to=created_to,
     )
     return success(data=data, request_id=request.state.request_id)
-
-
-@router.get("/users/{user_id}")
-def get_user(
-    user_id: str,
-    request: Request,
-    reason: str | None = Header(None, alias="X-Admin-Audit-Reason", max_length=300),
-    service: AdminAuditService = Depends(get_admin_audit_service),
-    auditor: User = Depends(get_conversation_auditor),
-):
-    return success(
-        data=service.get_user(user_id, admin=auditor, **_context(request, reason)),
-        request_id=request.state.request_id,
-    )
 
 
 @router.get("/conversations")

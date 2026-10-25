@@ -13,7 +13,7 @@
       },
       "filters": {
         "userSearch": "搜索用户",
-        "role": "管理员筛选",
+        "accountType": "账号类型",
         "registeredFrom": "注册开始日期",
         "registeredTo": "注册结束日期",
         "conversationSearch": "搜索对话",
