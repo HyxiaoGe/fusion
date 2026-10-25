@@ -51,7 +51,8 @@ class FakeProxy:
         self.posts.append(("model/update", json))
         for entry in self.entries:
             if entry["model_info"]["id"] == model_uuid:
-                entry["model_info"] = {**entry["model_info"], **json["model_info"]}
+                entry["model_info"] = {**entry["model_info"], **json.get("model_info", {})}
+                entry["litellm_params"] = {**entry.get("litellm_params", {}), **json.get("litellm_params", {})}
                 return _Response({})
         return _Response({"error": "missing"}, status_code=404)
 
@@ -70,6 +71,9 @@ def _add_args(**overrides):
         display_name=None,
         capabilities=["functionCalling", "deepThinking"],
         timeout_seconds=5.0,
+        cache_price=None,
+        input_price_above_200k=None,
+        output_price_above_200k=None,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -181,7 +185,13 @@ class ModelOnboardTests(unittest.TestCase):
             entries=[
                 {
                     "model_name": "m1",
-                    "litellm_params": {"model": "openai/m1"},
+                    "litellm_params": {
+                        "model": "openai/m1",
+                        "api_base": "https://api.m1.example/v1",
+                        "api_key": "os.environ/M1_API_KEY",
+                        "input_cost_per_token": 1e-7,
+                        "output_cost_per_token": 2e-7,
+                    },
                     "model_info": {
                         "id": "uuid-m1",
                         "db_model": True,
@@ -189,6 +199,7 @@ class ModelOnboardTests(unittest.TestCase):
                         "metadata": {
                             "display_name": "M1",
                             "capabilities": {"deepThinking": True, "vision": True},
+                            "pricing": {"unit": "USD/1M tokens", "input": 0.1, "output": 0.2},
                         },
                     },
                 }
@@ -213,7 +224,7 @@ class ModelOnboardTests(unittest.TestCase):
         info = proxy.entries[0]["model_info"]
         self.assertEqual(info["metadata"]["display_name"], "M1")
         self.assertEqual(info["max_input_tokens"], 1000)
-        self.assertEqual(proxy.entries[0]["litellm_params"], {"model": "openai/m1"})
+        self.assertEqual(proxy.entries[0]["litellm_params"], self._registered_proxy().entries[0]["litellm_params"])
 
     def test_set_capabilities_requires_registered_model(self):
         admin = model_onboard.ProxyAdmin(FakeProxy(), "http://proxy", "master", "fusion")
@@ -253,6 +264,102 @@ class ModelOnboardTests(unittest.TestCase):
             with self.subTest(code=code), self.assertRaises(model_onboard.OnboardError) as raised:
                 model_onboard.cmd_set_context_window(admin, SimpleNamespace(model_id=model_id, tokens=tokens))
             self.assertEqual(raised.exception.code, code)
+
+    def test_add_writes_cache_price_to_billing_fields_and_pricing_metadata(self):
+        with patch.object(model_onboard, "run_preflight", side_effect=lambda **kw: _report(kw["candidate"])):
+            model_onboard.cmd_add(self.admin, _add_args(cache_price=0.02), client=self.proxy)
+
+        entry = self.admin.find_model("new-model")
+        self.assertAlmostEqual(entry["litellm_params"]["cache_read_input_token_cost"], 0.02e-6)
+        self.assertAlmostEqual(entry["model_info"]["cache_read_input_token_cost"], 0.02e-6)
+        self.assertEqual(
+            entry["model_info"]["metadata"]["pricing"],
+            {"unit": "USD/1M tokens", "input": 0.2, "output": 0.8, "cache_read_input": 0.02},
+        )
+        self.assertNotIn("input_cost_per_token_above_200k_tokens", entry["litellm_params"], "没传的档位不写")
+
+    def test_set_pricing_updates_billing_and_catalog_fields_keeps_route_and_bumps_catalog(self):
+        proxy = self._registered_proxy()
+        admin = model_onboard.ProxyAdmin(proxy, "http://proxy", "master", "fusion")
+        args = model_onboard.build_parser().parse_args(
+            ["set-pricing", "m1", "--input-price", "0.3", "--output-price", "1.2", "--cache-price", "0.006"]
+        )
+
+        with patch.object(model_onboard, "bump_catalog_generation", return_value="gen-4"):
+            result = model_onboard.cmd_set_pricing(admin, args)
+
+        self.assertEqual(result["status"], "pricing_updated")
+        self.assertEqual(result["catalog_generation"], "gen-4")
+        self.assertEqual(result["before"]["input_cost_per_token"], 1e-7)
+        self.assertIsNone(result["before"]["cache_read_input_token_cost"])
+        self.assertAlmostEqual(result["after"]["output_cost_per_token"], 1.2e-6)
+        params = proxy.entries[0]["litellm_params"]
+        info = proxy.entries[0]["model_info"]
+        self.assertAlmostEqual(params["input_cost_per_token"], 0.3e-6)
+        self.assertAlmostEqual(params["cache_read_input_token_cost"], 0.006e-6)
+        self.assertEqual((params["model"], params["api_base"]), ("openai/m1", "https://api.m1.example/v1"))
+        self.assertAlmostEqual(info["input_cost_per_token"], 0.3e-6, msg="Fusion 目录读 model_info")
+        self.assertEqual(info["max_input_tokens"], 1000)
+        self.assertEqual(info["metadata"]["capabilities"], {"deepThinking": True, "vision": True})
+        self.assertEqual(
+            info["metadata"]["pricing"],
+            {"unit": "USD/1M tokens", "input": 0.3, "output": 1.2, "cache_read_input": 0.006},
+        )
+        self.assertNotIn("input_cost_per_token_above_200k_tokens", params, "没传的分档不写")
+
+    def test_set_pricing_writes_200k_tiers_when_given(self):
+        proxy = self._registered_proxy()
+        admin = model_onboard.ProxyAdmin(proxy, "http://proxy", "master", "fusion")
+        args = model_onboard.build_parser().parse_args(
+            [
+                "set-pricing",
+                "m1",
+                "--input-price",
+                "2",
+                "--output-price",
+                "6",
+                "--cache-price",
+                "0.5",
+                "--input-price-above-200k",
+                "4",
+                "--output-price-above-200k",
+                "12",
+            ]
+        )
+        with patch.object(model_onboard, "bump_catalog_generation", return_value="gen-5"):
+            result = model_onboard.cmd_set_pricing(admin, args)
+
+        params = proxy.entries[0]["litellm_params"]
+        self.assertAlmostEqual(params["input_cost_per_token_above_200k_tokens"], 4e-6)
+        self.assertAlmostEqual(params["output_cost_per_token_above_200k_tokens"], 12e-6)
+        self.assertEqual(result["pricing"]["input_above_200k"], 4)
+
+    def test_set_pricing_rejects_missing_model_negative_price_and_failed_readback(self):
+        proxy = self._registered_proxy()
+        admin = model_onboard.ProxyAdmin(proxy, "http://proxy", "master", "fusion")
+        for model_id, cache_price, code in (("missing", None, "model_missing"), ("m1", -1.0, "invalid_price")):
+            with self.subTest(code=code), self.assertRaises(model_onboard.OnboardError) as raised:
+                model_onboard.cmd_set_pricing(
+                    admin,
+                    SimpleNamespace(
+                        model_id=model_id,
+                        input_price=1.0,
+                        output_price=2.0,
+                        cache_price=cache_price,
+                        input_price_above_200k=None,
+                        output_price_above_200k=None,
+                    ),
+                )
+            self.assertEqual(raised.exception.code, code)
+
+        # 代理回读时 litellm_params 没变（PATCH 未生效）→ 报回读失败而不是静默成功
+        with patch.object(FakeProxy, "patch", lambda self, url, *, json, **kw: _Response({})):
+            args = model_onboard.build_parser().parse_args(
+                ["set-pricing", "m1", "--input-price", "1", "--output-price", "2"]
+            )
+            with self.assertRaises(model_onboard.OnboardError) as raised:
+                model_onboard.cmd_set_pricing(admin, args)
+        self.assertEqual(raised.exception.code, "model_update_readback_failed")
 
     def test_main_requires_both_credentials(self):
         with patch.dict("os.environ", {"LITELLM_MASTER_KEY": "", "LITELLM_API_KEY": "k"}):

@@ -8,6 +8,9 @@ Fusion 的模型目录就是 LiteLLM 代理里 Fusion key 白名单允许的模�
   capabilities，回读确认后推进目录代次。
 - set-context-window：设置已登记模型的输入窗口（max_input_tokens）。窗口未知时上下文
   管理整轮跳过，既不裁剪也不显示用量；回读确认后推进目录代次。
+- set-pricing：改已登记模型的单价（输入/输出/缓存命中，可选 200k 以上分档），USD/1M tokens。
+  同时写 litellm_params（代理计费用）和 model_info（Fusion 目录读取用）；未传的可选项保持
+  原值不清除。缓存价缺失时命中缓存的输入按全价计，所以有缓存折扣的模型都应填。
 
 在 dev 上运行（master key 只经环境变量传入，不落盘不打印）：
     cd ~/project/litellm-proxy && set -a && . ./.env && set +a
@@ -111,10 +114,14 @@ class ProxyAdmin:
 
     def update_model_info(self, model_uuid: str, model_info: Mapping[str, Any]) -> None:
         # PATCH 只合并传入字段；实测 litellm_params、定价与上下文窗口保持不变。
+        self.update_model(model_uuid, {"model_info": dict(model_info)})
+
+    def update_model(self, model_uuid: str, payload: Mapping[str, Any]) -> None:
+        """PATCH /model/{id}/update：litellm_params 与 model_info 都按字段合并，不传的保持原值。"""
         response = self.client.patch(
             f"{self.base_url}/model/{model_uuid}/update",
             headers=self._headers(),
-            json={"model_info": dict(model_info)},
+            json=dict(payload),
             timeout=20.0,
         )
         self._json(response, "model_update_failed")
@@ -124,10 +131,34 @@ def _usd_per_token(per_million: float) -> float:
     return round(per_million / 1_000_000, 15)
 
 
+# 命令行单价参数（USD/1M tokens）→ 代理计费字段（USD/token）与元数据里的可读价目键。
+PRICING_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("input_price", "input_cost_per_token", "input"),
+    ("output_price", "output_cost_per_token", "output"),
+    ("cache_price", "cache_read_input_token_cost", "cache_read_input"),
+    ("input_price_above_200k", "input_cost_per_token_above_200k_tokens", "input_above_200k"),
+    ("output_price_above_200k", "output_cost_per_token_above_200k_tokens", "output_above_200k"),
+)
+
+
+def pricing_from_args(args: argparse.Namespace) -> tuple[dict[str, float], dict[str, Any]]:
+    """返回 (计费字段, 元数据价目)。只含命令行实际传入的单价，未传的不出现。"""
+    costs: dict[str, float] = {}
+    pricing: dict[str, Any] = {"unit": "USD/1M tokens"}
+    for arg_name, cost_key, pricing_key in PRICING_FIELDS:
+        value = getattr(args, arg_name, None)
+        if value is None:
+            continue
+        if value < 0:
+            raise OnboardError("invalid_price", f"{arg_name}={value}")
+        costs[cost_key] = _usd_per_token(value)
+        pricing[pricing_key] = value
+    return costs, pricing
+
+
 def build_model_payload(args: argparse.Namespace) -> dict[str, Any]:
     capabilities = {key: key in set(args.capabilities) for key in CAPABILITY_KEYS}
-    input_cost = _usd_per_token(args.input_price)
-    output_cost = _usd_per_token(args.output_price)
+    costs, pricing = pricing_from_args(args)
     return {
         "model_name": args.model_id,
         "litellm_params": {
@@ -135,20 +166,18 @@ def build_model_payload(args: argparse.Namespace) -> dict[str, Any]:
             "api_base": args.api_base,
             # 只登记环境变量引用，供应商密钥由代理进程自己解析。
             "api_key": f"os.environ/{args.api_key_env}",
-            "input_cost_per_token": input_cost,
-            "output_cost_per_token": output_cost,
+            **costs,
         },
         "model_info": {
             "max_input_tokens": args.context_window,
-            "input_cost_per_token": input_cost,
-            "output_cost_per_token": output_cost,
+            **costs,
             "metadata": {
                 "source": SOURCE,
                 "display_name": args.display_name or args.model_id,
                 "provider_key": args.provider_key,
                 "provider_display": args.provider_display,
                 "capabilities": capabilities,
-                "pricing": {"unit": "USD/1M tokens", "input": args.input_price, "output": args.output_price},
+                "pricing": pricing,
             },
         },
     }
@@ -291,6 +320,47 @@ def cmd_set_context_window(admin: ProxyAdmin, args: argparse.Namespace) -> dict[
     }
 
 
+def cmd_set_pricing(admin: ProxyAdmin, args: argparse.Namespace) -> dict[str, Any]:
+    costs, pricing = pricing_from_args(args)
+    entry = admin.find_model(args.model_id)
+    if entry is None:
+        raise OnboardError("model_missing", args.model_id)
+    info = entry.get("model_info") or {}
+    params = entry.get("litellm_params") or {}
+    metadata = dict(info.get("metadata") or {})
+    before = {key: params.get(key) for _arg, key, _pk in PRICING_FIELDS}
+    # 价目元数据按键合并：没传的档位保留旧值，和计费字段的合并语义一致。
+    merged_pricing = {**dict(metadata.get("pricing") or {}), **pricing}
+    # litellm_params 整体回传（路由、api_base、os.environ/ 密钥引用原样带上）：无论代理按字段合并
+    # 还是整体替换，路由都不会被改坏；回读再核对一次。
+    admin.update_model(
+        info["id"],
+        {
+            "litellm_params": {**params, **costs},
+            "model_info": {**costs, "metadata": {**metadata, "pricing": merged_pricing}},
+        },
+    )
+    readback = admin.find_model(args.model_id) or {}
+    readback_params = readback.get("litellm_params") or {}
+    readback_info = readback.get("model_info") or {}
+    unchanged = ("model", "api_base", "api_key")
+    if (
+        any(readback_params.get(key) != costs[key] for key in costs)
+        or any(readback_params.get(key) != params.get(key) for key in unchanged)
+        or readback_info.get("max_input_tokens") != info.get("max_input_tokens")
+        or (readback_info.get("metadata") or {}).get("capabilities") != metadata.get("capabilities")
+    ):
+        raise OnboardError("model_update_readback_failed", args.model_id)
+    return {
+        "status": "pricing_updated",
+        "model_id": args.model_id,
+        "before": before,
+        "after": {key: readback_params.get(key) for _arg, key, _pk in PRICING_FIELDS},
+        "pricing": merged_pricing,
+        "catalog_generation": bump_catalog_generation(),
+    }
+
+
 def cmd_list(admin: ProxyAdmin, _args: argparse.Namespace) -> dict[str, Any]:
     entries = admin.model_entries()
     published = set(admin.key_models())
@@ -310,6 +380,14 @@ def cmd_list(admin: ProxyAdmin, _args: argparse.Namespace) -> dict[str, Any]:
     return {"models": sorted(rows, key=lambda row: str(row["model_id"]))}
 
 
+def _add_pricing_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--input-price", type=float, required=True, help="USD / 1M tokens")
+    parser.add_argument("--output-price", type=float, required=True, help="USD / 1M tokens")
+    parser.add_argument("--cache-price", type=float, help="缓存命中输入，USD / 1M tokens；不传则按全价计")
+    parser.add_argument("--input-price-above-200k", type=float, help="单次输入超 200k 时整次输入单价")
+    parser.add_argument("--output-price-above-200k", type=float, help="单次输入超 200k 时整次输出单价")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -319,8 +397,7 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--upstream", required=True, help="LiteLLM 底层模型，如 openai/mimo-v2.6-flash")
     add.add_argument("--api-base", required=True)
     add.add_argument("--api-key-env", required=True, help="代理进程里供应商密钥的环境变量名")
-    add.add_argument("--input-price", type=float, required=True, help="USD / 1M tokens")
-    add.add_argument("--output-price", type=float, required=True, help="USD / 1M tokens")
+    _add_pricing_arguments(add)
     add.add_argument("--context-window", type=int, required=True)
     add.add_argument("--provider-key", required=True)
     add.add_argument("--provider-display", required=True)
@@ -341,6 +418,10 @@ def build_parser() -> argparse.ArgumentParser:
     set_window = sub.add_parser("set-context-window", help="设置已登记模型的输入窗口")
     set_window.add_argument("model_id")
     set_window.add_argument("tokens", type=int, help="max_input_tokens，按服务商文档的最大输入")
+
+    set_pricing = sub.add_parser("set-pricing", help="改已登记模型的单价（USD / 1M tokens）")
+    set_pricing.add_argument("model_id")
+    _add_pricing_arguments(set_pricing)
     return parser
 
 
@@ -360,6 +441,7 @@ def main(argv: list[str] | None = None) -> int:
         "list": cmd_list,
         "set-capabilities": cmd_set_capabilities,
         "set-context-window": cmd_set_context_window,
+        "set-pricing": cmd_set_pricing,
     }
     try:
         result = handlers[args.command](admin, args)
