@@ -1,8 +1,9 @@
-"""Credits 额度：当前额度、消耗流水、单条回答与整个对话的消耗；管理员查看与重置用户额度、全员重置。"""
+"""Credits 额度：当前额度、消耗流水、单条回答与整个对话的消耗、使用重置卡；管理员查看与重置用户额度、发放重置卡、全员重置。"""
 
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin_user, get_current_user, get_current_user_or_pending_guest, get_db
@@ -42,6 +43,17 @@ def list_my_entries(
     current_user: User = Depends(get_current_user_or_pending_guest),
 ):
     return success(data=_entries_page(db, str(current_user.id), limit, before), request_id=request.state.request_id)
+
+
+@router.post("/me/reset-card")
+def use_my_reset_card(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """用一张最早到期的重置卡，清零当前日、周窗口的已用量；返回重置后的额度。"""
+    credit_service.use_reset_card(db, current_user)
+    return success(data=credit_service.usage_summary(db, current_user), request_id=request.state.request_id)
 
 
 @router.get("/messages/{message_id}")
@@ -101,6 +113,24 @@ def reset_user_credits(
     """把用户当前日、周窗口的已用量清零；之前的流水保留。"""
     user = _target_user(db, user_id)
     credit_service.reset_user_credits(db, user_id=user_id, actor_id=str(admin.id))
+    return success(data=credit_service.usage_summary(db, user), request_id=request.state.request_id)
+
+
+class GrantResetCardsRequest(BaseModel):
+    count: int = Field(1, ge=1, le=credit_service.RESET_CARD_GRANT_MAX)
+
+
+@admin_router.post("/users/{user_id}/reset-cards")
+def grant_user_reset_cards(
+    user_id: str,
+    payload: GrantResetCardsRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """给用户发重置卡，每张 30 天内有效；返回该用户的额度（含可用卡数）。"""
+    user = _target_user(db, user_id)
+    credit_service.grant_reset_cards(db, user_id=user_id, actor_id=str(admin.id), count=payload.count)
     return success(data=credit_service.usage_summary(db, user), request_id=request.state.request_id)
 
 

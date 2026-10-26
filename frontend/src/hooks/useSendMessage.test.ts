@@ -285,7 +285,7 @@ function knowledgeEvidenceBlock(status: 'success' | 'empty') {
 
 function exhaustedCredits(tier: 'guest' | 'user') {
   const window = (remaining: number) => ({ limit: 300, used: 300 - remaining, remaining, resets_at: '' });
-  return { tier, unlimited: false, daily: window(0), weekly: window(200), last_reset_at: null };
+  return { tier, unlimited: false, daily: window(0), weekly: window(200), last_reset_at: null, reset_cards: { available: 0, next_expires_at: null } };
 }
 
 describe('useSendMessage', () => {

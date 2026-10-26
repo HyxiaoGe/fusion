@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, Ticket } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   fetchAdminUserCredits,
   formatCredits,
+  grantAdminResetCards,
   resetAdminUserCredits,
   type AdminUserCredits,
   type CreditsEntry,
@@ -41,12 +42,12 @@ function WindowRow({ label, window }: { label: string; window: CreditsWindow }) 
 }
 
 function entryDescription(entry: CreditsEntry): string {
-  if (entry.kind === 'reset') return '管理员重置额度';
+  if (entry.kind === 'reset') return entry.source === 'reset_card' ? '使用重置卡' : '管理员重置额度';
   const status = entry.charged ? '' : '（异常结束，未扣除）';
   return `${entry.model_id ?? '未知模型'}${status}`;
 }
 
-/** 管理员查看用户的日、周额度与最近消耗，并可把当前窗口的已用量清零（流水保留）。 */
+/** 管理员查看用户的日、周额度与最近消耗，可把当前窗口的已用量清零（流水保留），或发重置卡让用户自己用。 */
 export default function AdminUserCreditsDialog({
   user,
   onClose,
@@ -58,6 +59,7 @@ export default function AdminUserCreditsDialog({
   const [confirming, setConfirming] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [granting, setGranting] = useState<'idle' | 'confirming' | 'sending'>('idle');
 
   const load = useCallback((signal?: AbortSignal) => {
     setState({ status: 'loading' });
@@ -90,6 +92,19 @@ export default function AdminUserCreditsDialog({
     }
   };
 
+  const grant = async () => {
+    setGranting('sending');
+    setResetError(null);
+    try {
+      await grantAdminResetCards(user.id, 1);
+      load();
+    } catch {
+      setResetError('发放失败，请稍后重试');
+    } finally {
+      setGranting('idle');
+    }
+  };
+
   const summary = state.status === 'ready' ? state.data.summary : null;
 
   return (
@@ -118,6 +133,17 @@ export default function AdminUserCreditsDialog({
               </div>
               <WindowRow label="今日已用" window={state.data.summary.daily} />
               <WindowRow label="本周已用" window={state.data.summary.weekly} />
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">重置卡</span>
+                <span>
+                  {state.data.summary.reset_cards.available} 张可用
+                  {state.data.summary.reset_cards.next_expires_at && (
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      最早 {formatAdminDate(state.data.summary.reset_cards.next_expires_at)} 到期
+                    </span>
+                  )}
+                </span>
+              </div>
               {state.data.summary.last_reset_at && (
                 <div className="flex justify-between gap-3">
                   <span className="text-muted-foreground">上次重置</span>
@@ -155,7 +181,15 @@ export default function AdminUserCreditsDialog({
         {summary && !summary.unlimited && (
           <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-3">
             {resetError && <span className="mr-auto text-xs text-destructive">{resetError}</span>}
-            {confirming ? (
+            {granting !== 'idle' ? (
+              <>
+                <span className="text-xs text-muted-foreground">发 1 张重置卡，30 天内有效？</span>
+                <Button variant="outline" size="sm" onClick={() => setGranting('idle')} disabled={granting === 'sending'}>取消</Button>
+                <Button size="sm" onClick={grant} disabled={granting === 'sending'}>
+                  {granting === 'sending' ? '正在发放…' : '确认发放'}
+                </Button>
+              </>
+            ) : confirming ? (
               <>
                 <span className="text-xs text-muted-foreground">清零今日和本周的已用量？</span>
                 <Button variant="outline" size="sm" onClick={() => setConfirming(false)} disabled={resetting}>取消</Button>
@@ -164,9 +198,14 @@ export default function AdminUserCreditsDialog({
                 </Button>
               </>
             ) : (
-              <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
-                <RotateCcw />重置额度
-              </Button>
+              <>
+                <Button variant="outline" size="sm" onClick={() => setGranting('confirming')}>
+                  <Ticket />发放重置卡
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+                  <RotateCcw />重置额度
+                </Button>
+              </>
             )}
           </div>
         )}

@@ -726,7 +726,7 @@ class CreditLedger(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
-    kind = Column(String(16), nullable=False)  # 'run' | 'reset'
+    kind = Column(String(16), nullable=False)  # 'run' | 'reset'（actor_id 等于 user_id 的是用户自己用重置卡）
     run_id = Column(String, nullable=True, unique=True)
     conversation_id = Column(String, nullable=True)
     message_id = Column(String, nullable=True, index=True)
@@ -743,6 +743,23 @@ class CreditLedger(Base):
     created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_credit_ledger_user_occurred", "user_id", "occurred_at"),)
+
+
+class CreditResetCard(Base):
+    """管理员发给用户的重置卡：用一张清零当前日、周窗口的已用量，发放后 30 天内有效。"""
+
+    __tablename__ = "credit_reset_cards"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    granted_by = Column(String, nullable=True)
+    granted_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    # 用卡写下的那条 reset 流水
+    reset_entry_id = Column(String, nullable=True)
+
+    __table_args__ = (Index("ix_credit_reset_cards_user_expires", "user_id", "expires_at"),)
 
 
 class McpServer(Base):
