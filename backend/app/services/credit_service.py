@@ -8,6 +8,7 @@
   每分钟一次的补结算兜住（含进程重启丢掉的）。
 - 窗口：日窗口为北京时间自然日，周窗口从周一零点算；run 按开始时刻计入窗口。管理员重置写一条
   reset 流水，窗口用量只算最近一次重置之后的消耗。
+- 重置卡：管理员发放，30 天内有效；用户用一张等同一次重置（清零当前日、周窗口），窗口不顺延。
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import SessionLocal
-from app.db.models import AgentSession, CreditLedger, RunTrajectoryMeta
+from app.db.models import AgentSession, CreditLedger, CreditResetCard, RunTrajectoryMeta, User
 from app.schemas.response import ApiException
 from app.services.agent.trajectory_reconciliation import ORPHANED_RUN_ERROR_MESSAGE
 from app.services.credit_pricing import compute_run_charge
@@ -48,6 +49,9 @@ _SETTLE_POLL_SECONDS = 1.0
 _SWEEP_LOOKBACK = timedelta(days=2)
 _SWEEP_TRAJECTORY_GRACE = timedelta(minutes=10)
 _SWEEP_BATCH_SIZE = 200
+
+RESET_CARD_VALID_DAYS = 30
+RESET_CARD_GRANT_MAX = 10
 
 _background_tasks: set[asyncio.Task] = set()
 
@@ -121,6 +125,24 @@ def _window(limit: int | None, used: float, resets_at: datetime) -> dict[str, An
     }
 
 
+def _available_cards_query(user_id: str, now: datetime):
+    return select(CreditResetCard).where(
+        CreditResetCard.user_id == user_id,
+        CreditResetCard.used_at.is_(None),
+        CreditResetCard.expires_at > now,
+    )
+
+
+def reset_card_summary(db: Session, user_id: str, *, now: datetime | None = None) -> dict[str, Any]:
+    """可用重置卡张数与最早的到期时间。"""
+    available = _available_cards_query(user_id, now or utc_now()).subquery()
+    count, next_expires = db.execute(select(func.count(available.c.id), func.min(available.c.expires_at))).one()
+    return {
+        "available": int(count),
+        "next_expires_at": _as_utc(next_expires).isoformat() if next_expires is not None else None,
+    }
+
+
 def usage_summary(db: Session, user: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """用户当前日、周窗口的额度与已用量；不限额的账号 limit/remaining 为 null。"""
     current = now or utc_now()
@@ -135,6 +157,7 @@ def usage_summary(db: Session, user: Any, *, now: datetime | None = None) -> dic
         "daily": _window(limits.daily, _used_since(db, str(user.id), day_since), day_start + timedelta(days=1)),
         "weekly": _window(limits.weekly, _used_since(db, str(user.id), week_since), week_start + timedelta(days=7)),
         "last_reset_at": reset_at.isoformat() if reset_at else None,
+        "reset_cards": reset_card_summary(db, str(user.id), now=current),
     }
 
 
@@ -318,6 +341,62 @@ def reset_user_credits(db: Session, *, user_id: str, actor_id: str, now: datetim
     return entry
 
 
+def grant_reset_cards(
+    db: Session, *, user_id: str, actor_id: str, count: int, now: datetime | None = None
+) -> list[CreditResetCard]:
+    """管理员给用户发重置卡，每张自发放起 RESET_CARD_VALID_DAYS 天内有效。"""
+    if not 1 <= count <= RESET_CARD_GRANT_MAX:
+        raise ApiException.bad_request(f"一次最多发放 {RESET_CARD_GRANT_MAX} 张")
+    granted_at = _as_utc(now or utc_now())
+    cards = [
+        CreditResetCard(
+            user_id=user_id,
+            granted_by=actor_id,
+            granted_at=granted_at,
+            expires_at=granted_at + timedelta(days=RESET_CARD_VALID_DAYS),
+        )
+        for _ in range(count)
+    ]
+    db.add_all(cards)
+    db.commit()
+    logger.info("credits_reset_cards_granted user=%s actor=%s count=%s", user_id, actor_id, count)
+    return cards
+
+
+def use_reset_card(db: Session, user: Any, *, now: datetime | None = None) -> CreditLedger:
+    """用户用一张最早到期的重置卡，清零当前日、周窗口的已用量。
+
+    先锁住账号再检查：连点或并发请求只有第一次生效，之后已用量为零会被拒绝，不会多扣卡。
+    """
+    current = _as_utc(now or utc_now())
+    if limits_for(user).unlimited:
+        raise ApiException.bad_request("当前账号不限额，无需使用重置卡")
+    db.execute(select(User.id).where(User.id == user.id).with_for_update())
+    summary = usage_summary(db, user, now=current)
+    if summary["daily"]["used"] <= 0 and summary["weekly"]["used"] <= 0:
+        raise ApiException.conflict("当前没有可重置的用量")
+    card = db.execute(
+        _available_cards_query(str(user.id), current).order_by(CreditResetCard.expires_at).limit(1).with_for_update()
+    ).scalar_one_or_none()
+    if card is None:
+        raise ApiException.conflict("没有可用的重置卡")
+    entry = CreditLedger(
+        user_id=str(user.id),
+        kind="reset",
+        charged=False,
+        credits=0.0,
+        occurred_at=current,
+        actor_id=str(user.id),
+    )
+    db.add(entry)
+    db.flush()
+    card.used_at = current
+    card.reset_entry_id = entry.id
+    db.commit()
+    logger.info("credits_reset_card_used user=%s card=%s", user.id, card.id)
+    return entry
+
+
 def reset_all_credits(db: Session, *, actor_id: str, now: datetime | None = None) -> CreditLedger:
     """管理员把所有账号当前日、周窗口的已用量清零：只记一条全员重置，不逐个账号写记录。"""
     entry = CreditLedger(
@@ -354,6 +433,8 @@ def serialize_entry(entry: CreditLedger) -> dict[str, Any]:
         "credits": round(entry.credits or 0.0, 2),
         "breakdown": entry.breakdown,
         "occurred_at": _as_utc(entry.occurred_at).isoformat(),
+        # 重置记录的来源：用户自己用重置卡，或管理员重置（全员重置没有 user_id）
+        "source": ("reset_card" if entry.actor_id == entry.user_id else "admin") if entry.kind == "reset" else None,
     }
 
 

@@ -22,6 +22,7 @@ from app.db.models import (
     AgentSession,
     Conversation,
     CreditLedger,
+    CreditResetCard,
     McpServer,
     RunTrajectoryMeta,
     ToolCallLog,
@@ -88,6 +89,7 @@ def engine():
             ToolCallLog.__table__,
             McpServer.__table__,
             CreditLedger.__table__,
+            CreditResetCard.__table__,
         ],
     )
     with Session(engine) as session:
@@ -479,6 +481,83 @@ def test_only_admin_can_view_and_reset_user_credits(client, db):
     reset = db.execute(select(CreditLedger).where(CreditLedger.kind == "reset")).scalar_one()
     assert (reset.user_id, reset.actor_id) == ("user-1", "admin")
     assert test_client.post("/api/admin/credits/users/missing/reset").status_code == 404
+
+
+def test_reset_card_clears_both_windows_and_uses_the_earliest_expiring_card(db):
+    wednesday = _bj(2026, 10, 28, 15, 0)
+    user = db.get(User, "user-1")
+    _charge(db, "user-1", 900, wednesday - timedelta(days=1), "tue")
+    _charge(db, "user-1", 2900, wednesday - timedelta(hours=2), "wed")
+    credit_service.grant_reset_cards(
+        db, user_id="user-1", actor_id="admin", count=1, now=wednesday - timedelta(days=20)
+    )
+    credit_service.grant_reset_cards(db, user_id="user-1", actor_id="admin", count=1, now=wednesday - timedelta(days=2))
+    # 发放超过 30 天的卡已过期，不计入也不会被用掉
+    credit_service.grant_reset_cards(
+        db, user_id="user-1", actor_id="admin", count=1, now=wednesday - timedelta(days=31)
+    )
+
+    before = credit_service.usage_summary(db, user, now=wednesday)
+    assert before["reset_cards"]["available"] == 2
+    assert before["reset_cards"]["next_expires_at"] == (wednesday + timedelta(days=10)).isoformat()
+
+    entry = credit_service.use_reset_card(db, user, now=wednesday)
+    after = credit_service.usage_summary(db, user, now=wednesday)
+    assert (after["daily"]["used"], after["weekly"]["used"]) == (0, 0)
+    assert after["reset_cards"]["available"] == 1
+    assert after["reset_cards"]["next_expires_at"] == (wednesday + timedelta(days=28)).isoformat()
+    used = db.execute(select(CreditResetCard).where(CreditResetCard.used_at.is_not(None))).scalar_one()
+    assert used.reset_entry_id == entry.id
+    assert credit_service._as_utc(used.granted_at) == wednesday - timedelta(days=20)
+    assert credit_service.serialize_entry(entry)["source"] == "reset_card"
+
+    # 窗口不顺延：重置后的消耗照常计入本周，下周一起重新累计
+    _charge(db, "user-1", 50, wednesday + timedelta(hours=1), "after")
+    assert credit_service.usage_summary(db, user, now=wednesday + timedelta(hours=2))["weekly"]["used"] == 50
+    assert credit_service.usage_summary(db, user, now=_bj(2026, 11, 2, 9, 0))["weekly"]["used"] == 0
+
+
+def test_reset_card_is_refused_without_usage_or_cards_so_repeat_clicks_keep_cards(db):
+    wednesday = _bj(2026, 10, 28, 15, 0)
+    user = db.get(User, "user-1")
+    credit_service.grant_reset_cards(db, user_id="user-1", actor_id="admin", count=2, now=wednesday)
+
+    # 没有用量时用卡没有意义：连点第二次也落在这里，不多扣卡
+    with pytest.raises(ApiException, match="没有可重置的用量"):
+        credit_service.use_reset_card(db, user, now=wednesday)
+    _charge(db, "user-1", 100, wednesday - timedelta(hours=1), "spent")
+    credit_service.use_reset_card(db, user, now=wednesday)
+    with pytest.raises(ApiException, match="没有可重置的用量"):
+        credit_service.use_reset_card(db, user, now=wednesday + timedelta(seconds=1))
+    assert credit_service.usage_summary(db, user, now=wednesday)["reset_cards"]["available"] == 1
+
+    guest = db.get(User, "guest-1")
+    _charge(db, "guest-1", 100, wednesday - timedelta(hours=1), "guest-spent")
+    with pytest.raises(ApiException, match="没有可用的重置卡"):
+        credit_service.use_reset_card(db, guest, now=wednesday)
+    with pytest.raises(ApiException, match="不限额"):
+        credit_service.use_reset_card(db, db.get(User, "admin"), now=wednesday)
+    with pytest.raises(ApiException, match="最多发放"):
+        credit_service.grant_reset_cards(db, user_id="user-1", actor_id="admin", count=11, now=wednesday)
+
+
+def test_admin_grants_reset_cards_and_user_spends_one_through_api(client, db):
+    test_client, state = client
+    _charge(db, "user-1", 80, datetime.now(timezone.utc), "spent")
+
+    assert test_client.post("/api/admin/credits/users/user-1/reset-cards", json={"count": 2}).status_code == 403
+    state.user_id = "admin"
+    granted = test_client.post("/api/admin/credits/users/user-1/reset-cards", json={"count": 2}).json()["data"]
+    assert granted["reset_cards"]["available"] == 2
+    assert test_client.post("/api/admin/credits/users/user-1/reset-cards", json={"count": 0}).status_code == 422
+    assert test_client.post("/api/admin/credits/users/missing/reset-cards", json={"count": 1}).status_code == 404
+
+    state.user_id = "user-1"
+    after = test_client.post("/api/credits/me/reset-card").json()["data"]
+    assert after["daily"]["used"] == 0 and after["reset_cards"]["available"] == 1
+    assert test_client.post("/api/credits/me/reset-card").status_code == 409
+    items = test_client.get("/api/credits/me/entries").json()["data"]["items"]
+    assert items[0]["kind"] == "reset" and items[0]["source"] == "reset_card"
 
 
 def test_reset_all_clears_every_account_without_moving_windows(db):

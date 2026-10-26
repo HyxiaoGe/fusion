@@ -18,6 +18,14 @@ export interface CreditsSummary {
   daily: CreditsWindow;
   weekly: CreditsWindow;
   last_reset_at: string | null;
+  reset_cards: ResetCards;
+}
+
+/** 管理员发放的重置卡：用一张清零当前日、周窗口的已用量，发放后 30 天内有效。 */
+export interface ResetCards {
+  available: number;
+  /** 最早到期的那张卡的到期时间；没有可用卡为 null */
+  next_expires_at: string | null;
 }
 
 export interface CreditsRound {
@@ -58,6 +66,8 @@ export interface CreditsEntry {
   credits: number;
   breakdown: CreditsBreakdown | null;
   occurred_at: string;
+  /** 重置记录的来源：用户用重置卡，或管理员重置；消耗记录为 null */
+  source: 'reset_card' | 'admin' | null;
 }
 
 export interface MessageCredits {
@@ -97,6 +107,11 @@ export function fetchConversationCredits(conversationId: string, signal?: AbortS
   );
 }
 
+/** 用一张最早到期的重置卡，返回重置后的额度。 */
+export function spendResetCard(): Promise<CreditsSummary> {
+  return apiRequest<CreditsSummary>(`${BASE}/me/reset-card`, { method: 'POST' });
+}
+
 export function fetchAdminUserCredits(userId: string, signal?: AbortSignal): Promise<AdminUserCredits> {
   return apiRequest<AdminUserCredits>(
     `${ADMIN_BASE}/users/${encodeURIComponent(userId)}?limit=10`,
@@ -106,6 +121,14 @@ export function fetchAdminUserCredits(userId: string, signal?: AbortSignal): Pro
 
 export function resetAdminUserCredits(userId: string): Promise<CreditsSummary> {
   return apiRequest<CreditsSummary>(`${ADMIN_BASE}/users/${encodeURIComponent(userId)}/reset`, { method: 'POST' });
+}
+
+export function grantAdminResetCards(userId: string, count: number): Promise<CreditsSummary> {
+  return apiRequest<CreditsSummary>(`${ADMIN_BASE}/users/${encodeURIComponent(userId)}/reset-cards`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ count }),
+  });
 }
 
 export interface CreditsResetAll {
@@ -136,8 +159,9 @@ export function formatCredits(value: number): string {
   return '0';
 }
 
-/** 额度用完时给用户看的提示；游客引导登录，登录用户告知何时恢复。 */
-export function creditsExhaustedMessage(window: 'daily' | 'weekly', isGuest: boolean): string {
+/** 额度用完时给用户看的提示；游客引导登录，有重置卡的提示去用卡，其余告知何时恢复。 */
+export function creditsExhaustedMessage(window: 'daily' | 'weekly', isGuest: boolean, hasResetCard = false): string {
+  if (hasResetCard) return window === 'daily' ? '今日额度已用完，可在额度里使用重置卡' : '本周额度已用完，可在额度里使用重置卡';
   if (isGuest) return window === 'daily' ? '今天免登录额度已用完，登录后继续' : '本周免登录额度已用完，登录后继续';
   return window === 'daily' ? '今日额度已用完，明天 0 点恢复' : '本周额度已用完，下周一 0 点恢复';
 }

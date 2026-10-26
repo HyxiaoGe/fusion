@@ -33,7 +33,7 @@ import SuggestedQuestions from './SuggestedQuestions';
 
 function credits(tier: 'guest' | 'user', remaining: { daily: number; weekly: number }) {
   const window = (value: number) => ({ limit: 1000, used: 1000 - value, remaining: value, resets_at: '' });
-  return { tier, unlimited: false, daily: window(remaining.daily), weekly: window(remaining.weekly), last_reset_at: null };
+  return { tier, unlimited: false, daily: window(remaining.daily), weekly: window(remaining.weekly), last_reset_at: null, reset_cards: { available: 0, next_expires_at: null } };
 }
 
 describe('SuggestedQuestions', () => {

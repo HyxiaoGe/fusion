@@ -1459,7 +1459,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onPaste={handlePaste}
           placeholder={
             hasHydrated && creditsExhaustedWindow
-              ? creditsExhaustedMessage(creditsExhaustedWindow, isGuest)
+              ? creditsExhaustedMessage(creditsExhaustedWindow, isGuest, (credits?.reset_cards.available ?? 0) > 0)
               : isModelCatalogLoadFailed
               ? "模型列表加载失败，请刷新页面重试"
               : isCurrentModelUnavailable
@@ -1533,6 +1533,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 isGuest={isGuest}
                 onLogin={() => promptLogin("登录后可使用全部模型和功能")}
                 conversationId={activeChatId ?? null}
+                onCreditsChanged={() => void dispatch(refreshEntitlements())}
               />
             )}
             <ModelSelector

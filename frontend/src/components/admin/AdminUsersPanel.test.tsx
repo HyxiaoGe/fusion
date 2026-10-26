@@ -12,6 +12,7 @@ const apiMocks = vi.hoisted(() => ({
 const creditsMocks = vi.hoisted(() => ({
   fetchAdminUserCredits: vi.fn(),
   resetAdminUserCredits: vi.fn(),
+  grantAdminResetCards: vi.fn(),
   fetchCreditsResetAll: vi.fn(),
   resetAllCredits: vi.fn(),
 }));
@@ -46,7 +47,7 @@ const page = {
 beforeEach(() => {
   void i18n.changeLanguage('zh-CN');
   apiMocks.getAdminUsers.mockReset().mockResolvedValue(page);
-  creditsMocks.fetchCreditsResetAll.mockReset().mockResolvedValue({ last_reset_at: null });
+  creditsMocks.fetchCreditsResetAll.mockReset().mockResolvedValue({ last_reset_at: null, reset_cards: { available: 0, next_expires_at: null } });
   creditsMocks.resetAllCredits.mockReset();
   adminNavigation.reset('/admin/users');
 });
@@ -72,7 +73,7 @@ describe('AdminUsersPanel', () => {
   it('额度弹窗展示用量与流水，二次确认后重置并刷新', async () => {
     const window = (used: number, limit: number) => ({ limit, used, remaining: limit - used, resets_at: '2026-10-26T16:00:00+00:00' });
     const credits = (used: number) => ({
-      summary: { tier: 'user', unlimited: false, daily: window(used, 3000), weekly: window(used, 10000), last_reset_at: null },
+      summary: { tier: 'user', unlimited: false, daily: window(used, 3000), weekly: window(used, 10000), last_reset_at: null, reset_cards: { available: 0, next_expires_at: null } },
       items: [{
         id: 'e1', kind: 'run', run_id: 'r1', conversation_id: 'c1', message_id: 'm1', model_id: 'deepseek-chat',
         run_status: 'completed', charged: true, credits: 120, occurred_at: '2026-10-26T05:00:00+00:00', breakdown: null,
@@ -97,6 +98,38 @@ describe('AdminUsersPanel', () => {
 
     await waitFor(() => expect(creditsMocks.resetAdminUserCredits).toHaveBeenCalledWith('user-alpha'));
     await waitFor(() => expect(dialog.textContent).toContain('0 / 3,000'));
+  });
+
+  it('额度弹窗二次确认后发放一张重置卡，刷新后显示可用张数与到期时间', async () => {
+    const window = { limit: 3000, used: 3000, remaining: 0, resets_at: '2026-10-26T16:00:00+00:00' };
+    const credits = (available: number) => ({
+      summary: {
+        tier: 'user', unlimited: false, daily: window, weekly: { ...window, limit: 10000, remaining: 7000 }, last_reset_at: null,
+        reset_cards: { available, next_expires_at: available ? '2026-11-25T07:00:00+00:00' : null },
+      },
+      items: [{
+        id: 'e2', kind: 'reset', run_id: null, conversation_id: null, message_id: null, model_id: null, run_status: null,
+        charged: false, credits: 0, occurred_at: '2026-10-26T04:00:00+00:00', breakdown: null, source: 'reset_card',
+      }],
+      next_before: null,
+    });
+    creditsMocks.fetchAdminUserCredits.mockReset().mockResolvedValueOnce(credits(0)).mockResolvedValueOnce(credits(1));
+    creditsMocks.grantAdminResetCards.mockReset().mockResolvedValue({});
+    renderAdmin(<AdminUsersPanel />);
+    await screen.findByText('@alpha');
+    fireEvent.click(screen.getByRole('button', { name: '查看用户额度 user-alpha' }));
+
+    const dialog = await screen.findByTestId('admin-user-credits');
+    await waitFor(() => expect(dialog.textContent).toContain('0 张可用'));
+    expect(dialog.textContent).toContain('使用重置卡');
+
+    fireEvent.click(screen.getByRole('button', { name: '发放重置卡' }));
+    expect(creditsMocks.grantAdminResetCards).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认发放' }));
+
+    await waitFor(() => expect(creditsMocks.grantAdminResetCards).toHaveBeenCalledWith('user-alpha', 1));
+    await waitFor(() => expect(dialog.textContent).toContain('1 张可用'));
+    expect(dialog.textContent).toContain('到期');
   });
 
   it('英文可见标签与可访问名称一致', async () => {
