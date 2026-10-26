@@ -3,8 +3,9 @@
 登录是功能门槛而不是使用门槛：游客能聊天、能联网搜索，但只用自动选择里各提供商的
 首选（flash）模型，不加载地图/生图等 MCP 工具和知识库，并受每日额度约束：
 
-- 消息：每个游客、每个 IP、全体游客三层日额度，开始生成前预扣；回答以错误结束或没能
-  开始生成时退还，用户主动停止不退。
+- 用量：每个游客自己的用量走 credits（见 credit_service），和登录用户同一套结算。
+- 防滥用：每个 IP、全体游客两层每日消息数，开始生成前预扣；回答以错误结束或没能开始生成时
+  退还，用户主动停止不退。
 - 并发：同一游客同时只有一个回答在生成。
 - 搜索：每个游客每日次数，用完后以工具结果告知模型，由模型如实转告用户。
 
@@ -63,9 +64,8 @@ def login_required(message: str) -> ApiException:
     return ApiException(LOGIN_REQUIRED_CODE, message, status_code=403)
 
 
-def _message_keys(user_id: str, ip: str, day: str) -> list[tuple[str, int]]:
+def _message_keys(ip: str, day: str) -> list[tuple[str, int]]:
     return [
-        (f"{_KEY_PREFIX}:msg:{day}:{user_id}", settings.GUEST_DAILY_MESSAGES),
         (f"{_KEY_PREFIX}:msg_ip:{day}:{ip_digest(ip)}", settings.GUEST_DAILY_MESSAGES_PER_IP),
         (f"{_KEY_PREFIX}:msg_all:{day}", settings.GUEST_DAILY_MESSAGES_GLOBAL),
     ]
@@ -127,10 +127,10 @@ class GuestRunReservation:
 
 
 def reserve_guest_run(user_id: str, ip: str, *, now: float | None = None) -> GuestRunReservation:
-    """游客开始一次生成前占并发位并预扣三层消息额度；不满足时抛出可展示给用户的错误。"""
+    """游客开始一次生成前占并发位并预扣 IP、全体两层消息数；不满足时抛出可展示给用户的错误。"""
 
     day = china_day(now)
-    keys = _message_keys(user_id, ip, day)
+    keys = _message_keys(ip, day)
     slot_token = uuid.uuid4().hex
     try:
         client = get_redis()
@@ -153,15 +153,11 @@ def reserve_guest_run(user_id: str, ip: str, *, now: float | None = None) -> Gue
         reservation.release(refund=True)
         scope = exceeded[0].split(":")[1]
         logger.info("guest_quota_rejected user=%s scope=%s", user_id, scope)
-        message = (
-            "今天免登录可发送的消息已用完，登录后继续使用" if scope == "msg" else "今天免登录名额已用完，登录后继续使用"
-        )
-        raise ApiException(GUEST_QUOTA_EXHAUSTED_CODE, message, status_code=429)
-    used_today, ip_used_today, all_used_today = counts
+        raise ApiException(GUEST_QUOTA_EXHAUSTED_CODE, "今天免登录名额已用完，登录后继续使用", status_code=429)
+    ip_used_today, all_used_today = counts
     logger.info(
-        "guest_run_reserved user=%s used=%s ip_used=%s all_used=%s",
+        "guest_run_reserved user=%s ip_used=%s all_used=%s",
         user_id,
-        used_today,
         ip_used_today,
         all_used_today,
     )
@@ -182,31 +178,8 @@ def reserve_guest_search(user_id: str, *, now: float | None = None) -> bool:
     return allowed
 
 
-def guest_usage(user_id: str, *, now: float | None = None) -> dict[str, dict[str, int]] | None:
-    """游客今日已用与剩余额度；Redis 不可用时返回 None，由前端不展示计数。"""
-
-    day = china_day(now)
-    try:
-        used_messages, used_searches = get_redis().mget(
-            f"{_KEY_PREFIX}:msg:{day}:{user_id}",
-            _search_key(user_id, day),
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning("guest_usage_unavailable user=%s", user_id, exc_info=True)
-        return None
-
-    def _usage(used: Any, limit: int) -> dict[str, int]:
-        used_count = min(int(used or 0), limit)
-        return {"limit": limit, "used": used_count, "remaining": limit - used_count}
-
-    return {
-        "messages": _usage(used_messages, settings.GUEST_DAILY_MESSAGES),
-        "searches": _usage(used_searches, settings.GUEST_DAILY_SEARCHES),
-    }
-
-
-def build_entitlements(user: Any) -> dict[str, Any]:
-    """前端按此决定哪些入口可用、哪些显示「登录后可用」。"""
+def build_entitlements(user: Any, *, credits: dict[str, Any] | None) -> dict[str, Any]:
+    """前端按此决定哪些入口可用、哪些显示「登录后可用」；credits 为当前额度（credit_service.usage_summary）。"""
 
     guest = is_guest(user)
     return {
@@ -221,5 +194,5 @@ def build_entitlements(user: Any) -> dict[str, Any]:
             "personalization": not guest,
         },
         "models": list(guest_model_ids()) if guest else None,
-        "quota": guest_usage(str(user.id)) if guest else None,
+        "credits": credits,
     }

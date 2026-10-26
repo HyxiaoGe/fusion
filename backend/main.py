@@ -22,6 +22,7 @@ from app.api import (
     auth,
     changelogs,
     chat,
+    credits,
     documents,
     files,
     knowledge_bases,
@@ -425,6 +426,8 @@ app.include_router(trajectory.router, prefix="/api", tags=["trajectory"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(admin_audit.router, prefix="/api/admin/audit", tags=["admin-audit"])
 app.include_router(admin_mcp.router, prefix="/api/admin/mcp", tags=["admin-mcp"])
+app.include_router(credits.router, prefix="/api/credits", tags=["credits"])
+app.include_router(credits.admin_router, prefix="/api/admin/credits", tags=["admin-credits"])
 app.include_router(
     admin_model_management.router,
     prefix="/api/admin/model-management",

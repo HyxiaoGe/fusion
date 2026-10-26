@@ -24,6 +24,12 @@ ASSISTANT_MESSAGE_ID = "22222222-2222-4222-8222-222222222222"
 
 
 class EditResendRequestTests(unittest.TestCase):
+    def setUp(self):
+        # 路由转发测试不涉及 credits 准入，准入见 test_guest_quota / test_credits
+        patcher = patch("app.api.chat._admit_run")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_edit_requires_target_user_message(self):
         with self.assertRaisesRegex(ValidationError, "retry_user_message_id"):
             ChatRequest(model_id="deepseek-chat", message="改后", conversation_id="conv-1", edit_user_message=True)

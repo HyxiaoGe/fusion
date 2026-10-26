@@ -2,6 +2,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_user_repo
 from app.core import security
@@ -14,10 +15,12 @@ from app.core.guest_identity import (
     issue_guest_token,
     reserve_new_guest_slot,
 )
+from app.db.database import get_db
 from app.db.models import User as UserModel
 from app.db.repositories import UserRepository
 from app.schemas.auth import UserSettingsUpdate
 from app.schemas.response import ApiException, success
+from app.services.credit_service import usage_summary
 from app.services.guest_quota import build_entitlements
 
 logger = logging.getLogger(__name__)
@@ -58,10 +61,13 @@ async def read_current_user(request: Request, current_user: UserModel = Depends(
 
 @router.get("/me/entitlements")
 def read_current_entitlements(
-    request: Request, current_user: UserModel = Depends(security.get_current_user_or_pending_guest)
+    request: Request,
+    current_user: UserModel = Depends(security.get_current_user_or_pending_guest),
+    db: Session = Depends(get_db),
 ):
-    """当前用户可用的功能与今日额度；游客据此显示「登录后可用」与剩余次数。"""
-    return success(data=build_entitlements(current_user), request_id=request.state.request_id)
+    """当前用户可用的功能与额度；游客据此显示「登录后可用」与剩余额度。"""
+    credits = usage_summary(db, current_user)
+    return success(data=build_entitlements(current_user, credits=credits), request_id=request.state.request_id)
 
 
 @router.post("/guest")

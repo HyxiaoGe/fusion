@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from pydantic import ValidationError
 from starlette.responses import StreamingResponse
@@ -16,6 +16,12 @@ PREVIOUS_RUN_ID = "run-previous"
 
 
 class ChatRequestMessageIdTests(unittest.TestCase):
+    def setUp(self):
+        # 路由转发测试不涉及 credits 准入，准入见 test_guest_quota / test_credits
+        patcher = patch("app.api.chat._admit_run")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_accepts_distinct_uuid4_message_ids(self):
         request = ChatRequest(
             model_id="deepseek-chat",

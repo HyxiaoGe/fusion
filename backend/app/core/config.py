@@ -81,8 +81,8 @@ class Settings(BaseSettings):
     GUEST_TOKEN_SECRET: str = os.getenv("GUEST_TOKEN_SECRET", "")
     GUEST_TOKEN_TTL_DAYS: int = int(os.getenv("GUEST_TOKEN_TTL_DAYS", "365"))
     GUEST_NEW_IDENTITIES_PER_IP_PER_DAY: int = int(os.getenv("GUEST_NEW_IDENTITIES_PER_IP_PER_DAY", "5"))
-    # 游客额度（北京时间自然日）：发送前预扣，我方原因失败退还
-    GUEST_DAILY_MESSAGES: int = int(os.getenv("GUEST_DAILY_MESSAGES", "20"))
+    # 游客防滥用（北京时间自然日）：每个 IP、全体游客的消息数，发送前预扣，我方原因失败退还。
+    # 每个游客自己的用量走 credits（CREDITS_GUEST_*）。
     GUEST_DAILY_MESSAGES_PER_IP: int = int(os.getenv("GUEST_DAILY_MESSAGES_PER_IP", "60"))
     GUEST_DAILY_MESSAGES_GLOBAL: int = int(os.getenv("GUEST_DAILY_MESSAGES_GLOBAL", "2000"))
     GUEST_DAILY_SEARCHES: int = int(os.getenv("GUEST_DAILY_SEARCHES", "10"))
@@ -91,6 +91,18 @@ class Settings(BaseSettings):
     # 超过这么多天没有活动的游客连同会话一起清理
     GUEST_INACTIVE_DAYS: int = int(os.getenv("GUEST_INACTIVE_DAYS", "30"))
     GUEST_UNUSED_HOURS: int = int(os.getenv("GUEST_UNUSED_HOURS", "24"))
+
+    # Credits：1 credit 对应的模型成本（美元）；每轮按实际模型单价计，工具按次计（见 credit_pricing）。
+    CREDITS_USD_PER_CREDIT: float = float(os.getenv("CREDITS_USD_PER_CREDIT", "0.0001"))
+    # 日上限按北京时间自然日、周上限从周一零点算，同一份消耗同时计入两者。管理员不受限。
+    CREDITS_GUEST_DAILY: int = int(os.getenv("CREDITS_GUEST_DAILY", "300"))
+    CREDITS_GUEST_WEEKLY: int = int(os.getenv("CREDITS_GUEST_WEEKLY", "1000"))
+    CREDITS_USER_DAILY: int = int(os.getenv("CREDITS_USER_DAILY", "3000"))
+    CREDITS_USER_WEEKLY: int = int(os.getenv("CREDITS_USER_WEEKLY", "10000"))
+    # 免限额的账号（评测、探针），逗号分隔用户名；照样记消耗流水
+    CREDITS_EXEMPT_USERNAMES: str = os.getenv("CREDITS_EXEMPT_USERNAMES", "")
+    # 覆盖工具单价的 JSON，如 {"web_search": 10, "mcp:amap": 3}
+    CREDITS_TOOL_PRICES: str = os.getenv("CREDITS_TOOL_PRICES", "")
 
     # 知识库 v1：API、独立 Worker、Embedding 与 Milvus 均通过配置显式启用。
     KNOWLEDGE_BASE_ENABLED: bool = os.getenv("KNOWLEDGE_BASE_ENABLED", "false").lower() == "true"

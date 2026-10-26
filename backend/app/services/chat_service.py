@@ -29,6 +29,7 @@ from app.schemas.chat import (
     Usage,
 )
 from app.schemas.response import ApiException, ErrorCode
+from app.services import credit_service
 from app.services.agent.context_broker import submit_context_result
 from app.services.agent.continuation import (
     build_continuation_context,
@@ -667,6 +668,8 @@ class ChatService:
                 )
             )
             register_task(conversation.id, task, task_id)
+            if trace_id:
+                credit_service.settle_after(task, run_id=trace_id)
             if guest_run is not None:
                 guest_run.settle_after(task, conversation_id=conversation.id, task_id=task_id)
 
@@ -834,6 +837,8 @@ class ChatService:
             )
         )
         register_task(conversation_id, task, task_id)
+        if trace_id:
+            credit_service.settle_after(task, run_id=trace_id)
         if guest_run is not None:
             guest_run.settle_after(task, conversation_id=conversation_id, task_id=task_id)
 
