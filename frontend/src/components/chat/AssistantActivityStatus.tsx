@@ -1,8 +1,9 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { track } from '@/lib/analytics/analytics';
 import type { AssistantActivity } from './assistantActivity';
 import {
   isAwaitingModelOutput,
@@ -30,6 +31,8 @@ interface AssistantActivityStatusProps extends ResolveActivityStatusOptions {
    */
   outputMark?: string;
   className?: string;
+  /** 传入后，「模型响应变慢」提示首次出现时记一次埋点，带上所属 run。 */
+  analyticsRunId?: string | null;
 }
 
 export default function AssistantActivityStatus({
@@ -37,13 +40,21 @@ export default function AssistantActivityStatus({
   placement,
   outputMark,
   className,
+  analyticsRunId,
   ...options
 }: AssistantActivityStatusProps) {
   const watchingOutput = outputMark !== undefined && !options.stopPending && isAwaitingModelOutput(activity.kind);
   const silentS = useSecondsWithoutOutput(watchingOutput, outputMark);
-  const view = silentS >= MODEL_SLOW_AFTER_S
+  const isSlow = silentS >= MODEL_SLOW_AFTER_S;
+  const view = isSlow
     ? resolveSlowModelStatus(silentS)
     : resolveActivityStatus(activity, options);
+  const slowHintTracked = useRef(false);
+  useEffect(() => {
+    if (!isSlow || analyticsRunId === undefined || slowHintTracked.current) return;
+    slowHintTracked.current = true;
+    track('stream_slow_hint_shown', { run_id: analyticsRunId });
+  }, [isSlow, analyticsRunId]);
   if (!view) return null;
   if (placement === 'top' && view.busy) return null;
   if (placement === 'bottom' && !view.busy) return null;

@@ -72,6 +72,7 @@ const {
   getConversationMock,
   generateChatTitleMock,
   uuidMock,
+  trackMock,
 } = vi.hoisted(() => ({
   sendMessageStreamMock: vi.fn(),
   getChatCapabilitiesMock: vi.fn(),
@@ -81,6 +82,12 @@ const {
   getConversationMock: vi.fn(),
   generateChatTitleMock: vi.fn(),
   uuidMock: vi.fn(),
+  trackMock: vi.fn(),
+}));
+
+vi.mock('@/lib/analytics/analytics', () => ({
+  track: trackMock,
+  errorCodeOf: (error: unknown) => (error as { code?: string })?.code ?? 'unknown',
 }));
 
 vi.mock('@/lib/api/chat', () => ({
@@ -291,6 +298,7 @@ function exhaustedCredits(tier: 'guest' | 'user') {
 describe('useSendMessage', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    trackMock.mockReset();
     toastWarningMock.mockReset();
     toastDismissMock.mockReset();
     sendMessageStreamMock.mockReset();
@@ -5242,5 +5250,182 @@ describe('useSendMessage', () => {
       trajectory.byConversationId['server-conv']
         .reconciliationByRunId['run-trajectory'].status,
     ).toBe('reconciling');
+  });
+
+  describe('产品埋点', () => {
+    const trackedEvents = () => trackMock.mock.calls.map(([name]) => name as string);
+    const trackedProps = (name: string) => trackMock.mock.calls.find(([event]) => event === name)?.[1];
+
+    it('新对话完整回答：发送、落地、首个输出、完成各记一次，终态只记一个', async () => {
+      const store = createStore();
+      sendMessageStreamMock.mockImplementationOnce(async (_payload: any, callbacks: StreamCallbacks) => {
+        callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv', taskId: 'task-1' });
+        emitRunStarted(callbacks);
+        callbacks.onAnswering({ block_id: 'answer', delta: '回答' });
+        callbacks.onRunCompleted?.({
+          type: 'run_completed',
+          run_id: 'run-knowledge',
+          parent_run_id: null,
+          step_id: null,
+          parent_step_id: null,
+          tool_call_id: null,
+          trace_id: 'run-knowledge',
+          ts: Date.now(),
+          sequence: 2,
+          total_steps: 1,
+          total_tool_calls: 0,
+          finish_reason: 'stop',
+        });
+        callbacks.onDone({ messageId: 'assistant-1', conversationId: 'server-conv' });
+      });
+
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      await act(async () => {
+        await result.current.sendMessage('你好世界', { conversationId: null, isDraft: true });
+      });
+      await act(async () => { tickIntervals(5); });
+
+      expect(trackedEvents()).toEqual([
+        'message_sent',
+        'conversation_created',
+        'response_first_token',
+        'response_completed',
+      ]);
+      expect(trackedProps('message_sent')).toMatchObject({
+        message_id: 'user-1',
+        conversation_id: 'temp-conv',
+        model: 'model-1',
+        prompt_chars: 4,
+        attachment_count: 0,
+        knowledge_base_count: 0,
+        is_new_conversation: true,
+        is_retry: false,
+        is_edit_resend: false,
+      });
+      expect(trackedProps('conversation_created')).toEqual({ conversation_id: 'server-conv', model: 'model-1' });
+      expect(trackedProps('response_first_token')).toMatchObject({
+        message_id: 'user-1',
+        run_id: 'run-knowledge',
+        conversation_id: 'server-conv',
+        output_kind: 'content',
+      });
+      expect(trackedProps('response_completed')).toMatchObject({
+        message_id: 'user-1',
+        run_id: 'run-knowledge',
+        conversation_id: 'server-conv',
+        model: 'model-1',
+        rounds: 1,
+        tool_call_count: 0,
+        tools: [],
+        fallback_model: null,
+        finish_reason: 'stop',
+        output_chars: 2,
+        image_count: 0,
+        document_count: 0,
+      });
+    });
+
+    it('请求没被接受时记 response_failed(connect) 并带业务错误码，不记完成', async () => {
+      const store = createStore();
+      store.dispatch(upsertConversation({
+        id: 'existing-conv',
+        title: 'Existing',
+        model_id: 'model-1',
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }));
+      sendMessageStreamMock.mockRejectedValueOnce(Object.assign(new Error('需要登录'), { code: 'LOGIN_REQUIRED' }));
+
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      await act(async () => {
+        await result.current.sendMessage('问题', { conversationId: 'existing-conv' });
+      });
+
+      expect(trackedEvents()).toEqual(['message_sent', 'response_failed']);
+      expect(trackedProps('message_sent')).toMatchObject({ conversation_id: 'existing-conv', is_new_conversation: false });
+      expect(trackedProps('response_failed')).toMatchObject({
+        message_id: trackedProps('message_sent').message_id,
+        run_id: null,
+        conversation_id: 'existing-conv',
+        stage: 'connect',
+        error_code: 'LOGIN_REQUIRED',
+        had_output: false,
+      });
+    });
+
+    it('用户停止生成记 response_stopped，带已拿到的 run_id 与是否已有输出', async () => {
+      const store = createStore();
+      store.dispatch(upsertConversation({
+        id: 'existing-conv',
+        title: 'Existing',
+        model_id: 'model-1',
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }));
+      sendMessageStreamMock.mockImplementationOnce(
+        (_payload: any, callbacks: StreamCallbacks, signal?: AbortSignal) => {
+          callbacks.onReady({ messageId: 'assistant-1', conversationId: 'existing-conv', taskId: 'task-1' });
+          emitRunStarted(callbacks);
+          callbacks.onAnswering({ block_id: 'answer', delta: '回答' });
+          return new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          });
+        },
+      );
+
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      let sending: Promise<unknown> | undefined;
+      await act(async () => {
+        sending = result.current.sendMessage('问题', { conversationId: 'existing-conv' });
+      });
+      await waitFor(() => {
+        expect(theSlot(store.getState()).currentRun?.status).toBe('running');
+      });
+      await act(async () => {
+        await result.current.stopStreaming('existing-conv');
+        await sending;
+      });
+
+      expect(trackedEvents().filter((name) => name.startsWith('response_'))).toEqual([
+        'response_first_token',
+        'response_stopped',
+      ]);
+      expect(trackedProps('response_stopped')).toMatchObject({
+        message_id: trackedProps('message_sent').message_id,
+        run_id: 'run-knowledge',
+        conversation_id: 'existing-conv',
+        had_output: true,
+      });
+    });
+
+    it('切走会话分离连接不算停止，不记任何终态事件', async () => {
+      const store = createStore();
+      sendMessageStreamMock.mockImplementationOnce(
+        (_payload: any, callbacks: StreamCallbacks, signal?: AbortSignal) => {
+          callbacks.onReady({ messageId: 'assistant-1', conversationId: 'server-conv', taskId: 'task-1' });
+          emitRunStarted(callbacks);
+          return new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          });
+        },
+      );
+
+      const { result } = renderHook(() => useSendMessage(), { wrapper: createWrapper(store) });
+      let sending: Promise<unknown> | undefined;
+      await act(async () => {
+        sending = result.current.sendMessage('hello', { conversationId: null, isDraft: true });
+      });
+      await waitFor(() => {
+        expect(theSlot(store.getState()).currentRun?.status).toBe('running');
+      });
+      await act(async () => {
+        result.current.detachStreaming();
+        await sending;
+      });
+
+      expect(trackedEvents()).toEqual(['message_sent', 'conversation_created']);
+    });
   });
 });

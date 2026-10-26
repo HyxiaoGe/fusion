@@ -57,6 +57,7 @@ import type { AgentRunState, AgentRunStatus } from '@/types/agentRun';
 import type { StreamCallbacks } from '@/lib/api/chat';
 import { runResumableStream } from '@/lib/api/resumableStream';
 import { createAgentStreamEventHandlers } from '@/lib/agent/streamEventHandlers';
+import { errorCodeOf, track } from '@/lib/analytics/analytics';
 import {
   recoverReasoningOnlyFinalBlocks,
   shouldRecoverReasoningOnlyFinalBlocks,
@@ -267,6 +268,8 @@ export function useSendMessage(activeConversationId?: string | null) {
   const activeRetryTurnSnapshotRef = useRef<ActiveRetryTurnSnapshot | null>(null);
   const sendGenerationRef = useRef(0);
   const activeSendContextRef = useRef<SendSessionContext | null>(null);
+  // 用户主动停止过的连接。分离（切走会话）同样会中止本地连接但生成仍在后台继续，埋点要区分。
+  const userStoppedControllersRef = useRef(new WeakSet<AbortController>());
   const typewriter = useTypewriter();
   const typewriterRef = useRef(typewriter);
   typewriterRef.current = typewriter;
@@ -525,6 +528,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       if (stoppingController) {
         releaseStreamController(teardownConvId, stoppingController);
         releaseStreamController(convId, stoppingController);
+        userStoppedControllersRef.current.add(stoppingController);
         stoppingController.abort();
       }
       if (abortControllerRef.current === stoppingController) {
@@ -791,6 +795,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       const exhaustedWindow = selectCreditsExhaustedWindow(store.getState());
       if (exhaustedWindow) {
         options.onRejectedBeforeSend?.();
+        track('credits_exhausted_shown', { scope: exhaustedWindow, trigger: 'send' });
         if (selectIsGuest(store.getState())) {
           (globalThis as { triggerLoginDialog?: (reason?: 'guest_limit') => void }).triggerLoginDialog?.('guest_limit');
         } else {
@@ -1149,6 +1154,82 @@ export function useSendMessage(activeConversationId?: string | null) {
       // usage 不再随 done 事件下发（spec 缺口，未来可能扩 RunCompleted.usage）；
       // 当前路径：agent 模式从 GET conversation 拉，普通模式暂留 undefined
       let donePayload: { incomingConvId: string } | null = null;
+      // 埋点：本轮回答的身份与计时都收在这组闭包变量里，和 refs 无关，停止后清 refs 也不影响。
+      // run_id 要等 run_started 才有，之前的事件带 null；新对话落地前 conversation_id 是草稿 ID。
+      const analyticsStartedAt = Date.now();
+      let analyticsRunId: string | null = null;
+      let analyticsModel = enabledModel.id;
+      let analyticsFinishReason = 'unknown';
+      let analyticsRunTotals: { rounds: number; toolCalls: number } | null = null;
+      let analyticsReconnects = 0;
+      let analyticsHadOutput = false;
+      let analyticsFirstOutputTracked = false;
+      let analyticsOutcomeTracked = false;
+      const analyticsConversationId = () => serverConvId ?? activeConvIdRef.current ?? tempConvId;
+      const trackFirstOutput = (outputKind: 'reasoning' | 'content') => {
+        if (analyticsFirstOutputTracked) return;
+        analyticsFirstOutputTracked = true;
+        track('response_first_token', {
+          message_id: userMessageId,
+          run_id: analyticsRunId,
+          conversation_id: analyticsConversationId(),
+          model: analyticsModel,
+          ttft_ms: Date.now() - analyticsStartedAt,
+          output_kind: outputKind,
+        });
+      };
+      /** 一轮回答只记一个终态；流正常收尾但 run 自己报了失败或中断时，按 run 状态记。 */
+      const trackResponseOutcome = (
+        outcome: 'completed' | 'failed' | 'stopped',
+        failure?: { stage: 'connect' | 'stream' | 'run'; error_code: string },
+      ) => {
+        if (analyticsOutcomeTracked) return;
+        analyticsOutcomeTracked = true;
+        const conversationId = analyticsConversationId();
+        const slot = getSlot(conversationId);
+        const run = slot.currentRun;
+        const base = {
+          message_id: userMessageId,
+          run_id: analyticsRunId ?? run?.runId ?? null,
+          conversation_id: conversationId,
+          model: analyticsModel,
+          duration_ms: Date.now() - analyticsStartedAt,
+        };
+        if (outcome === 'completed' && run?.status === 'failed') {
+          outcome = 'failed';
+          failure = { stage: 'run', error_code: run.failure?.code ?? 'run_failed' };
+        } else if (outcome === 'completed' && run?.status === 'interrupted') {
+          outcome = 'stopped';
+        }
+        if (outcome === 'failed') {
+          track('response_failed', {
+            ...base,
+            stage: failure?.stage ?? 'stream',
+            error_code: failure?.error_code ?? 'unknown',
+            had_output: analyticsHadOutput,
+          });
+          return;
+        }
+        if (outcome === 'stopped') {
+          track('response_stopped', { ...base, had_output: analyticsHadOutput });
+          return;
+        }
+        const blocks = selectFullStreamContentBlocks(slot);
+        const tools = Array.from(new Set(
+          (run?.steps ?? []).flatMap(step => step.toolCalls.map(call => call.toolName)),
+        ));
+        track('response_completed', {
+          ...base,
+          rounds: analyticsRunTotals?.rounds ?? run?.totalSteps ?? 0,
+          tool_call_count: analyticsRunTotals?.toolCalls ?? run?.totalToolCalls ?? 0,
+          tools,
+          fallback_model: run?.modelFallbacks?.at(-1)?.fallbackModel ?? null,
+          finish_reason: analyticsFinishReason,
+          output_chars: slot.totalTextLength,
+          image_count: blocks.filter(block => block.type === 'generated_image').length,
+          document_count: blocks.filter(block => block.type === 'document').length,
+        });
+      };
       // 界面在 run_completed 收尾后，本轮 refs 已清空，推荐问题事件靠这里认领目标消息。
       let completedSuggestionTarget: {
         conversationId: string;
@@ -1190,6 +1271,7 @@ export function useSendMessage(activeConversationId?: string | null) {
           })
         );
         dispatch(migrateStreamConversation({ from: tempConvId, to: incomingConvId }));
+        track('conversation_created', { conversation_id: incomingConvId, model: enabledModel.id });
         options.onMaterialized?.(incomingConvId);
       };
 
@@ -1349,6 +1431,7 @@ export function useSendMessage(activeConversationId?: string | null) {
         donePayload = { incomingConvId };
         // 标题本身已由 SSE 事件送达，这里只确保草稿已 materialize 后刷新会话列表。
         materializeIfNeeded(incomingConvId);
+        trackResponseOutcome('completed');
         const refreshConversationId = serverConvId ?? incomingConvId ?? activeConvIdRef.current;
         if (refreshConversationId) {
           startPostStreamActions(refreshConversationId);
@@ -1404,6 +1487,8 @@ export function useSendMessage(activeConversationId?: string | null) {
                 dispatch(completeThinkingPhase({ conversationId: streamConvId }));
               }
               assistantHasContentRef.current = true;
+              analyticsHadOutput = true;
+              trackFirstOutput('content');
               dispatch(appendTextDelta({
                 conversationId: streamConvId,
                 blockId: payload.block_id,
@@ -1421,6 +1506,7 @@ export function useSendMessage(activeConversationId?: string | null) {
             onReasoning: (payload) => {
               if (!isActiveSendCurrent() || !activeConvIdRef.current || !ownsSlot()) return;
               const streamConvId = activeConvIdRef.current;
+              trackFirstOutput('reasoning');
               dispatch(appendThinkingDelta({
                 conversationId: streamConvId,
                 blockId: payload.block_id,
@@ -1435,8 +1521,18 @@ export function useSendMessage(activeConversationId?: string | null) {
 
             ...agentStreamEventHandlers,
 
+            onRunStarted: ev => {
+              agentStreamEventHandlers.onRunStarted?.(ev);
+              if (!isActiveSendCurrent()) return;
+              analyticsRunId = ev.run_id;
+              // 自动选择或下线兜底时真正跑的模型以服务端为准。
+              if (typeof ev.model === 'string' && ev.model) analyticsModel = ev.model;
+            },
+
             onRunCompleted: ev => {
               agentStreamEventHandlers.onRunCompleted?.(ev);
+              analyticsFinishReason = ev.finish_reason;
+              analyticsRunTotals = { rounds: ev.total_steps, toolCalls: ev.total_tool_calls };
               const completedConvId = serverConvId ?? activeConvIdRef.current;
               if (completedConvId) finishStream(completedConvId);
             },
@@ -1503,6 +1599,25 @@ export function useSendMessage(activeConversationId?: string | null) {
           };
 
       try {
+        track('message_sent', {
+          message_id: userMessageId,
+          conversation_id: tempConvId,
+          model: enabledModel.id,
+          reasoning_enabled: useReasoning,
+          attachment_count: attachments?.length ?? 0,
+          attachment_types: Array.from(new Set(
+            (attachments ?? []).map(item => item.mimeType.split('/')[0] || 'unknown'),
+          )),
+          knowledge_base_count: (
+            options.knowledgeBaseIds
+            ?? store.getState().conversation.byId[tempConvId]?.knowledge_base_ids
+            ?? []
+          ).length,
+          prompt_chars: content.trim().length,
+          is_new_conversation: isDraft,
+          is_retry: isMessageRetry,
+          is_edit_resend: isMessageEdit,
+        });
         await runResumableStream({
           callbacks: streamCallbacks,
           signal: controller.signal,
@@ -1538,12 +1653,32 @@ export function useSendMessage(activeConversationId?: string | null) {
           onPhaseChange: phase => {
             const phaseConvId = activeConvIdRef.current;
             if (!isActiveSendCurrent() || !phaseConvId) return;
+            if (phase === 'reconnecting') {
+              analyticsReconnects += 1;
+            } else {
+              track('stream_reconnected', {
+                message_id: userMessageId,
+                run_id: analyticsRunId,
+                conversation_id: phaseConvId,
+                attempt: analyticsReconnects,
+              });
+            }
             dispatch(setStreamStatus({ conversationId: phaseConvId, status: phase }));
           },
         });
         return;
       } catch (error) {
         typewriterRef.current.stop();
+        if (controller.signal.aborted) {
+          if (userStoppedControllersRef.current.has(controller)) trackResponseOutcome('stopped');
+        } else if (isInterruptedStreamSignal(error)) {
+          trackResponseOutcome('stopped');
+        } else if (isActiveSendCurrent()) {
+          trackResponseOutcome('failed', {
+            stage: materializedOnce || Boolean(serverMessageIdRef.current) ? 'stream' : 'connect',
+            error_code: errorCodeOf(error),
+          });
+        }
         if (controller.signal.aborted || !isActiveSendCurrent()) {
           // 另一处页面中止了这条流时，本实例的 generation 可能还没作废。
           // 先作废再返回，迟到的 run 事件不能落到下一轮。

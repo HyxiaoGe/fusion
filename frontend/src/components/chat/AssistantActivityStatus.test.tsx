@@ -1,6 +1,9 @@
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { AssistantActivity } from './assistantActivity';
+
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/analytics/analytics', () => ({ track: trackMock }));
 import AssistantActivityStatus from './AssistantActivityStatus';
 
 function baseActivity(overrides: Partial<AssistantActivity>): AssistantActivity {
@@ -99,25 +102,31 @@ describe('AssistantActivityStatus', () => {
     vi.useFakeTimers();
     try {
       const answering = baseActivity({ kind: 'answering', hasText: true });
+      trackMock.mockReset();
       const { container, rerender } = render(
-        <AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:10" />,
+        <AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:10" analyticsRunId="run-1" />,
       );
       // 正文输出中本身不展示状态
       expect(container).toBeEmptyDOMElement();
 
       act(() => { vi.advanceTimersByTime(8000); });
-      rerender(<AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:42" />);
+      rerender(<AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:42" analyticsRunId="run-1" />);
       act(() => { vi.advanceTimersByTime(14000); });
       expect(container).toBeEmptyDOMElement();
+      expect(trackMock).not.toHaveBeenCalled();
 
       act(() => { vi.advanceTimersByTime(3000); });
       const status = screen.getByRole('status');
       expect(status).toHaveTextContent('模型响应变慢已等待 17 秒，可以停止后重试');
       expect(status).toHaveAttribute('data-tone', 'warn');
       expect(screen.queryByText('17 秒')).toBeNull();
+      // 变慢提示出现只记一次，继续等也不重复
+      act(() => { vi.advanceTimersByTime(5000); });
+      expect(trackMock).toHaveBeenCalledTimes(1);
+      expect(trackMock).toHaveBeenCalledWith('stream_slow_hint_shown', { run_id: 'run-1' });
 
       // 有新输出立即恢复
-      rerender(<AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:50" />);
+      rerender(<AssistantActivityStatus activity={answering} placement="bottom" outputMark="answering:50" analyticsRunId="run-1" />);
       expect(container).toBeEmptyDOMElement();
     } finally {
       vi.useRealTimers();

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { submitAgentContextResult } from '@/lib/api/chat';
+import { track } from '@/lib/analytics/analytics';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import { selectStreamSlot, setContextRequestPhase } from '@/redux/slices/streamSlice';
 import type {
@@ -143,6 +144,11 @@ export function useLocationContextHandshake(conversationId: string | null) {
         requestId: target.requestId,
         ...submission,
       } as SubmitAgentContextResultInput);
+      track('agent_context_submitted', {
+        run_id: target.runId,
+        conversation_id: target.conversationId,
+        status: submission.status,
+      });
     } catch {
       if (requestKey(requestRef.current) === targetKey) {
         setPhase(target, 'submit_failed');
