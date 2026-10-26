@@ -53,7 +53,7 @@ export interface CreditsEntry {
   message_id: string | null;
   model_id: string | null;
   run_status: string | null;
-  /** 出错结束的运行不扣，credits 为 0，breakdown 仍记录实际用量 */
+  /** 非用户原因结束的运行不扣，credits 为 0，breakdown 仍记录实际用量 */
   charged: boolean;
   credits: number;
   breakdown: CreditsBreakdown | null;
