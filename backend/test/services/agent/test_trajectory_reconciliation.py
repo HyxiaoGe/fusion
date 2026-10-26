@@ -14,6 +14,7 @@ from app.db.database import Base
 from app.db.models import AgentEvent, AgentSession, Conversation, RunTrajectoryMeta, TrajectoryLedgerSettings, User
 from app.services.agent.trajectory_reconciliation import (
     DEFAULT_RECONCILIATION_STALE_GRACE,
+    ORPHANED_RUN_ERROR_MESSAGE,
     TERMINAL_OUTCOME_UNKNOWN_REASON,
     build_reconciliation_candidate_query,
     classify_missing_trajectory_meta,
@@ -408,7 +409,8 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         self._add_run("in-flight", status="running", created_at=self.now - timedelta(minutes=20))
         self._add_meta("in-flight", updated_at=self.now - timedelta(minutes=5))
 
-        first = reconcile_trajectory_batch(session_factory=self.Session, now=self.now)
+        # 读不到存活标记（Redis 不可用）时按存活处理，只靠两倍时限兜底
+        first = reconcile_trajectory_batch(session_factory=self.Session, now=self.now, run_alive=lambda _run_id: True)
 
         self.assertEqual(first.orphaned_runs_interrupted, 1)
         with self.Session() as db:
@@ -423,6 +425,7 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         second = reconcile_trajectory_batch(
             session_factory=self.Session,
             now=self.now + DEFAULT_RECONCILIATION_STALE_GRACE + timedelta(seconds=1),
+            run_alive=lambda _run_id: True,
         )
 
         self.assertEqual(second.orphaned_runs_interrupted, 0)
@@ -431,6 +434,28 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         self.assertEqual(meta.trajectory_status, "degraded")
         self.assertEqual(meta.degraded_reason, "expected_sequence_missing")
         self.assertEqual(self._meta("in-flight").trajectory_status, "recording")
+
+    def test_running_run_without_liveness_marker_is_interrupted_after_grace(self):
+        # 进程退出后心跳停止，存活标记在 LOCK_TTL 内过期；不必等两倍运行时限。
+        self._add_run("dead", status="running", created_at=self.now - timedelta(minutes=5))
+        self._add_run("alive", status="running", created_at=self.now - timedelta(minutes=5))
+        self._add_run("just-started", status="running", created_at=self.now - timedelta(seconds=30))
+        checked: list[str] = []
+
+        def run_alive(run_id: str) -> bool:
+            checked.append(run_id)
+            return run_id == "alive"
+
+        result = reconcile_trajectory_batch(session_factory=self.Session, now=self.now, run_alive=run_alive)
+
+        self.assertEqual(result.orphaned_runs_interrupted, 1)
+        # 刚创建的运行还没到启动宽限期，不查标记
+        self.assertEqual(sorted(checked), ["alive", "dead"])
+        with self.Session() as db:
+            dead = db.get(AgentSession, "dead")
+            self.assertEqual((dead.status, dead.error_message), ("interrupted", ORPHANED_RUN_ERROR_MESSAGE))
+            self.assertEqual(db.get(AgentSession, "alive").status, "running")
+            self.assertEqual(db.get(AgentSession, "just-started").status, "running")
 
     def test_orphan_logging_reports_interrupted_count(self):
         self._add_run("orphaned", status="running", created_at=datetime.now(UTC) - timedelta(hours=2))
@@ -453,7 +478,7 @@ class TrajectoryReconciliationTests(unittest.TestCase):
         )
         self._add_events("still-running", [0])
 
-        result = reconcile_trajectory_batch(session_factory=self.Session, now=self.now)
+        result = reconcile_trajectory_batch(session_factory=self.Session, now=self.now, run_alive=lambda _run_id: True)
 
         self.assertEqual(result.processed, 0)
         meta = self._meta("still-running")

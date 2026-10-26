@@ -21,7 +21,8 @@ class AgentCallBudgetTests(unittest.TestCase):
 
     def test_extended_run_keeps_redis_ownership_until_its_deadline(self):
         limits = _agent_loop_limits()
-        self.assertGreater(redis_config.LOCK_TTL, limits.total_timeout_s)
+        # 锁靠心跳续期：续期间隔要留足余量，偶发一次续期延迟也不丢写入权
+        self.assertLessEqual(redis_config.LOCK_RENEW_INTERVAL * 3, redis_config.LOCK_TTL)
         self.assertGreater(redis_config.STREAM_CHUNK_TTL, limits.total_timeout_s)
 
     def test_mcp_defaults_allow_more_than_eight_subcalls(self):

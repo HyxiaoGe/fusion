@@ -9,6 +9,7 @@
 初始化失败会显式返回，流式追加连续失败会中止生成，避免继续消耗模型资源。
 """
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from typing import Any, AsyncIterator, Literal, Optional
 
 from app.core.logger import app_logger as logger
 from app.core.redis import (
+    LOCK_RENEW_INTERVAL,
     LOCK_TTL,
     LUA_APPEND_STREAM,
     LUA_CANCEL_STREAM,
@@ -30,6 +32,7 @@ from app.core.redis import (
     STREAM_DONE_TTL,
     STREAM_STOP_GUARD_TTL,
     get_redis_pool,
+    run_alive_key,
     stream_chunks_key,
     stream_lock_key,
     stream_meta_key,
@@ -192,6 +195,7 @@ async def append_chunk(
             stream_meta_key(conversation_id),
             task_id,
             str(STREAM_CHUNK_TTL),
+            str(LOCK_TTL),
             *field_args,
         )
         if not result or int(result[0]) != 1:
@@ -355,9 +359,62 @@ async def check_lock_owner(conversation_id: str, task_id: str) -> bool:
             stream_meta_key(conversation_id),
             task_id,
             str(STREAM_CHUNK_TTL),
+            str(LOCK_TTL),
         )
         return int(result) == 1
     except Exception:
+        return True
+
+
+_heartbeat_tasks: set[asyncio.Task] = set()
+
+
+async def _mark_run_alive(redis: Any, run_id: str) -> None:
+    try:
+        await redis.set(run_alive_key(run_id), "1", ex=LOCK_TTL)
+    except Exception as error:  # noqa: BLE001 — 心跳失败只影响遗留判定，不打断生成
+        logger.warning("运行存活标记写入失败: run_id=%s, error=%s", run_id, error)
+
+
+async def _heartbeat(task: asyncio.Task, *, conversation_id: str, task_id: str, run_id: str | None) -> None:
+    redis = get_redis_pool()
+    owns_lock = True
+    try:
+        while not task.done():
+            await asyncio.wait({task}, timeout=LOCK_RENEW_INTERVAL)
+            if task.done():
+                return
+            if run_id and redis:
+                await _mark_run_alive(redis, run_id)
+            # 写入权被新请求接管后不再续期锁，存活标记照常续到任务结束
+            if owns_lock:
+                owns_lock = await check_lock_owner(conversation_id, task_id)
+    finally:
+        if run_id and redis:
+            try:
+                await redis.delete(run_alive_key(run_id))
+            except Exception:  # noqa: BLE001 — 标记会自行过期
+                pass
+
+
+async def keep_run_alive(task: asyncio.Task, *, conversation_id: str, task_id: str, run_id: str | None) -> None:
+    """生成任务存活期间续期流锁和运行存活标记；进程退出后两者在 LOCK_TTL 内过期。"""
+    redis = get_redis_pool()
+    if run_id and redis:
+        await _mark_run_alive(redis, run_id)
+    heartbeat = asyncio.create_task(_heartbeat(task, conversation_id=conversation_id, task_id=task_id, run_id=run_id))
+    _heartbeat_tasks.add(heartbeat)
+    heartbeat.add_done_callback(_heartbeat_tasks.discard)
+
+
+async def is_run_alive(run_id: str) -> bool:
+    """运行所在进程是否仍在续期存活标记；Redis 不可用时按存活处理，不误判遗留。"""
+    redis = get_redis_pool()
+    if not redis:
+        return True
+    try:
+        return bool(await redis.exists(run_alive_key(run_id)))
+    except Exception:  # noqa: BLE001
         return True
 
 

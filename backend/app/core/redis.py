@@ -17,11 +17,13 @@ from app.core.logger import app_logger as logger
 _redis_pool: aioredis.Redis | None = None
 
 # Redis Stream key 和 TTL 常量
-# 锁和 meta 不随每个 chunk 续期，必须覆盖完整运行时限并留出收尾时间。
+# chunks 和 meta 保存正文，覆盖完整运行时限并留出收尾时间。
 STREAM_CHUNK_TTL = max(600, settings.AGENT_TOTAL_TIMEOUT + 120)
 # 流结束后保留时长：落后很多的回放读取器要在此窗口内读到结束条目，长回答需留足余量。
 STREAM_DONE_TTL = 600
-LOCK_TTL = STREAM_CHUNK_TTL  # 互斥锁 TTL
+# 互斥锁与运行存活标记：生成任务存活期间按心跳续期；进程退出后很快过期，读取器据此判定流已中断。
+LOCK_TTL = 60
+LOCK_RENEW_INTERVAL = 15
 STREAM_STOP_GUARD_TTL = 60  # stop 请求异常退出后的兜底释放窗口
 
 
@@ -38,6 +40,11 @@ def stream_meta_key(conversation_id: str) -> str:
 def stream_lock_key(conversation_id: str) -> str:
     """Redis String key：流的互斥锁"""
     return f"stream:lock:{conversation_id}"
+
+
+def run_alive_key(run_id: str) -> str:
+    """Redis String key：运行所在进程的存活标记，由生成任务心跳续期。"""
+    return f"run:alive:{run_id}"
 
 
 def stream_stop_guard_key(conversation_id: str) -> str:

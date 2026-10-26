@@ -4,6 +4,7 @@
 使用 fakeredis 模拟 Redis Stream + Lua 脚本（finalize/cancel 走 Lua eval）。
 """
 
+import asyncio
 import json
 import unittest
 from types import SimpleNamespace
@@ -167,12 +168,14 @@ class TestStreamStateService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await check_lock_owner("conv-1", "task-1"))
         self.assertFalse(await check_lock_owner("conv-1", "task-other"))
 
-    async def test_append_and_owner_check_renew_lock_and_meta_ttl(self):
-        # lock/meta 曾只在 init 设一次 TTL：单轮生成超过 STREAM_CHUNK_TTL 后丢失写入权。
-        from app.core.redis import STREAM_CHUNK_TTL
+    async def test_append_and_owner_check_renew_short_lock_and_long_stream_ttl(self):
+        # lock 用短 TTL，进程退出后很快释放；chunks/meta 保存正文，覆盖完整运行时限。
+        from app.core.redis import LOCK_TTL, STREAM_CHUNK_TTL
         from app.services.stream_state_service import append_chunk, check_lock_owner, init_stream
 
+        self.assertLess(LOCK_TTL, STREAM_CHUNK_TTL)
         await init_stream("conv-ttl", "user-1", "gpt-4", "msg-1", "task-1")
+        self.assertLessEqual(await self.fake_redis.ttl("stream:lock:conv-ttl"), LOCK_TTL)
         keys = ("stream:lock:conv-ttl", "stream:chunks:conv-ttl", "stream:meta:conv-ttl")
 
         for renew in (
@@ -182,8 +185,51 @@ class TestStreamStateService(unittest.IsolatedAsyncioTestCase):
             for key in keys:
                 await self.fake_redis.expire(key, 5)
             await renew()
-            for key in keys:
+            self.assertGreater(await self.fake_redis.ttl("stream:lock:conv-ttl"), LOCK_TTL - 5)
+            self.assertLessEqual(await self.fake_redis.ttl("stream:lock:conv-ttl"), LOCK_TTL)
+            for key in keys[1:]:
                 self.assertGreater(await self.fake_redis.ttl(key), STREAM_CHUNK_TTL - 5, key)
+
+    async def test_heartbeat_keeps_lock_and_run_marker_alive_until_task_ends(self):
+        # 工具执行期间没有 append，锁靠心跳续期；任务结束后存活标记删除。
+        from app.core.redis import LOCK_TTL
+        from app.services import stream_state_service
+        from app.services.stream_state_service import init_stream, is_run_alive, keep_run_alive
+
+        await init_stream("conv-hb", "user-1", "gpt-4", "msg-1", "task-1")
+        release = asyncio.Event()
+        task = asyncio.create_task(release.wait())
+        with patch.object(stream_state_service, "LOCK_RENEW_INTERVAL", 0.02):
+            await keep_run_alive(task, conversation_id="conv-hb", task_id="task-1", run_id="run-1")
+            self.assertTrue(await is_run_alive("run-1"))
+            await self.fake_redis.expire("stream:lock:conv-hb", 1)
+            await self.fake_redis.expire("run:alive:run-1", 1)
+            await asyncio.sleep(0.1)
+            self.assertGreater(await self.fake_redis.ttl("stream:lock:conv-hb"), LOCK_TTL - 5)
+            self.assertGreater(await self.fake_redis.ttl("run:alive:run-1"), LOCK_TTL - 5)
+
+            release.set()
+            await task
+            await asyncio.sleep(0.05)
+        self.assertFalse(await is_run_alive("run-1"))
+
+    async def test_heartbeat_stops_renewing_lock_taken_by_new_task(self):
+        from app.services import stream_state_service
+        from app.services.stream_state_service import init_stream, is_run_alive, keep_run_alive
+
+        await init_stream("conv-hb2", "user-1", "gpt-4", "msg-1", "task-old")
+        release = asyncio.Event()
+        task = asyncio.create_task(release.wait())
+        with patch.object(stream_state_service, "LOCK_RENEW_INTERVAL", 0.02):
+            await keep_run_alive(task, conversation_id="conv-hb2", task_id="task-old", run_id="run-old")
+            await self.fake_redis.set("stream:lock:conv-hb2", "task-new", ex=7)
+            await asyncio.sleep(0.1)
+            # 旧任务不碰新任务的锁，但自身仍在运行，存活标记照常续期
+            self.assertEqual(await self.fake_redis.get("stream:lock:conv-hb2"), "task-new")
+            self.assertLessEqual(await self.fake_redis.ttl("stream:lock:conv-hb2"), 7)
+            self.assertTrue(await is_run_alive("run-old"))
+            release.set()
+            await task
 
     async def test_owner_check_by_other_task_does_not_renew(self):
         from app.services.stream_state_service import check_lock_owner, init_stream
@@ -906,7 +952,7 @@ class AppendChunkExtrasTests(unittest.IsolatedAsyncioTestCase):
 
             await append_chunk("c1", "reasoning", "hi", "b1", task_id="task-1", run_id="r1", step_id="s1")
             args = redis.eval.await_args.args
-            fields = dict(zip(args[7::2], args[8::2]))
+            fields = dict(zip(args[8::2], args[9::2]))
             self.assertEqual(fields["type"], "reasoning")
             self.assertEqual(fields["content"], "hi")
             self.assertEqual(fields["block_id"], "b1")
@@ -924,7 +970,7 @@ class AppendChunkExtrasTests(unittest.IsolatedAsyncioTestCase):
 
             await append_chunk("c1", "reasoning", "hi", "b1", task_id="task-1", run_id=None, step_id="s1")
             args = redis.eval.await_args.args
-            fields = dict(zip(args[7::2], args[8::2]))
+            fields = dict(zip(args[8::2], args[9::2]))
             self.assertNotIn("run_id", fields)
             self.assertEqual(fields["step_id"], "s1")
 
@@ -939,7 +985,7 @@ class AppendChunkExtrasTests(unittest.IsolatedAsyncioTestCase):
 
             await append_chunk("c1", "answering", "text", "b2", task_id="task-1")
             args = redis.eval.await_args.args
-            fields = dict(zip(args[7::2], args[8::2]))
+            fields = dict(zip(args[8::2], args[9::2]))
             self.assertEqual(fields, {"type": "answering", "content": "text", "block_id": "b2"})
 
 

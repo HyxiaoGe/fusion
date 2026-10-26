@@ -20,7 +20,10 @@ from app.schemas.trajectory import UserTrajectoryMetaRow
 DEFAULT_RECONCILIATION_BATCH_SIZE = 100
 DEFAULT_RECONCILIATION_STALE_GRACE = timedelta(seconds=60)
 # 单次 run 受 AGENT_TOTAL_TIMEOUT 硬性限时；创建超过两倍时限仍为 running，说明所属进程已退出（如部署重启）。
+# 这是 Redis 不可用时的兜底；平时按运行存活标记判定。
 DEFAULT_ORPHANED_RUN_AFTER = timedelta(seconds=settings.AGENT_TOTAL_TIMEOUT * 2)
+# 创建超过这么久、存活标记却已过期的 running run 视为进程已退出；留出任务启动写入标记的时间。
+DEFAULT_LIVENESS_GRACE = timedelta(minutes=2)
 ORPHANED_RUN_ERROR_MESSAGE = "运行进程已退出，未写入终态"
 TERMINAL_OUTCOME_UNKNOWN_REASON = "terminal_outcome_unknown"
 
@@ -275,6 +278,8 @@ def reconcile_trajectory_batch(
     batch_size: int = DEFAULT_RECONCILIATION_BATCH_SIZE,
     stale_grace: timedelta = DEFAULT_RECONCILIATION_STALE_GRACE,
     orphaned_after: timedelta = DEFAULT_ORPHANED_RUN_AFTER,
+    liveness_grace: timedelta = DEFAULT_LIVENESS_GRACE,
+    run_alive: Callable[[str], bool] | None = None,
 ) -> TrajectoryReconciliationResult:
     """在一个短事务中幂等收敛一批终态 run。"""
     if batch_size <= 0:
@@ -289,6 +294,8 @@ def reconcile_trajectory_batch(
         session_factory=session_factory,
         now=reconciled_at,
         created_before=reconciled_at - orphaned_after,
+        liveness_checked_before=reconciled_at - liveness_grace,
+        run_alive=run_alive or _run_alive_in_redis,
     )
     counters = {
         "pending_degraded": 0,
@@ -365,40 +372,73 @@ def reconcile_trajectory_batch(
     )
 
 
-def _interrupt_orphaned_runs(*, session_factory: Callable[[], Any], now: datetime, created_before: datetime) -> int:
-    """把所属进程已退出的 running run 标为 interrupted，之后按普通终态 run 收敛轨迹。"""
+def _run_alive_in_redis(run_id: str) -> bool:
+    """同步读取运行存活标记；Redis 不可用时按存活处理，只留超时兜底。"""
+    from app.core.redis import run_alive_key
+    from app.core.revocation import get_redis
+
+    try:
+        return bool(get_redis().exists(run_alive_key(run_id)))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def mark_orphaned_run(run: AgentSession, now: datetime) -> None:
+    """进程已退出、没写终态的 run 记为系统原因中断（结算时不扣额度）。"""
+    run.status = "interrupted"
+    run.terminal_at = now
+    run.limit_reason = None
+    run.error_message = ORPHANED_RUN_ERROR_MESSAGE
+
+
+def _interrupt_orphaned_runs(
+    *,
+    session_factory: Callable[[], Any],
+    now: datetime,
+    created_before: datetime,
+    liveness_checked_before: datetime,
+    run_alive: Callable[[str], bool],
+) -> int:
+    """把所属进程已退出的 running run 标为 interrupted，之后按普通终态 run 收敛轨迹。
+
+    存活标记过期即判定进程已退出；超过两倍运行时限的不再看标记。
+    """
     from app.services.notification_service import enqueue_run_notification
 
     session = session_factory()
     try:
-        candidate_ids = session.scalars(
-            select(AgentSession.conversation_id)
-            .where(AgentSession.status == "running", AgentSession.created_at <= created_before)
-            .distinct()
-            .order_by(AgentSession.conversation_id)
+        candidates = session.execute(
+            select(AgentSession.id, AgentSession.conversation_id, AgentSession.created_at)
+            .where(AgentSession.status == "running", AgentSession.created_at <= liveness_checked_before)
+            .order_by(AgentSession.created_at)
             .limit(DEFAULT_RECONCILIATION_BATCH_SIZE)
         ).all()
+        overdue = _aware_utc(created_before)
+        orphaned = {
+            run_id: conversation_id
+            for run_id, conversation_id, created_at in candidates
+            if _aware_utc(created_at) <= overdue or not run_alive(run_id)
+        }
+        if not orphaned:
+            session.rollback()
+            return 0
         # 先锁本批全部来源，之后才申请运行与用户锁；跳过仍有活跃写者的对话。
         locked_ids = session.scalars(
             select(Conversation.id)
-            .where(Conversation.id.in_(candidate_ids))
+            .where(Conversation.id.in_(sorted(set(orphaned.values()))))
             .order_by(Conversation.id)
             .with_for_update(skip_locked=True)
         ).all()
         runs = session.scalars(
             select(AgentSession)
+            .where(AgentSession.id.in_(list(orphaned)))
             .where(AgentSession.conversation_id.in_(locked_ids))
             .where(AgentSession.status == "running")
-            .where(AgentSession.created_at <= created_before)
             .order_by(AgentSession.user_id, AgentSession.id)
-            .limit(DEFAULT_RECONCILIATION_BATCH_SIZE)
             .with_for_update(skip_locked=True)
         ).all()
         for run in runs:
-            run.status = "interrupted"
-            run.terminal_at = now
-            run.limit_reason = None
-            run.error_message = ORPHANED_RUN_ERROR_MESSAGE
+            mark_orphaned_run(run, now)
             enqueue_run_notification(session, run, notify_interrupted=True)
         session.commit()
         return len(runs)
