@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.embeddings.base import EmbeddingAdapter, EmbeddingError, EmbeddingProfile
 from app.ai.embeddings.litellm_embedding import LiteLLMEmbeddingAdapter
+from app.core import product_analytics
 from app.core.config import settings
 from app.db.knowledge_repository import (
     ClaimedKnowledgeTask,
@@ -131,6 +132,19 @@ class KnowledgeWorker:
                 error,
                 retry_delay_seconds=retry_delay,
             )
+            if context.task_type == "index_document":
+                product_analytics.track(
+                    context.user_id,
+                    "knowledge_ingest_failed",
+                    {
+                        "knowledge_base_id": context.knowledge_base_id,
+                        "document_id": context.document_id,
+                        "error_code": error.code,
+                        "retryable": error.retryable,
+                        "attempt_count": context.attempt_count,
+                        "max_attempts": context.max_attempts,
+                    },
+                )
             logger.warning(
                 "知识库任务失败: knowledge_base_id=%s document_id=%s task_id=%s index_version=%s "
                 "attempt=%s phase=%s error_code=%s retryable=%s",
@@ -311,6 +325,16 @@ class KnowledgeWorker:
                 cleanup_max_attempts=settings.KNOWLEDGE_WORKER_MAX_ATTEMPTS,
             )
         if finalized == "activated":
+            product_analytics.track(
+                context.user_id,
+                "knowledge_ingest_completed",
+                {
+                    "knowledge_base_id": context.knowledge_base_id,
+                    "document_id": document.id,
+                    "chunk_count": chunk_count,
+                    "attempt_count": context.attempt_count,
+                },
+            )
             return True
         if finalized == "stale":
             await self._cleanup_stale_version(context, version, lease_token)

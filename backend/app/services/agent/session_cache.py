@@ -13,6 +13,7 @@ from typing import Literal, TypeAlias
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
+from app.core import product_analytics
 from app.core.logger import app_logger as logger
 from app.core.metrics import AGENT_RUNS_TOTAL
 from app.db.database import SessionLocal
@@ -559,4 +560,16 @@ def _write_session_status(
             row.total_duration_ms = total_duration_ms
         enqueue_run_notification(session, row)
         session.commit()
+        run_properties = {
+            "run_id": run_id,
+            "conversation_id": row.conversation_id,
+            "model": row.model_id,
+            "status": status,
+            "total_steps": total_steps,
+            "total_tool_calls": total_tool_calls,
+            "total_duration_ms": total_duration_ms,
+            "limit_reason": row.limit_reason,
+        }
+        user_id = row.user_id
     AGENT_RUNS_TOTAL.labels(status=status).inc()
+    product_analytics.track(user_id, "run_completed", run_properties)

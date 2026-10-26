@@ -548,6 +548,9 @@ services:
       - ENABLE_DOCS=false
       # 指标只在 Docker 网络内供 Prometheus 抓取，不发布宿主机端口。
       - METRICS_PORT=9464
+      # PostHog 产品埋点；key 为空时不上报
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-https://us.i.posthog.com}
     deploy:
       resources:
         limits:
@@ -619,6 +622,8 @@ services:
       - MILVUS_COLLECTION_PREFIX=${MILVUS_COLLECTION_PREFIX}
       - MILVUS_TIMEOUT_SECONDS=${MILVUS_TIMEOUT_SECONDS}
       - MILVUS_DOCKER_NETWORK=${MILVUS_DOCKER_NETWORK}
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-https://us.i.posthog.com}
     healthcheck:
       test: ["CMD", "python", "-m", "scripts.run_knowledge_worker", "--healthcheck", "--health-max-age-seconds", "120"]
       interval: 30s

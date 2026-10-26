@@ -1103,18 +1103,37 @@ class SessionCacheTests(unittest.IsolatedAsyncioTestCase):
             session.commit.assert_called_once()
 
     async def test_write_session_status_counts_each_run_terminal_once(self):
-        """终态指标只在 running → 终态那一次计数，迟到的收尾写入不重复计。"""
+        """终态指标和 run_completed 埋点只在 running → 终态那一次记，迟到的收尾写入不重复。"""
         before = REGISTRY.get_sample_value("fusion_agent_runs_total", {"status": "interrupted"}) or 0
-        with patch("app.services.agent.session_cache.SessionLocal") as mock_sl:
+        with (
+            patch("app.services.agent.session_cache.SessionLocal") as mock_sl,
+            patch("app.services.agent.session_cache.product_analytics.track") as track,
+        ):
             session = MagicMock()
             mock_sl.return_value.__enter__.return_value = session
-            row = MagicMock(status="running")
+            row = MagicMock(status="running", user_id="user-1", conversation_id="conv-1", model_id="deepseek-chat")
             session.get.return_value = row
-            await write_session_status(run_id="r1", status="interrupted", total_steps=1, total_tool_calls=0)
+            await write_session_status(
+                run_id="r1", status="interrupted", total_steps=1, total_tool_calls=0, total_duration_ms=1200
+            )
             await write_session_status(run_id="r1", status="error", total_steps=1, total_tool_calls=0)
 
         self.assertEqual(row.status, "interrupted")
         self.assertEqual(REGISTRY.get_sample_value("fusion_agent_runs_total", {"status": "interrupted"}), before + 1)
+        track.assert_called_once_with(
+            "user-1",
+            "run_completed",
+            {
+                "run_id": "r1",
+                "conversation_id": "conv-1",
+                "model": "deepseek-chat",
+                "status": "interrupted",
+                "total_steps": 1,
+                "total_tool_calls": 0,
+                "total_duration_ms": 1200,
+                "limit_reason": None,
+            },
+        )
 
     async def test_write_session_status_rejects_invalid_status(self):
         """status 必须是声明过的终态值之一"""

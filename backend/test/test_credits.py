@@ -236,9 +236,22 @@ def test_settle_prices_each_round_by_its_model_and_start_time_and_counts_success
     ]:
         _tool(db, "run-1", name, status)
 
-    entry = credit_service.settle_run(db, "run-1")
+    with patch("app.services.credit_service.product_analytics.track") as track:
+        entry = credit_service.settle_run(db, "run-1")
 
     rounds = entry.breakdown["rounds"]
+    track.assert_called_once_with(
+        "user-1",
+        "credits_settled",
+        {
+            "run_id": "run-1",
+            "conversation_id": "conv-user-1",
+            "model": "deepseek-chat",
+            "run_status": "completed",
+            "charged": True,
+            "credits": entry.credits,
+        },
+    )
     assert [item["model"] for item in rounds] == ["deepseek-chat", "mimo-v2.6-flash", "deepseek-chat"]
     assert rounds[0]["credits"] == pytest.approx((600 * 0.30 + 400 * 0.006 + 100 * 1.20) * _PER_M / 0.0001)
     assert rounds[1]["credits"] == pytest.approx((2000 * 0.1493 + 500 * 0.2985) * _PER_M / 0.0001)
@@ -338,10 +351,16 @@ def test_admission_blocks_exhausted_windows_per_tier(db):
         CREDITS_EXEMPT_USERNAMES="fusion-eval, other",
     ):
         _charge(db, "guest-1", 50, now - timedelta(hours=1), "g")
-        with pytest.raises(ApiException) as guest_error:
+        with (
+            patch("app.services.credit_service.product_analytics.track") as track,
+            pytest.raises(ApiException) as guest_error,
+        ):
             credit_service.ensure_can_start(db, db.get(User, "guest-1"), now=now)
         assert (guest_error.value.code, guest_error.value.status_code) == ("GUEST_QUOTA_EXHAUSTED", 429)
         assert "登录" in guest_error.value.message
+        track.assert_called_once_with(
+            "guest-1", "credits_exhausted", {"tier": "guest", "window": "daily", "is_guest": True}
+        )
 
         _charge(db, "user-1", 60, now - timedelta(days=1), "u1")
         credit_service.ensure_can_start(db, db.get(User, "user-1"), now=now)

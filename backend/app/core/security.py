@@ -12,6 +12,7 @@ from jwt import InvalidTokenError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core import product_analytics
 from app.core.config import settings
 from app.core.guest_identity import GUEST_NICKNAME, GuestTokenError, is_guest_token, verify_guest_token
 from app.core.revocation import extract_session_id, is_session_access_revoked, is_user_access_revoked
@@ -222,6 +223,15 @@ def _sync_user_from_claims(db: Session, auth_user: AuthenticatedUser, token: str
             db.refresh(user)
             if signup_card:
                 logger.info("credits_signup_reset_card_granted user=%s", subject)
+            product_analytics.track(
+                subject,
+                "signup_completed",
+                {
+                    "login_provider": AUTH_PROVIDER,
+                    "role": "admin" if is_superuser else "user",
+                    "signup_card": signup_card,
+                },
+            )
         except IntegrityError as error:
             # 两个首请求可能同时观察到用户不存在。失败事务必须先 rollback，
             # 再按同一 auth identity / subject 读取并发胜者。

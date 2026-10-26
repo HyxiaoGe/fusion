@@ -23,6 +23,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core import product_analytics
 from app.core.config import settings
 from app.db.credit_reset_card_repository import add_reset_cards
 from app.db.database import SessionLocal
@@ -180,6 +181,11 @@ def ensure_can_start(db: Session, user: Any, *, now: datetime | None = None) -> 
     if exhausted is None:
         return
     logger.info("credits_exhausted user=%s tier=%s window=%s", user.id, limits.tier, exhausted)
+    product_analytics.track(
+        str(user.id),
+        "credits_exhausted",
+        {"tier": limits.tier, "window": exhausted, "is_guest": limits.tier == "guest"},
+    )
     if limits.tier == "guest":
         when = "今天" if exhausted == "daily" else "本周"
         raise ApiException(GUEST_QUOTA_EXHAUSTED_CODE, f"{when}免登录额度已用完，登录后继续使用", status_code=429)
@@ -252,6 +258,18 @@ def settle_run(db: Session, run_id: str, *, force: bool = False) -> CreditLedger
         run.status,
         entry.credits,
         charged,
+    )
+    product_analytics.track(
+        str(run.user_id),
+        "credits_settled",
+        {
+            "run_id": run_id,
+            "conversation_id": run.conversation_id,
+            "model": run.model_id,
+            "run_status": run.status,
+            "charged": charged,
+            "credits": entry.credits,
+        },
     )
     return entry
 

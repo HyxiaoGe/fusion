@@ -16,6 +16,7 @@ from typing import Awaitable, Callable
 
 from sqlalchemy import text
 
+from app.core import product_analytics
 from app.core.config import settings
 from app.core.logger import app_logger as logger
 from app.db.database import SessionLocal
@@ -263,7 +264,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.healthcheck:
         return check_health(args.health_max_age_seconds)
-    return asyncio.run(run_worker(once=args.once))
+    try:
+        return asyncio.run(run_worker(once=args.once))
+    finally:
+        product_analytics.shutdown()
 
 
 if __name__ == "__main__":

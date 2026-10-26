@@ -374,6 +374,41 @@ class SecurityTests(unittest.TestCase):
         db.rollback.assert_called_once_with()
         self.assertEqual(social_repo.get_by_provider.call_count, 2)
 
+    def test_sync_user_tracks_signup_once_for_new_user(self):
+        """新账号首次登录才记 signup_completed，已有账号登录不记。"""
+        db = MagicMock()
+        new_user = SimpleNamespace(
+            id="user-1", email="a@b.c", username="user-1", nickname="N", avatar="A", is_superuser=False
+        )
+        user_repo = MagicMock()
+        user_repo.get.return_value = None
+        user_repo.get_by_email.return_value = None
+        user_repo.create.return_value = new_user
+        social_repo = MagicMock()
+        social_repo.get_by_provider.return_value = None
+
+        with (
+            patch("app.core.security.add_reset_cards"),
+            patch("app.core.security.product_analytics.track") as track,
+            patch("app.core.security.UserRepository", return_value=user_repo),
+            patch("app.core.security.SocialAccountRepository", return_value=social_repo),
+            patch(
+                "app.core.security._fetch_auth_service_userinfo",
+                return_value={"email": "a@b.c", "name": "N", "avatar_url": "A"},
+            ),
+        ):
+            security._sync_user_from_claims(db, AuthenticatedUser(sub="user-1", email="a@b.c"), "token-123")
+            track.assert_called_once_with(
+                "user-1",
+                "signup_completed",
+                {"login_provider": security.AUTH_PROVIDER, "role": "user", "signup_card": True},
+            )
+
+            track.reset_mock()
+            user_repo.get.return_value = new_user
+            security._sync_user_from_claims(db, AuthenticatedUser(sub="user-1", email="a@b.c"), "token-123")
+            track.assert_not_called()
+
     def test_sync_user_recovers_concurrent_same_subject_user_insert_then_creates_link(self):
         db = MagicMock()
         pending_user = SimpleNamespace(
