@@ -638,7 +638,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     });
 
     if ((globalThis as any).triggerLoginDialog) {
-      (globalThis as any).triggerLoginDialog();
+      (globalThis as any).triggerLoginDialog('feature');
     }
   };
 
@@ -1388,7 +1388,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     && knowledgeSelectionStatus === 'ready';
 
   return (
-    <div className="flex flex-col space-y-2">
+    <div className="ph-no-capture flex flex-col space-y-2">
       {activeChatId && showContextStatus ? (
         <div
           data-testid="context-status-row"

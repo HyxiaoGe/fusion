@@ -526,7 +526,7 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
   }
 
   return (
-    <div ref={messageListRef} className="flex flex-col min-h-full px-4 pb-[120px]">
+    <div ref={messageListRef} className="ph-no-capture flex flex-col min-h-full px-4 pb-[120px]">
       {/* spacer 把消息推到底部，但不阻止向上滚动 */}
       <div className="flex-1" />
       {messages.map((message, index) => {

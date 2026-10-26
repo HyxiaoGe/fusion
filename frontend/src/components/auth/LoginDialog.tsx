@@ -22,6 +22,8 @@ import {
   verifyEmailCodeLogin,
 } from "@/lib/auth/emailCodeAuth";
 import { isAuthConfigured } from "@/lib/auth/auth-sdk";
+import { errorCodeOf, track } from "@/lib/analytics/analytics";
+import type { LoginDialogSource } from "@/lib/analytics/events";
 import { notifyLoginSucceeded } from "@/lib/auth/loginNotice";
 import {
   getEmailLoginCapabilities,
@@ -60,10 +62,13 @@ export function LoginDialog({
   open,
   onOpenChange,
   trigger,
+  source = "header",
 }: {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   trigger?: React.ReactNode;
+  /** 埋点用：弹窗从哪里打开的。 */
+  source?: LoginDialogSource;
 }) {
   const dispatch = useAppDispatch();
   const [internalOpen, setInternalOpen] = useState(false);
@@ -163,7 +168,9 @@ export function LoginDialog({
       return;
     }
 
-    void startSsoLogin(provider).catch(() => {
+    track("login_started", { method: "sso", provider, source });
+    void startSsoLogin(provider).catch((error: unknown) => {
+      track("login_failed", { method: "sso", provider, stage: "start", error_code: errorCodeOf(error) });
       toast({ message: t("auth.loginFailed"), type: "error" });
       resetLoginLoading();
     });
@@ -184,13 +191,42 @@ export function LoginDialog({
       toast({ message: t("auth.configurationMissing"), type: "error" });
       return;
     }
+    track("login_started", { method: "email_code", source });
     setView("email");
   };
 
+  const handleStartEmailCode: typeof startEmailCodeLogin = async (...args) => {
+    try {
+      const result = await startEmailCodeLogin(...args);
+      track("login_code_sent", { is_resend: false });
+      return result;
+    } catch (error) {
+      track("login_failed", { method: "email_code", stage: "send_code", error_code: errorCodeOf(error) });
+      throw error;
+    }
+  };
+
+  const handleResendEmailCode: typeof resendEmailCodeLogin = async (...args) => {
+    try {
+      const result = await resendEmailCodeLogin(...args);
+      track("login_code_sent", { is_resend: true });
+      return result;
+    } catch (error) {
+      track("login_failed", { method: "email_code", stage: "send_code", error_code: errorCodeOf(error) });
+      throw error;
+    }
+  };
+
   const handleVerifyEmailCode = async (input: Parameters<typeof verifyEmailCodeLogin>[0]) => {
-    await verifyEmailCodeLogin(input);
-    const { signedInEmail } = await dispatch(completeEmailCodeLogin()).unwrap();
-    notifyLoginSucceeded(signedInEmail);
+    try {
+      await verifyEmailCodeLogin(input);
+      const { signedInEmail } = await dispatch(completeEmailCodeLogin()).unwrap();
+      track("login_completed", { method: "email_code" });
+      notifyLoginSucceeded(signedInEmail);
+    } catch (error) {
+      track("login_failed", { method: "email_code", stage: "verify", error_code: errorCodeOf(error) });
+      throw error;
+    }
   };
 
   const handleEmailAuthenticated = () => handleDialogOpenChange(false);
@@ -224,8 +260,8 @@ export function LoginDialog({
             <div className={styles.emailPanel}>
               <EmailCodeLoginPanel
                 active={dialogOpen}
-                start={startEmailCodeLogin}
-                resend={resendEmailCodeLogin}
+                start={handleStartEmailCode}
+                resend={handleResendEmailCode}
                 verify={handleVerifyEmailCode}
                 cancel={cancelEmailCodeLogin}
                 onBackToMethods={() => setView("methods")}

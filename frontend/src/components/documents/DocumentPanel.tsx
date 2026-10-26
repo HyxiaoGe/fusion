@@ -152,7 +152,7 @@ export default function DocumentPanel({ documentId, initialVersion, isOpen, onCl
         aria-label={title}
         data-chat-detail-overlay-surface="true"
         data-expanded={expanded ? 'true' : undefined}
-        className={cn('fixed inset-y-0 right-0 z-50 flex flex-col', expanded ? 'w-screen' : 'w-[min(880px,100vw)]', styles.panel)}
+        className={cn('ph-no-capture fixed inset-y-0 right-0 z-50 flex flex-col', expanded ? 'w-screen' : 'w-[min(880px,100vw)]', styles.panel)}
       >
         <header className={styles.header}>
           <div className={styles.heading}>

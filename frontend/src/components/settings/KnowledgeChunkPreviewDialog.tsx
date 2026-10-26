@@ -89,7 +89,7 @@ export default function KnowledgeChunkPreviewDialog({
       <DialogContent
         onOpenAutoFocus={onOpenAutoFocus}
         onCloseAutoFocus={onCloseAutoFocus}
-        className="flex max-h-[84vh] flex-col overflow-hidden sm:max-w-4xl"
+        className="ph-no-capture flex max-h-[84vh] flex-col overflow-hidden sm:max-w-4xl"
         closeLabel={t('knowledgeBase.chunkPreview.close')}
       >
         <DialogHeader className="shrink-0 pr-8">

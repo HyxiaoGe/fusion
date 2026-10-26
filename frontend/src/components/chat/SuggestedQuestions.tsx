@@ -70,7 +70,7 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
         duration: 3000
       });
       if ((!canChat || isGuest) && (globalThis as any).triggerLoginDialog) {
-        (globalThis as any).triggerLoginDialog();
+        (globalThis as any).triggerLoginDialog(creditsExhaustedWindow ? 'guest_limit' : 'feature');
       }
       return;
     }

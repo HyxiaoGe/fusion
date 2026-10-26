@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { track } from '@/lib/analytics/analytics';
 import Image from 'next/image';
 import { Maximize2, Sparkles, Wand2 } from 'lucide-react';
 import ImageViewer from '@/components/chat/ImageViewer';
@@ -364,7 +365,10 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                 >
                   <button
                     type="button"
-                    onClick={() => setPreviewIndex(showcaseImages.findIndex((item) => item.id === image.id))}
+                    onClick={() => {
+                      track('home_showcase_clicked', { card_id: image.id, action: 'view' });
+                      setPreviewIndex(showcaseImages.findIndex((item) => item.id === image.id));
+                    }}
                     aria-label={`查看大图：${image.label}`}
                     className="group relative block aspect-[4/5] w-full overflow-hidden rounded-2xl border border-border/60 bg-muted shadow-fdv2-xs transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none"
                   >
@@ -408,6 +412,7 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                     <button
                       type="button"
                       onClick={() => {
+                        track('home_showcase_clicked', { card_id: previewImage.id, action: 'reuse' });
                         onSelectPrompt(previewImage.prompt);
                         setPreviewIndex(null);
                       }}
@@ -466,7 +471,10 @@ const HomePage: React.FC<HomePageProps> = ({ onSelectPrompt, features = null }) 
                 <button
                   key={question}
                   type="button"
-                  onClick={() => onSelectPrompt(question)}
+                  onClick={() => {
+                    track('suggested_question_clicked', { position: 'home', index });
+                    onSelectPrompt(question);
+                  }}
                   onPointerMove={pointGlassLight}
                   onPointerLeave={resetGlassLight}
                   className={cn(

@@ -792,7 +792,7 @@ export function useSendMessage(activeConversationId?: string | null) {
       if (exhaustedWindow) {
         options.onRejectedBeforeSend?.();
         if (selectIsGuest(store.getState())) {
-          (globalThis as { triggerLoginDialog?: () => void }).triggerLoginDialog?.();
+          (globalThis as { triggerLoginDialog?: (reason?: 'guest_limit') => void }).triggerLoginDialog?.('guest_limit');
         } else {
           dispatch(setGlobalError(creditsExhaustedMessage(exhaustedWindow, false)));
         }
@@ -1826,7 +1826,8 @@ export function useSendMessage(activeConversationId?: string | null) {
         if (isLoginGateStreamError(error)) {
           // 游客额度用完或功能需登录：同步最新额度，并直接给出登录入口。
           void dispatch(refreshEntitlements());
-          (globalThis as { triggerLoginDialog?: () => void }).triggerLoginDialog?.();
+          const gateReason = (error as { code?: string }).code === 'GUEST_QUOTA_EXHAUSTED' ? 'guest_limit' : 'feature';
+          (globalThis as { triggerLoginDialog?: (reason?: 'guest_limit' | 'feature') => void }).triggerLoginDialog?.(gateReason);
         } else if (isCreditsExhaustedStreamError(error)) {
           // 额度用完：同步最新额度，输入框随之提示何时恢复。
           void dispatch(refreshEntitlements());

@@ -182,6 +182,7 @@ export function UserAvatarMenu() {
       <LoginDialog 
         open={isLoginDialogOpen} 
         onOpenChange={setIsLoginDialogOpen} 
+        source="header"
       />
     </>
   );
