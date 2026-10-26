@@ -11,10 +11,10 @@ import type { RootState } from "@/redux/store";
 import {
   selectAuthSessionKey,
   selectCanChat,
+  selectCredits,
   selectCreditsExhaustedWindow,
   selectIsAuthenticated,
   selectIsGuest,
-  selectLimitedCredits,
 } from "@/redux/selectors";
 import { creditsExhaustedMessage } from "@/lib/api/credits";
 import { refreshEntitlements } from "@/redux/slices/guestSlice";
@@ -257,8 +257,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   // 游客也能聊天；上传、知识库仍需登录
   const canChat = useAppSelector(selectCanChat);
   const isGuest = useAppSelector(selectIsGuest);
-  const limitedCredits = useAppSelector(selectLimitedCredits);
-  const hasCreditLimit = limitedCredits !== null;
+  const credits = useAppSelector(selectCredits);
+  const hasCredits = credits !== null;
   const creditsExhaustedWindow = useAppSelector(selectCreditsExhaustedWindow);
   const isCreditsExhausted = creditsExhaustedWindow !== null;
   const authIdentity = useAppSelector(selectUploadAuthIdentity);
@@ -405,16 +405,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const wasStreamingRef = useRef(isCurrentConversationStreaming);
   useEffect(() => {
-    // 受限账号的额度随生成变化：开始和结束各同步一次。回答结束后后台才结算
+    // 额度随生成变化：开始和结束各同步一次。回答结束后后台才结算
     // （要等轨迹账本落定），结束时再延后同步一次，拿到这次的实际消耗。
     const finishedStreaming = wasStreamingRef.current && !isCurrentConversationStreaming;
     wasStreamingRef.current = isCurrentConversationStreaming;
-    if (!hasCreditLimit) return;
+    if (!hasCredits) return;
     void dispatch(refreshEntitlements());
     if (!finishedStreaming) return;
     const timer = window.setTimeout(() => void dispatch(refreshEntitlements()), CREDITS_SETTLE_REFRESH_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [dispatch, hasCreditLimit, isCurrentConversationStreaming]);
+  }, [dispatch, hasCredits, isCurrentConversationStreaming]);
 
   useLayoutEffect(() => {
     currentChatIdRef.current = chatId;
@@ -1569,9 +1569,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
               : isCurrentConversationStreaming ? (isTouchInput ? "正在生成，可继续编写下一条消息" : "正在生成，可继续编写下一条消息 · Shift+Enter 换行")
                 : isTouchInput ? null : "Enter 发送 · Shift+Enter 换行"}
         </div>
-        {hasHydrated && limitedCredits && (
+        {hasHydrated && credits && (
           <CreditsMeter
-            credits={limitedCredits}
+            credits={credits}
             isGuest={isGuest}
             onLogin={() => promptLogin("登录后可使用全部模型和功能")}
           />

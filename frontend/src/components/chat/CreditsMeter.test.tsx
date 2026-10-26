@@ -43,4 +43,16 @@ describe('CreditsMeter', () => {
     fireEvent.click(screen.getByRole('button', { name: '额度已用 0%' }));
     expect(screen.queryByRole('button', { name: '登录获取更多额度' })).toBeNull();
   });
+
+  it('不限额账号显示无穷符号，只列今日、本周已用量', () => {
+    render(<CreditsMeter credits={{ ...credits(1234, 5678), tier: 'admin', unlimited: true }} isGuest={false} onLogin={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '额度不限' }));
+
+    const panel = screen.getByTestId('credits-meter-panel');
+    expect(panel.textContent).toContain('不限额');
+    expect(panel.textContent).toContain('今日已用1,234');
+    expect(panel.textContent).toContain('本周已用5,678');
+    expect(panel.textContent).not.toContain('恢复');
+  });
 });
