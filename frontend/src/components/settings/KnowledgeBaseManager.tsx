@@ -50,6 +50,7 @@ import { ApiError } from '@/types/api';
 import type { KnowledgeBase, KnowledgeDocument } from '@/types/knowledge';
 
 import KnowledgeChunkPreviewDialog from './KnowledgeChunkPreviewDialog';
+import { errorCodeOf, track } from '@/lib/analytics/analytics';
 
 const acceptedFileTypes = {
   '.txt': 'text/plain',
@@ -366,6 +367,7 @@ export default function KnowledgeBaseManager() {
           description: form.description.trim(),
           business_type: form.business_type.trim() || 'general',
         });
+        track('knowledge_base_created');
         toast({ message: t('knowledgeBase.toast.created'), type: 'success' });
       } else if (formMode === 'edit' && state.selectedBaseId) {
         await state.updateBase(state.selectedBaseId, {
@@ -397,6 +399,10 @@ export default function KnowledgeBaseManager() {
       try {
         file = prepareKnowledgeFile(selected, serverFileSizeLimit ?? maxFileSize);
       } catch (validationError) {
+        track('knowledge_file_failed', {
+          stage: 'validation',
+          error_code: validationError instanceof Error && validationError.message ? validationError.message : 'unsupported',
+        });
         toast({
           message:
             validationError instanceof Error && validationError.message === 'FILE_TOO_LARGE'
@@ -413,9 +419,14 @@ export default function KnowledgeBaseManager() {
       }
       try {
         await state.uploadDocument(knowledgeBaseId, file);
+        track('knowledge_file_uploaded', {
+          size_kb: Math.round(file.size / 1024),
+          file_type: file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : 'unknown',
+        });
         toast({ message: t('knowledgeBase.toast.uploadQueued'), type: 'success' });
       } catch (requestError) {
         if (isAbortError(requestError)) return;
+        track('knowledge_file_failed', { stage: 'upload', error_code: errorCodeOf(requestError) });
         toast({
           message: errorMessage(requestError, t('knowledgeBase.toast.uploadFailed'), t),
           type: 'error',
@@ -429,6 +440,7 @@ export default function KnowledgeBaseManager() {
     try {
       if (confirmTarget.type === 'base') {
         await state.removeBase(confirmTarget.id);
+        track('knowledge_base_deleted');
         toast({ message: t('knowledgeBase.toast.deleteQueued'), type: 'success' });
       } else if (confirmTarget.type === 'rebuild' && state.selectedBaseId) {
         await state.rebuildDocument(state.selectedBaseId, confirmTarget.id);

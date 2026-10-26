@@ -11,6 +11,7 @@ import { notifyNotificationsChanged } from '@/lib/notifications/events';
 import { useAppDispatch } from '@/redux/hooks';
 import { openChangelogDialog, openCreditsPanel } from '@/redux/slices/settingsSlice';
 import { useNotifications } from './NotificationsProvider';
+import { track } from '@/lib/analytics/analytics';
 
 /** 打开通知指向的结果：更新日志弹窗、额度面板，或跳到对应对话并定位回答。 */
 export function useOpenNotification() {
@@ -19,6 +20,7 @@ export function useOpenNotification() {
   const { sessionKey } = useNotifications();
   const navigationSequenceRef = useRef(0);
   return useCallback((item: NotificationItem) => {
+    track('notification_clicked', { kind: item.kind, target_type: item.target.type });
     if (item.target.type === 'changelog') {
       dispatch(openChangelogDialog({ changelogId: item.target.changelog_id }));
       return;

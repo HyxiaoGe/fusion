@@ -28,6 +28,7 @@ import glassSurface from "@/components/ui/GlassSurface.module.css";
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from "@/components/ui/GlassHoverLens";
 import NotificationCenter from "@/components/notifications/NotificationCenter";
 import { useNotifications } from "@/components/notifications/NotificationsProvider";
+import { track } from "@/lib/analytics/analytics";
 
 interface ChatSidebarProps {
   onNewChat: () => void;
@@ -115,13 +116,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
     setPendingChatId(null);
   }, [routeConversationId]);
 
-  const handleSelectChat = useCallback((id: string) => {
-    setPendingChatId(id);
-    selectConversation(id);
-  }, [selectConversation]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const handleSelectChat = useCallback((id: string) => {
+    track('conversation_opened', { conversation_id: id, source: searchQuery.trim() ? 'search' : 'sidebar' });
+    setPendingChatId(id);
+    selectConversation(id);
+  }, [searchQuery, selectConversation]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -250,6 +252,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   const trimmedSearchQuery = searchQuery.trim();
   const isSearchMode = trimmedSearchQuery.length > 0;
   const displayChats = isSearchMode ? (searchResults ?? EMPTY_CONVERSATIONS) : conversations;
+  // 搜索结果回来才记一次；只送字数与条数，不送搜索词。
+  useEffect(() => {
+    if (!isSearchMode || isSearching || !searchResults) return;
+    track('conversation_searched', { query_chars: trimmedSearchQuery.length, result_count: searchResults.length });
+  }, [isSearchMode, isSearching, searchResults, trimmedSearchQuery.length]);
   const handleStartEditing = useCallback((e: React.MouseEvent, chatId: string, currentTitle: string) => {
     e.stopPropagation();
     openRenameDialog(chatId, currentTitle);
@@ -359,7 +366,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
         onOpenChange={(open) => {
           if (!open) closeDeleteDialog();
         }}
-        onConfirm={confirmDelete}
+        onConfirm={() => {
+          if (deleteTargetId) track('conversation_deleted', { conversation_id: deleteTargetId });
+          confirmDelete();
+        }}
       />
 
       <RenameChatDialog
@@ -367,7 +377,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
         onOpenChange={(open) => {
           if (!open) closeRenameDialog();
         }}
-        onConfirm={() => void confirmRename(renameValue)}
+        onConfirm={() => {
+          if (renameTargetId) track('conversation_renamed', { conversation_id: renameTargetId });
+          void confirmRename(renameValue);
+        }}
         title={renameValue}
         onTitleChange={setRenameValue}
       />

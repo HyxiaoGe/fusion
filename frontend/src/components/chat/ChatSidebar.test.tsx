@@ -77,6 +77,9 @@ vi.mock('@/components/layouts/UserAvatarMenu', () => ({
   UserAvatarMenu: () => <div data-testid="user-avatar-menu" />,
 }));
 
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/analytics/analytics', () => ({ track: trackMock }));
+
 vi.mock('./sidebar/DeleteChatDialog', () => ({
   default: () => <div data-testid="delete-chat-dialog" />,
 }));
@@ -506,5 +509,51 @@ describe('ChatSidebar', () => {
     expect(within(displayControls).getByRole('button', { name: '切换到暗色模式' })).toBeTruthy();
     expect(within(displayControls).getByRole('button', { name: '通知' })).toBeTruthy();
     expect(mockChatListProps.mock.calls.at(-1)?.[0].unreadConversationIds).toEqual(['chat-a', 'not-loaded-conversation']);
+  });
+
+  it('搜索结果回来记一次 conversation_searched，从结果里打开对话 source 为 search', () => {
+    trackMock.mockReset();
+    const searchResults: ConversationListItem[] = [
+      {
+        id: 'chat-search',
+        title: '搜索结果',
+        model_id: 'model-a',
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_000,
+      },
+    ];
+    mockUseConversationList.mockReturnValue({
+      conversations: [
+        {
+          id: 'chat-a',
+          title: '普通对话 A',
+          model_id: 'model-a',
+          createdAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_000,
+        },
+      ],
+      isLoadingList: false,
+      isLoadingMore: false,
+      loadMore: vi.fn(),
+      pagination: null,
+      searchConversations: vi.fn(),
+      searchResults,
+      isSearching: false,
+      searchError: null,
+    });
+
+    const { rerender } = render(<ChatSidebar onNewChat={vi.fn()} activeChatIdOverride="chat-a" />);
+    // 没输入搜索词时不记搜索事件
+    expect(trackMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '选择 chat-a' }));
+    expect(trackMock).toHaveBeenLastCalledWith('conversation_opened', { conversation_id: 'chat-a', source: 'sidebar' });
+
+    fireEvent.change(screen.getByPlaceholderText('搜索对话...'), { target: { value: '搜索' } });
+    rerender(<ChatSidebar onNewChat={vi.fn()} activeChatIdOverride="chat-a" />);
+    const searchedCalls = trackMock.mock.calls.filter(([name]) => name === 'conversation_searched');
+    expect(searchedCalls).toEqual([['conversation_searched', { query_chars: 2, result_count: 1 }]]);
+
+    fireEvent.click(screen.getByRole('button', { name: '选择 chat-search' }));
+    expect(trackMock).toHaveBeenLastCalledWith('conversation_opened', { conversation_id: 'chat-search', source: 'search' });
   });
 });

@@ -8,6 +8,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import hljs from '@/lib/utils/highlighter';
 import styles from './CodeBlock.module.css';
+import { track } from '@/lib/analytics/analytics';
 import HtmlPreview, { isRunnableHtmlLanguage, useHtmlRunner } from './HtmlPreview';
 
 interface CodeBlockProps {
@@ -118,6 +119,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
     const currentRevision = revision.current;
     clearTimeout(copyTimer.current);
     setCopyState('copying');
+    track('message_copied', { scope: 'code_block', role: null, run_id: null });
     try {
       await navigator.clipboard.writeText(value);
       if (revision.current !== currentRevision) return;

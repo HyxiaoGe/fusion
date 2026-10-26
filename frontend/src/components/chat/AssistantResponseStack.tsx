@@ -10,6 +10,7 @@ import type {
   StructuredToolResultBlock,
 } from '@/types/conversation';
 import type { AgentRunState, DocumentDraftState } from '@/types/agentRun';
+import { track } from '@/lib/analytics/analytics';
 import type { TrajectoryRunSummary } from '@/types/trajectory';
 import type { TrajectoryBadgeStatus } from '@/lib/trajectory/TrajectoryCellProjection';
 import ReasoningContent from './ReasoningContent';
@@ -138,7 +139,10 @@ function AssistantResponseStack({
             rows={processRows}
             thinkingStreaming={reasoning.isStreaming}
             isVisible={reasoning.isVisible}
-            onToggle={reasoning.onToggle}
+            onToggle={() => {
+              track('agent_process_toggled', { run_id: agentRun.runId, expanded: !reasoning.isVisible });
+              reasoning.onToggle();
+            }}
             runSummary={trajectoryRunSummary}
             trajectoryStatus={trajectoryStatus}
             onInspect={onInspectTrajectory}
@@ -180,6 +184,7 @@ function AssistantResponseStack({
       <GeneratedImages
         blocks={generatedImages}
         pending={pendingImages}
+        runId={agentRun?.runId ?? null}
         onRegenerate={onStructuredResultFollowUp}
       />
 

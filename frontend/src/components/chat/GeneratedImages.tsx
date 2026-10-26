@@ -9,6 +9,7 @@ import { getFileUrl } from '@/lib/api/files';
 import type { FileBlock, GeneratedImageBlock } from '@/types/conversation';
 import ImageGenerationDots from './ImageGenerationDots';
 import ImageViewer from './ImageViewer';
+import { track } from '@/lib/analytics/analytics';
 import {
   imageDisplayWidth,
   imageModelDisplayName,
@@ -21,6 +22,8 @@ interface GeneratedImagesProps {
   pending?: PendingImageGeneration[];
   /** 替用户发一条「同样描述再来一张」；只在可以继续对话时提供。 */
   onRegenerate?: (request: string) => void;
+  /** 埋点用：图片所属的 run。 */
+  runId?: string | null;
 }
 
 const EMPTY_PENDING: PendingImageGeneration[] = [];
@@ -260,7 +263,7 @@ function GeneratedImageCard({
 }
 
 /** 模型生成的图片：生成中按目标比例显示点阵占位，出图后原位淡入，卡片下标注生图模型。 */
-function GeneratedImages({ blocks, pending = EMPTY_PENDING, onRegenerate }: GeneratedImagesProps) {
+function GeneratedImages({ blocks, pending = EMPTY_PENDING, onRegenerate, runId = null }: GeneratedImagesProps) {
   const [viewing, setViewing] = useState<FileBlock | null>(null);
   if (blocks.length === 0 && pending.length === 0) return null;
 
@@ -270,8 +273,14 @@ function GeneratedImages({ blocks, pending = EMPTY_PENDING, onRegenerate }: Gene
         <GeneratedImageCard
           key={block.id}
           block={block}
-          onOpen={() => setViewing(toFileBlock(block))}
-          onRegenerate={onRegenerate}
+          onOpen={() => {
+            track('generated_image_opened', { run_id: runId });
+            setViewing(toFileBlock(block));
+          }}
+          onRegenerate={onRegenerate ? (request) => {
+            track('generated_image_regenerate_clicked', { run_id: runId });
+            onRegenerate(request);
+          } : undefined}
         />
       ))}
       {pending.map(item => <PendingImageCard key={item.toolCallId} pending={item} />)}
