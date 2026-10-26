@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from auth_service_client import AuthenticatedUser
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
@@ -15,6 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api import credits as credits_api
 from app.api.deps import get_current_admin_user, get_current_user, get_current_user_or_pending_guest, get_db
+from app.core import security
 from app.core.config import settings
 from app.db.database import Base
 from app.db.models import (
@@ -28,6 +30,7 @@ from app.db.models import (
     Notification,
     NotificationUserState,
     RunTrajectoryMeta,
+    SocialAccount,
     ToolCallLog,
     User,
 )
@@ -97,6 +100,7 @@ def engine():
             Changelog.__table__,
             Notification.__table__,
             NotificationUserState.__table__,
+            SocialAccount.__table__,
         ],
     )
     with Session(engine) as session:
@@ -673,6 +677,29 @@ def test_granting_cards_and_resetting_credits_notify_the_affected_users(db):
     assert len(rows) == 2
     item = notification_item(rows[0])
     assert (item.business_type, item.target.type) == ("credits", "credits")
+
+
+def _first_login(db, subject, *, email, scopes=None):
+    with patch("app.core.security._fetch_auth_service_userinfo", return_value={}):
+        return security._sync_user_from_claims(
+            db, AuthenticatedUser(sub=subject, email=email, scopes=scopes or ["user"]), "token"
+        )
+
+
+def test_new_account_gets_one_reset_card_on_first_login_only(db):
+    _first_login(db, "sso-new", email="new@example.com")
+    _first_login(db, "sso-new", email="new@example.com")
+    _first_login(db, "sso-admin", email="boss@example.com", scopes=["admin"])
+    with patch.object(settings, "CREDITS_EXEMPT_USERNAMES", "probe"):
+        _first_login(db, "sso-probe", email="probe@example.com")
+
+    # 再次登录不重复发；管理员、免限额账号不发
+    cards = db.execute(select(CreditResetCard)).scalars().all()
+    assert [(card.user_id, card.granted_by) for card in cards] == [("sso-new", None)]
+    assert credit_service.usage_summary(db, db.get(User, "sso-new"))["reset_cards"]["available"] == 1
+    assert [(uid, kind, title) for uid, kind, title, _ in _credit_notices(db)] == [
+        ("sso-new", "reset_cards_granted", "你收到了 1 张额度重置卡")
+    ]
 
 
 def test_regenerating_over_dead_run_does_not_charge_it_as_user_superseded(db):
