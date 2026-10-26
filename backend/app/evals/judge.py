@@ -18,6 +18,7 @@ from app.ai.llm_observability import merge_litellm_kwargs
 from app.evals.cases import EvalCase, JudgeCheck
 from app.evals.checks import JudgeVerdict
 from app.evals.usage import TokenUsage, usage_for_round
+from app.utils.time import utc_now
 
 JUDGE_MODEL_ID = "deepseek-chat"
 JUDGE_TIMEOUT_SECONDS = 60
@@ -94,6 +95,7 @@ async def judge_answer(check: JudgeCheck, case: EvalCase, snapshot: Mapping[str,
             input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
             output_tokens=getattr(usage, "completion_tokens", 0) or 0,
             cache_read_tokens=getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0) or 0,
+            at=utc_now(),
         )
         verdict = parse_verdict(response.choices[0].message.content or "")
         return JudgeVerdict(verdict.passed, verdict.reason, spent)

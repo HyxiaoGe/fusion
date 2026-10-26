@@ -11,6 +11,9 @@ Fusion 的模型目录就是 LiteLLM 代理里 Fusion key 白名单允许的模�
 - set-pricing：改已登记模型的单价（输入/输出/缓存命中，可选 200k 以上分档），USD/1M tokens。
   同时写 litellm_params（代理计费用）和 model_info（Fusion 目录读取用）；未传的可选项保持
   原值不清除。缓存价缺失时命中缓存的输入按全价计，所以有缓存折扣的模型都应填。
+  按时段计价的服务商（DeepSeek）再传 --peak-hours 与 --off-peak-*-price：高峰时段按北京时间
+  周一到周五给，其余时间（含周末整天）按空闲价计；写成 LiteLLM 的 off_peak_pricing，代理和
+  Fusion 都按请求时刻选价。法定节假日表达不了，仍按工作日处理。
 
 在 dev 上运行（master key 只经环境变量传入，不落盘不打印）：
     cd ~/project/litellm-proxy && set -a && . ./.env && set +a
@@ -141,6 +144,91 @@ PRICING_FIELDS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+# 空闲时段单价参数 → off_peak_pricing 块里的计费字段与元数据价目键；缺的档位代理按标准价计。
+OFF_PEAK_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("off_peak_input_price", "input_cost_per_token", "input"),
+    ("off_peak_output_price", "output_cost_per_token", "output"),
+    ("off_peak_cache_price", "cache_read_input_token_cost", "cache_read_input"),
+)
+PEAK_TIMEZONE = "Asia/Shanghai"
+_PEAK_UTC_OFFSET_MINUTES = 8 * 60
+_MINUTES_PER_DAY = 24 * 60
+
+
+def _parse_clock_window(window: str) -> tuple[int, int]:
+    """把 HH:MM-HH:MM 解析成当天的分钟区间 [start, end)，end 可写 24:00；不接受跨午夜。"""
+    try:
+        start_text, end_text = window.split("-")
+        start_h, start_m = (int(part) for part in start_text.strip().split(":"))
+        end_h, end_m = (int(part) for part in end_text.strip().split(":"))
+    except ValueError as exc:
+        raise OnboardError("invalid_peak_hours", window) from exc
+    start, end = start_h * 60 + start_m, end_h * 60 + end_m
+    if not (0 <= start < end <= _MINUTES_PER_DAY) or start_m >= 60 or end_m >= 60:
+        raise OnboardError("invalid_peak_hours", window)
+    return start, end
+
+
+def _format_utc_window(start: int, end: int) -> str:
+    def clock(minutes: int) -> str:
+        minutes %= _MINUTES_PER_DAY
+        return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+    return f"{clock(start)}-{clock(end)}"
+
+
+def off_peak_windows(peak_hours: list[str]) -> list[dict[str, Any]]:
+    """北京时间工作日高峰时段 → LiteLLM 的空闲时段规则（UTC 钟点 + 按北京日历判星期）。
+
+    工作日里高峰以外的钟点都是空闲，周末整天空闲。LiteLLM 判断时先按 weekday_timezone 看星期几，
+    再看该时刻的 UTC 钟点是否落在 hours_utc 里，所以北京时间区间整体减 8 小时即可，跨午夜照写。
+    """
+    peaks = sorted(_parse_clock_window(window) for window in peak_hours)
+    for (_s1, e1), (s2, _e2) in zip(peaks, peaks[1:]):
+        if s2 < e1:
+            raise OnboardError("invalid_peak_hours", "高峰时段重叠")
+    gaps: list[tuple[int, int]] = []
+    cursor = 0
+    for start, end in peaks:
+        if start > cursor:
+            gaps.append((cursor, start))
+        cursor = end
+    if cursor < _MINUTES_PER_DAY:
+        gaps.append((cursor, _MINUTES_PER_DAY))
+    # 跨午夜的两段（晚间到次日早高峰前）并成一个区间，和内置价格表的写法一致。
+    if len(gaps) > 1 and gaps[0][0] == 0 and gaps[-1][1] == _MINUTES_PER_DAY:
+        gaps = [(gaps[-1][0], gaps[0][1] + _MINUTES_PER_DAY), *gaps[1:-1]]
+    weekday_hours = [_format_utc_window(s - _PEAK_UTC_OFFSET_MINUTES, e - _PEAK_UTC_OFFSET_MINUTES) for s, e in gaps]
+    return [
+        {"weekdays": [1, 2, 3, 4, 5], "hours_utc": weekday_hours},
+        {"weekdays": [6, 7], "hours_utc": "00:00-00:00"},
+    ]
+
+
+def off_peak_from_args(args: argparse.Namespace) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """返回 (LiteLLM off_peak_pricing 块, 元数据里的可读时段价目)；没传时段价参数时都是 None。"""
+    peak_hours = getattr(args, "peak_hours", None)
+    rates: dict[str, float] = {}
+    readable: dict[str, Any] = {}
+    for arg_name, cost_key, pricing_key in OFF_PEAK_FIELDS:
+        value = getattr(args, arg_name, None)
+        if value is None:
+            continue
+        if value < 0:
+            raise OnboardError("invalid_price", f"{arg_name}={value}")
+        rates[cost_key] = _usd_per_token(value)
+        readable[pricing_key] = value
+    if not peak_hours and not rates:
+        return None, None
+    if not peak_hours or "input_cost_per_token" not in rates or "output_cost_per_token" not in rates:
+        raise OnboardError(
+            "off_peak_incomplete", "--peak-hours、--off-peak-input-price、--off-peak-output-price 要一起给"
+        )
+    windows = off_peak_windows(list(peak_hours))
+    block = {**rates, "windows": windows, "weekday_timezone": PEAK_TIMEZONE}
+    return block, {**readable, "peak_hours": list(peak_hours), "peak_weekdays": "Mon-Fri", "timezone": PEAK_TIMEZONE}
+
+
 def pricing_from_args(args: argparse.Namespace) -> tuple[dict[str, float], dict[str, Any]]:
     """返回 (计费字段, 元数据价目)。只含命令行实际传入的单价，未传的不出现。"""
     costs: dict[str, float] = {}
@@ -159,6 +247,9 @@ def pricing_from_args(args: argparse.Namespace) -> tuple[dict[str, float], dict[
 def build_model_payload(args: argparse.Namespace) -> dict[str, Any]:
     capabilities = {key: key in set(args.capabilities) for key in CAPABILITY_KEYS}
     costs, pricing = pricing_from_args(args)
+    off_peak, off_peak_pricing = off_peak_from_args(args)
+    if off_peak is not None:
+        pricing["off_peak"] = off_peak_pricing
     return {
         "model_name": args.model_id,
         "litellm_params": {
@@ -171,6 +262,7 @@ def build_model_payload(args: argparse.Namespace) -> dict[str, Any]:
         "model_info": {
             "max_input_tokens": args.context_window,
             **costs,
+            **({"off_peak_pricing": off_peak} if off_peak is not None else {}),
             "metadata": {
                 "source": SOURCE,
                 "display_name": args.display_name or args.model_id,
@@ -322,6 +414,7 @@ def cmd_set_context_window(admin: ProxyAdmin, args: argparse.Namespace) -> dict[
 
 def cmd_set_pricing(admin: ProxyAdmin, args: argparse.Namespace) -> dict[str, Any]:
     costs, pricing = pricing_from_args(args)
+    off_peak, off_peak_pricing = off_peak_from_args(args)
     entry = admin.find_model(args.model_id)
     if entry is None:
         raise OnboardError("model_missing", args.model_id)
@@ -329,15 +422,21 @@ def cmd_set_pricing(admin: ProxyAdmin, args: argparse.Namespace) -> dict[str, An
     params = entry.get("litellm_params") or {}
     metadata = dict(info.get("metadata") or {})
     before = {key: params.get(key) for _arg, key, _pk in PRICING_FIELDS}
+    before["off_peak_pricing"] = info.get("off_peak_pricing")
     # 价目元数据按键合并：没传的档位保留旧值，和计费字段的合并语义一致。
     merged_pricing = {**dict(metadata.get("pricing") or {}), **pricing}
+    if off_peak is not None:
+        merged_pricing["off_peak"] = off_peak_pricing
+    # 时段价只在 model_info 里（LiteLLM 的部署级定价字段）；显式给出时整块覆盖，没传则保持原值。
+    # 代理合并自定义平价时会剥掉内置时段表里被覆盖的档位，所以时段价必须和平价一起显式登记。
+    off_peak_info = {"off_peak_pricing": off_peak} if off_peak is not None else {}
     # litellm_params 整体回传（路由、api_base、os.environ/ 密钥引用原样带上）：无论代理按字段合并
     # 还是整体替换，路由都不会被改坏；回读再核对一次。
     admin.update_model(
         info["id"],
         {
             "litellm_params": {**params, **costs},
-            "model_info": {**costs, "metadata": {**metadata, "pricing": merged_pricing}},
+            "model_info": {**costs, **off_peak_info, "metadata": {**metadata, "pricing": merged_pricing}},
         },
     )
     readback = admin.find_model(args.model_id) or {}
@@ -347,15 +446,18 @@ def cmd_set_pricing(admin: ProxyAdmin, args: argparse.Namespace) -> dict[str, An
     if (
         any(readback_params.get(key) != costs[key] for key in costs)
         or any(readback_params.get(key) != params.get(key) for key in unchanged)
+        or (off_peak is not None and readback_info.get("off_peak_pricing") != off_peak)
         or readback_info.get("max_input_tokens") != info.get("max_input_tokens")
         or (readback_info.get("metadata") or {}).get("capabilities") != metadata.get("capabilities")
     ):
         raise OnboardError("model_update_readback_failed", args.model_id)
+    after = {key: readback_params.get(key) for _arg, key, _pk in PRICING_FIELDS}
+    after["off_peak_pricing"] = readback_info.get("off_peak_pricing")
     return {
         "status": "pricing_updated",
         "model_id": args.model_id,
         "before": before,
-        "after": {key: readback_params.get(key) for _arg, key, _pk in PRICING_FIELDS},
+        "after": after,
         "pricing": merged_pricing,
         "catalog_generation": bump_catalog_generation(),
     }
@@ -386,6 +488,15 @@ def _add_pricing_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cache-price", type=float, help="缓存命中输入，USD / 1M tokens；不传则按全价计")
     parser.add_argument("--input-price-above-200k", type=float, help="单次输入超 200k 时整次输入单价")
     parser.add_argument("--output-price-above-200k", type=float, help="单次输入超 200k 时整次输出单价")
+    parser.add_argument(
+        "--peak-hours",
+        nargs="+",
+        metavar="HH:MM-HH:MM",
+        help="北京时间周一到周五的高峰时段，如 09:00-12:00 14:00-18:00；其余时间和周末按空闲价计",
+    )
+    parser.add_argument("--off-peak-input-price", type=float, help="空闲时段输入，USD / 1M tokens")
+    parser.add_argument("--off-peak-output-price", type=float, help="空闲时段输出，USD / 1M tokens")
+    parser.add_argument("--off-peak-cache-price", type=float, help="空闲时段缓存命中输入，USD / 1M tokens")
 
 
 def build_parser() -> argparse.ArgumentParser:
