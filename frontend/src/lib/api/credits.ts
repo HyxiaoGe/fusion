@@ -131,6 +131,11 @@ export function grantAdminResetCards(userId: string, count: number): Promise<Cre
   });
 }
 
+/** 给每个受限登录账号各发一张重置卡（游客、管理员、免限额账号不发），返回发放张数。 */
+export function grantResetCardsToAll(): Promise<{ granted: number }> {
+  return apiRequest<{ granted: number }>(`${ADMIN_BASE}/reset-cards/grant-all`, { method: 'POST' });
+}
+
 export interface CreditsResetAll {
   /** 最近一次全员重置的时间；从未全员重置过为 null */
   last_reset_at: string | null;

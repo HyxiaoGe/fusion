@@ -13,6 +13,7 @@ const creditsMocks = vi.hoisted(() => ({
   fetchAdminUserCredits: vi.fn(),
   resetAdminUserCredits: vi.fn(),
   grantAdminResetCards: vi.fn(),
+  grantResetCardsToAll: vi.fn(),
   fetchCreditsResetAll: vi.fn(),
   resetAllCredits: vi.fn(),
 }));
@@ -98,6 +99,41 @@ describe('AdminUsersPanel', () => {
 
     await waitFor(() => expect(creditsMocks.resetAdminUserCredits).toHaveBeenCalledWith('user-alpha'));
     await waitFor(() => expect(dialog.textContent).toContain('0 / 3,000'));
+  });
+
+  it('全员发放重置卡需要确认，成功后显示发放张数', async () => {
+    creditsMocks.grantResetCardsToAll.mockReset().mockResolvedValue({ granted: 12 });
+    renderAdmin(<AdminUsersPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: '全员发放重置卡' }));
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(creditsMocks.grantResetCardsToAll).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '全员发放重置卡' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认发放' }));
+
+    await waitFor(() => expect(creditsMocks.grantResetCardsToAll).toHaveBeenCalledTimes(1));
+    expect((await screen.findByTestId('reset-cards-granted')).textContent).toBe('已发放 12 张');
+  });
+
+  it('游客的额度弹窗不提供发放重置卡', async () => {
+    const window = { limit: 300, used: 10, remaining: 290, resets_at: '2026-10-26T16:00:00+00:00' };
+    creditsMocks.fetchAdminUserCredits.mockReset().mockResolvedValue({
+      summary: {
+        tier: 'guest', unlimited: false, daily: window, weekly: { ...window, limit: 1000, remaining: 990 }, last_reset_at: null,
+        reset_cards: { available: 0, next_expires_at: null },
+      },
+      items: [],
+      next_before: null,
+    });
+    renderAdmin(<AdminUsersPanel />);
+    await screen.findByText('@alpha');
+    fireEvent.click(screen.getByRole('button', { name: '查看用户额度 user-alpha' }));
+
+    const dialog = await screen.findByTestId('admin-user-credits');
+    await waitFor(() => expect(dialog.textContent).toContain('游客'));
+    expect(screen.getByRole('button', { name: '重置额度' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '发放重置卡' })).toBeNull();
   });
 
   it('额度弹窗二次确认后发放一张重置卡，刷新后显示可用张数与到期时间', async () => {

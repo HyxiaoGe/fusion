@@ -341,26 +341,53 @@ def reset_user_credits(db: Session, *, user_id: str, actor_id: str, now: datetim
     return entry
 
 
-def grant_reset_cards(
-    db: Session, *, user_id: str, actor_id: str, count: int, now: datetime | None = None
-) -> list[CreditResetCard]:
-    """管理员给用户发重置卡，每张自发放起 RESET_CARD_VALID_DAYS 天内有效。"""
-    if not 1 <= count <= RESET_CARD_GRANT_MAX:
-        raise ApiException.bad_request(f"一次最多发放 {RESET_CARD_GRANT_MAX} 张")
-    granted_at = _as_utc(now or utc_now())
-    cards = [
+def _new_cards(user_ids: list[str], actor_id: str, granted_at: datetime) -> list[CreditResetCard]:
+    return [
         CreditResetCard(
             user_id=user_id,
             granted_by=actor_id,
             granted_at=granted_at,
             expires_at=granted_at + timedelta(days=RESET_CARD_VALID_DAYS),
         )
-        for _ in range(count)
+        for user_id in user_ids
     ]
+
+
+def grant_reset_cards(
+    db: Session, *, user: Any, actor_id: str, count: int, now: datetime | None = None
+) -> list[CreditResetCard]:
+    """管理员给用户发重置卡，每张自发放起 RESET_CARD_VALID_DAYS 天内有效。
+
+    游客不发：身份绑在浏览器上，换设备、清数据或登录后卡都找不回来。
+    """
+    if not 1 <= count <= RESET_CARD_GRANT_MAX:
+        raise ApiException.bad_request(f"一次最多发放 {RESET_CARD_GRANT_MAX} 张")
+    if getattr(user, "is_guest", False):
+        raise ApiException.bad_request("游客不发放重置卡")
+    if limits_for(user).unlimited:
+        raise ApiException.bad_request("该账号不限额，无需重置卡")
+    cards = _new_cards([str(user.id)] * count, actor_id, _as_utc(now or utc_now()))
     db.add_all(cards)
     db.commit()
-    logger.info("credits_reset_cards_granted user=%s actor=%s count=%s", user_id, actor_id, count)
+    logger.info("credits_reset_cards_granted user=%s actor=%s count=%s", user.id, actor_id, count)
     return cards
+
+
+def grant_reset_cards_to_all(db: Session, *, actor_id: str, now: datetime | None = None) -> int:
+    """给发放时已有的每个受限登录账号各发一张重置卡；游客、管理员和免限额账号不发。返回发放张数。"""
+    user_ids = list(
+        db.execute(
+            select(User.id).where(
+                User.is_guest.is_(False),
+                User.is_superuser.is_(False),
+                User.username.not_in(_exempt_usernames()),
+            )
+        ).scalars()
+    )
+    db.add_all(_new_cards(user_ids, actor_id, _as_utc(now or utc_now())))
+    db.commit()
+    logger.info("credits_reset_cards_granted_all actor=%s count=%s", actor_id, len(user_ids))
+    return len(user_ids)
 
 
 def use_reset_card(db: Session, user: Any, *, now: datetime | None = None) -> CreditLedger:

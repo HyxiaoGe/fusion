@@ -199,9 +199,12 @@ export default function AdminUserCreditsDialog({
               </>
             ) : (
               <>
-                <Button variant="outline" size="sm" onClick={() => setGranting('confirming')}>
-                  <Ticket />发放重置卡
-                </Button>
+                {/* 游客身份绑在浏览器上，换设备、清数据或登录后卡都找不回来，不发 */}
+                {summary.tier !== 'guest' && (
+                  <Button variant="outline" size="sm" onClick={() => setGranting('confirming')}>
+                    <Ticket />发放重置卡
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
                   <RotateCcw />重置额度
                 </Button>
