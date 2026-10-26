@@ -24,13 +24,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.credit_reset_card_repository import add_reset_cards
 from app.db.database import SessionLocal
 from app.db.models import AgentSession, CreditLedger, CreditResetCard, RunTrajectoryMeta, User
 from app.db.notification_repository import NotificationRepository
 from app.schemas.response import ApiException
 from app.services.agent.trajectory_reconciliation import ORPHANED_RUN_ERROR_MESSAGE
 from app.services.credit_pricing import compute_run_charge
-from app.utils.time import as_china_time, utc_now
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,6 @@ _SWEEP_LOOKBACK = timedelta(days=2)
 _SWEEP_TRAJECTORY_GRACE = timedelta(minutes=10)
 _SWEEP_BATCH_SIZE = 200
 
-RESET_CARD_VALID_DAYS = 30
 RESET_CARD_GRANT_MAX = 10
 
 _background_tasks: set[asyncio.Task] = set()
@@ -69,7 +69,7 @@ class CreditLimits:
 
 
 def _exempt_usernames() -> frozenset[str]:
-    return frozenset(name.strip() for name in settings.CREDITS_EXEMPT_USERNAMES.split(",") if name.strip())
+    return settings.RESOLVED_CREDITS_EXEMPT_USERNAMES
 
 
 def limits_for(user: Any) -> CreditLimits:
@@ -329,18 +329,6 @@ async def settle_pending_runs_job() -> None:
 RESET_NOTICE_TITLE = "额度已重置"
 
 
-def _notify_cards_granted(db: Session, user_ids: list[str], count: int, granted_at: datetime) -> None:
-    """通知收到重置卡的用户，否则只有点开额度面板才会发现，卡可能放到过期。"""
-    expires = as_china_time(granted_at + timedelta(days=RESET_CARD_VALID_DAYS))
-    body = f"可在额度面板中使用，清零今日和本周已用额度，{expires.month} 月 {expires.day} 日 {expires:%H:%M} 前有效。"
-    notifications = NotificationRepository(db)
-    # 固定升序，和更新日志广播一致，避免交叉锁住用户通知水位。
-    for user_id in sorted(user_ids):
-        notifications.enqueue_credits(
-            user_id=user_id, kind="reset_cards_granted", title=f"你收到了 {count} 张额度重置卡", body=body
-        )
-
-
 def reset_user_credits(db: Session, *, user_id: str, actor_id: str, now: datetime | None = None) -> CreditLedger:
     """管理员把用户当前日、周窗口的已用量清零。"""
     entry = CreditLedger(
@@ -360,18 +348,6 @@ def reset_user_credits(db: Session, *, user_id: str, actor_id: str, now: datetim
     return entry
 
 
-def _new_cards(user_ids: list[str], actor_id: str, granted_at: datetime) -> list[CreditResetCard]:
-    return [
-        CreditResetCard(
-            user_id=user_id,
-            granted_by=actor_id,
-            granted_at=granted_at,
-            expires_at=granted_at + timedelta(days=RESET_CARD_VALID_DAYS),
-        )
-        for user_id in user_ids
-    ]
-
-
 def grant_reset_cards(
     db: Session, *, user: Any, actor_id: str, count: int, now: datetime | None = None
 ) -> list[CreditResetCard]:
@@ -385,10 +361,7 @@ def grant_reset_cards(
         raise ApiException.bad_request("游客不发放重置卡")
     if limits_for(user).unlimited:
         raise ApiException.bad_request("该账号不限额，无需重置卡")
-    granted_at = _as_utc(now or utc_now())
-    cards = _new_cards([str(user.id)] * count, actor_id, granted_at)
-    db.add_all(cards)
-    _notify_cards_granted(db, [str(user.id)], count, granted_at)
+    cards = add_reset_cards(db, [str(user.id)], count=count, granted_by=actor_id, granted_at=_as_utc(now or utc_now()))
     db.commit()
     logger.info("credits_reset_cards_granted user=%s actor=%s count=%s", user.id, actor_id, count)
     return cards
@@ -405,9 +378,7 @@ def grant_reset_cards_to_all(db: Session, *, actor_id: str, now: datetime | None
             )
         ).scalars()
     )
-    granted_at = _as_utc(now or utc_now())
-    db.add_all(_new_cards(user_ids, actor_id, granted_at))
-    _notify_cards_granted(db, user_ids, 1, granted_at)
+    add_reset_cards(db, user_ids, count=1, granted_by=actor_id, granted_at=_as_utc(now or utc_now()))
     db.commit()
     logger.info("credits_reset_cards_granted_all actor=%s count=%s", actor_id, len(user_ids))
     return len(user_ids)

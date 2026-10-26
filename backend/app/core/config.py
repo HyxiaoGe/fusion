@@ -355,6 +355,10 @@ class Settings(BaseSettings):
     AUTH_SERVICE_INTERNAL_BASE_URL: Optional[str] = os.getenv("AUTH_SERVICE_INTERNAL_BASE_URL")
 
     @property
+    def RESOLVED_CREDITS_EXEMPT_USERNAMES(self) -> frozenset[str]:
+        return frozenset(name.strip() for name in self.CREDITS_EXEMPT_USERNAMES.split(",") if name.strip())
+
+    @property
     def RESOLVED_CORS_ORIGINS(self) -> List[str]:
         configured = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
         origins = configured or [self.FRONTEND_URL.rstrip("/")]

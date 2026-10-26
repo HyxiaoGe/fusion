@@ -15,10 +15,12 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.guest_identity import GUEST_NICKNAME, GuestTokenError, is_guest_token, verify_guest_token
 from app.core.revocation import extract_session_id, is_session_access_revoked, is_user_access_revoked
+from app.db.credit_reset_card_repository import add_reset_cards
 from app.db.database import get_db
 from app.db.models import User
 from app.db.repositories import SocialAccountRepository, UserRepository
 from app.schemas.response import ApiException
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/token")
@@ -210,8 +212,16 @@ def _sync_user_from_claims(db: Session, auth_user: AuthenticatedUser, token: str
             }
         )
         try:
+            db.flush()
+            # 新账号首次登录送一张重置卡；管理员和免限额账号不受额度约束，不送。
+            # 并发首请求只有建号成功的一方会提交，不会重复发。
+            signup_card = not is_superuser and user.username not in settings.RESOLVED_CREDITS_EXEMPT_USERNAMES
+            if signup_card:
+                add_reset_cards(db, [subject], count=1, granted_by=None, granted_at=utc_now())
             db.commit()
             db.refresh(user)
+            if signup_card:
+                logger.info("credits_signup_reset_card_granted user=%s", subject)
         except IntegrityError as error:
             # 两个首请求可能同时观察到用户不存在。失败事务必须先 rollback，
             # 再按同一 auth identity / subject 读取并发胜者。

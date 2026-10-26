@@ -401,6 +401,7 @@ class SecurityTests(unittest.TestCase):
         db.commit.side_effect = [self._integrity_error("users_pkey"), None]
 
         with (
+            patch("app.core.security.add_reset_cards"),
             patch("app.core.security.UserRepository", return_value=user_repo),
             patch("app.core.security.SocialAccountRepository", return_value=social_repo),
             patch(
@@ -444,6 +445,7 @@ class SecurityTests(unittest.TestCase):
         db.commit.side_effect = unrelated
 
         with (
+            patch("app.core.security.add_reset_cards"),
             patch("app.core.security.UserRepository", return_value=user_repo),
             patch("app.core.security.SocialAccountRepository", return_value=social_repo),
             patch(
