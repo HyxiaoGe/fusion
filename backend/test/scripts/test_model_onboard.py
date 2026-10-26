@@ -74,6 +74,10 @@ def _add_args(**overrides):
         cache_price=None,
         input_price_above_200k=None,
         output_price_above_200k=None,
+        peak_hours=None,
+        off_peak_input_price=None,
+        off_peak_output_price=None,
+        off_peak_cache_price=None,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -333,6 +337,105 @@ class ModelOnboardTests(unittest.TestCase):
         self.assertAlmostEqual(params["input_cost_per_token_above_200k_tokens"], 4e-6)
         self.assertAlmostEqual(params["output_cost_per_token_above_200k_tokens"], 12e-6)
         self.assertEqual(result["pricing"]["input_above_200k"], 4)
+
+    def test_off_peak_windows_maps_beijing_weekday_peaks_to_litellm_utc_rules(self):
+        self.assertEqual(
+            model_onboard.off_peak_windows(["09:00-12:00", "14:00-18:00"]),
+            [
+                # 北京 18:00–次日 09:00 与 12:00–14:00 → UTC 10:00–01:00（跨午夜）与 04:00–06:00
+                {"weekdays": [1, 2, 3, 4, 5], "hours_utc": ["10:00-01:00", "04:00-06:00"]},
+                {"weekdays": [6, 7], "hours_utc": "00:00-00:00"},
+            ],
+        )
+        self.assertEqual(
+            model_onboard.off_peak_windows(["00:00-24:00"])[0]["hours_utc"], [], "全天高峰：工作日没有空闲钟点"
+        )
+        self.assertEqual(model_onboard.off_peak_windows(["00:00-08:00"])[0]["hours_utc"], ["00:00-16:00"])
+        for broken in (["9-12"], ["12:00-09:00"], ["09:00-12:00", "11:00-13:00"], ["09:60-12:00"], ["09:00-25:00"]):
+            with self.assertRaises(model_onboard.OnboardError, msg=str(broken)) as ctx:
+                model_onboard.off_peak_windows(broken)
+            self.assertEqual(ctx.exception.code, "invalid_peak_hours")
+
+    def test_set_pricing_writes_off_peak_block_to_model_info_and_pricing_metadata(self):
+        proxy = self._registered_proxy()
+        admin = model_onboard.ProxyAdmin(proxy, "http://proxy", "master", "fusion")
+        args = model_onboard.build_parser().parse_args(
+            [
+                "set-pricing", "m1",
+                "--input-price", "0.3", "--output-price", "1.2", "--cache-price", "0.006",
+                "--peak-hours", "09:00-12:00", "14:00-18:00",
+                "--off-peak-input-price", "0.15", "--off-peak-output-price", "0.6", "--off-peak-cache-price", "0.003",
+            ]
+        )  # fmt: skip
+
+        with patch.object(model_onboard, "bump_catalog_generation", return_value="gen-5"):
+            result = model_onboard.cmd_set_pricing(admin, args)
+
+        expected_block = {
+            "input_cost_per_token": 0.15e-6,
+            "output_cost_per_token": 0.6e-6,
+            "cache_read_input_token_cost": 0.003e-6,
+            "windows": [
+                {"weekdays": [1, 2, 3, 4, 5], "hours_utc": ["10:00-01:00", "04:00-06:00"]},
+                {"weekdays": [6, 7], "hours_utc": "00:00-00:00"},
+            ],
+            "weekday_timezone": "Asia/Shanghai",
+        }
+        info = proxy.entries[0]["model_info"]
+        self.assertEqual(info["off_peak_pricing"], expected_block)
+        self.assertNotIn("off_peak_pricing", proxy.entries[0]["litellm_params"], "时段价只在 model_info")
+        self.assertAlmostEqual(info["input_cost_per_token"], 0.3e-6, msg="标准价照常写")
+        self.assertEqual(
+            info["metadata"]["pricing"]["off_peak"],
+            {
+                "input": 0.15, "output": 0.6, "cache_read_input": 0.003,
+                "peak_hours": ["09:00-12:00", "14:00-18:00"], "peak_weekdays": "Mon-Fri", "timezone": "Asia/Shanghai",
+            },
+        )  # fmt: skip
+        self.assertIsNone(result["before"]["off_peak_pricing"])
+        self.assertEqual(result["after"]["off_peak_pricing"], expected_block)
+
+        # 再只改标准价：时段价块保持原值不清除。
+        args = model_onboard.build_parser().parse_args(
+            ["set-pricing", "m1", "--input-price", "0.4", "--output-price", "1.6"]
+        )
+        with patch.object(model_onboard, "bump_catalog_generation", return_value="gen-6"):
+            result = model_onboard.cmd_set_pricing(admin, args)
+        self.assertEqual(proxy.entries[0]["model_info"]["off_peak_pricing"], expected_block)
+        self.assertEqual(result["after"]["off_peak_pricing"], expected_block)
+        self.assertEqual(proxy.entries[0]["model_info"]["metadata"]["pricing"]["off_peak"]["input"], 0.15)
+
+    def test_set_pricing_requires_peak_hours_and_both_off_peak_prices_together(self):
+        proxy = self._registered_proxy()
+        admin = model_onboard.ProxyAdmin(proxy, "http://proxy", "master", "fusion")
+        base = ["set-pricing", "m1", "--input-price", "0.3", "--output-price", "1.2"]
+        for extra in (
+            ["--peak-hours", "09:00-12:00"],
+            ["--off-peak-input-price", "0.15", "--off-peak-output-price", "0.6"],
+            ["--peak-hours", "09:00-12:00", "--off-peak-input-price", "0.15"],
+        ):
+            args = model_onboard.build_parser().parse_args([*base, *extra])
+            with self.assertRaises(model_onboard.OnboardError, msg=str(extra)) as ctx:
+                model_onboard.cmd_set_pricing(admin, args)
+            self.assertEqual(ctx.exception.code, "off_peak_incomplete")
+        args = model_onboard.build_parser().parse_args(
+            [*base, "--peak-hours", "09:00-12:00", "--off-peak-input-price", "-1", "--off-peak-output-price", "0.6"]
+        )
+        with self.assertRaises(model_onboard.OnboardError) as ctx:
+            model_onboard.cmd_set_pricing(admin, args)
+        self.assertEqual(ctx.exception.code, "invalid_price")
+        self.assertEqual(proxy.posts, [], "校验失败不发请求")
+
+    def test_add_writes_off_peak_block_when_given(self):
+        with patch.object(model_onboard, "run_preflight", side_effect=lambda **kw: _report(kw["candidate"])):
+            model_onboard.cmd_add(
+                self.admin,
+                _add_args(peak_hours=["09:00-12:00"], off_peak_input_price=0.1, off_peak_output_price=0.4),
+                client=self.proxy,
+            )
+        entry = self.admin.find_model("new-model")
+        self.assertEqual(entry["model_info"]["off_peak_pricing"]["windows"][0]["hours_utc"], ["04:00-01:00"])
+        self.assertEqual(entry["model_info"]["metadata"]["pricing"]["off_peak"]["peak_hours"], ["09:00-12:00"])
 
     def test_set_pricing_rejects_missing_model_negative_price_and_failed_readback(self):
         proxy = self._registered_proxy()

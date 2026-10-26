@@ -3,7 +3,7 @@ import json
 import unittest
 import uuid
 from contextlib import asynccontextmanager, nullcontext
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from sqlalchemy import create_engine
@@ -33,7 +33,7 @@ from app.evals.trajectory import (
     build_snapshot,
     load_snapshot,
 )
-from app.evals.usage import TokenUsage, load_runs_usage, round_cost
+from app.evals.usage import TokenUsage, is_off_peak, load_runs_usage, round_cost
 from app.utils.time import utc_now
 from scripts import run_eval_suite
 
@@ -57,6 +57,17 @@ _PRICED = {
         "input_cost_per_token_above_200k_tokens": 3e-6,
         "output_cost_per_token_above_200k_tokens": 4e-6,
     }
+}
+# DeepSeek 式时段价：北京时间工作日 9–12、14–18 高峰，其余时间与周末半价。
+_OFF_PEAK = {
+    "input_cost_per_token": 5e-7,
+    "output_cost_per_token": 1e-6,
+    "cache_read_input_token_cost": 5e-8,
+    "windows": [
+        {"weekdays": [1, 2, 3, 4, 5], "hours_utc": ["10:00-01:00", "04:00-06:00"]},
+        {"weekdays": [6, 7], "hours_utc": "00:00-00:00"},
+    ],
+    "weekday_timezone": "Asia/Shanghai",
 }
 
 
@@ -722,6 +733,50 @@ class UsageTests(unittest.TestCase):
         )
         self.assertIsNone(round_cost({}, input_tokens=1, output_tokens=1, cache_read_tokens=0))
 
+    def test_round_cost_switches_to_off_peak_rates_by_request_time(self):
+        costs = {**_PRICED["token_costs"], "off_peak_pricing": _OFF_PEAK}
+        peak_monday_10 = datetime(2026, 10, 26, 2, 0, tzinfo=timezone.utc)  # 北京周一 10:00
+        lunch_monday_13 = datetime(2026, 10, 26, 5, 0, tzinfo=timezone.utc)  # 北京周一 13:00
+        saturday_10 = datetime(2026, 10, 31, 2, 0, tzinfo=timezone.utc)  # 北京周六 10:00
+        monday_03 = datetime(2026, 10, 25, 19, 0, tzinfo=timezone.utc)  # 北京周一 03:00，UTC 还是周日
+        standard = 2_000 * 1e-6 + 8_000 * 1e-7 + 500 * 2e-6
+        discounted = 2_000 * 5e-7 + 8_000 * 5e-8 + 500 * 1e-6
+        kwargs = dict(input_tokens=10_000, output_tokens=500, cache_read_tokens=8_000)
+
+        self.assertAlmostEqual(round_cost(costs, **kwargs, at=peak_monday_10), standard)
+        self.assertAlmostEqual(round_cost(costs, **kwargs, at=lunch_monday_13), discounted)
+        self.assertAlmostEqual(round_cost(costs, **kwargs, at=saturday_10), discounted, msg="周末整天空闲")
+        self.assertAlmostEqual(round_cost(costs, **kwargs, at=monday_03), discounted, msg="星期按北京日历看")
+        self.assertAlmostEqual(round_cost(costs, **kwargs), standard, msg="不知道时刻按标准价")
+        # naive 时间按 UTC 解释；空闲块缺的档位沿用标准价。
+        partial = {**costs, "off_peak_pricing": {**_OFF_PEAK, "cache_read_input_token_cost": None}}
+        self.assertAlmostEqual(
+            round_cost(partial, **kwargs, at=lunch_monday_13.replace(tzinfo=None)),
+            2_000 * 5e-7 + 8_000 * 1e-7 + 500 * 1e-6,
+        )
+        # 200k 分档也被空闲价整体替换，与 LiteLLM 一致。
+        self.assertAlmostEqual(
+            round_cost(costs, input_tokens=250_000, output_tokens=1_000, cache_read_tokens=0, at=lunch_monday_13),
+            250_000 * 5e-7 + 1_000 * 1e-6,
+        )
+
+    def test_is_off_peak_handles_flat_hours_wrap_and_malformed_rules(self):
+        flat = {"hours_utc": "16:30-00:30"}
+        self.assertTrue(is_off_peak(flat, datetime(2026, 10, 26, 23, 59, tzinfo=timezone.utc)))
+        self.assertTrue(is_off_peak(flat, datetime(2026, 10, 26, 0, 29, tzinfo=timezone.utc)))
+        self.assertFalse(is_off_peak(flat, datetime(2026, 10, 26, 0, 30, tzinfo=timezone.utc)), "止不含")
+        self.assertTrue(is_off_peak({"hours_utc": ["00:00-00:00"]}, datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)))
+        named = {"windows": [{"weekdays": ["sat", "Sunday"], "hours_utc": "00:00-00:00"}]}
+        self.assertTrue(is_off_peak(named, datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc)))
+        self.assertFalse(is_off_peak(named, datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)))
+        for broken in (
+            {},
+            {"hours_utc": "nope"},
+            {"windows": "x"},
+            {"windows": [{"weekdays": "1-5", "hours_utc": "00:00-00:00"}]},
+        ):
+            self.assertFalse(is_off_peak(broken, datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)), broken)
+
     def test_runs_usage_prices_each_round_by_its_own_model(self):
         factory = _session_factory()
         with factory() as db:
@@ -743,20 +798,40 @@ class UsageTests(unittest.TestCase):
                     )
                 )
             db.flush()
+            peak = datetime(2026, 10, 26, 2, 0, tzinfo=timezone.utc)  # 北京周一 10:00
+            off_peak = datetime(2026, 10, 26, 5, 0, tzinfo=timezone.utc)  # 北京周一 13:00
             events = [
-                ("run-1", "llm_round_started", {"llm_round_id": "r1", "model": "primary"}),
+                # r1 在空闲时段开始、高峰时段完成：按开始时刻计空闲价。
+                ("run-1", "llm_round_started", {"llm_round_id": "r1", "model": "primary"}, off_peak),
                 (
                     "run-1",
                     "llm_round_completed",
                     {"llm_round_id": "r1", "input_tokens": 1000, "output_tokens": 100, "cache_read_tokens": 800},
+                    peak,
                 ),
                 # 原模型不可用后换了备用模型，这一轮要按备用模型计价。
-                ("run-1", "llm_round_started", {"llm_round_id": "r2", "model": "fallback"}),
-                ("run-1", "llm_round_completed", {"llm_round_id": "r2", "input_tokens": 2000, "output_tokens": 50}),
-                ("run-2", "llm_round_completed", {"llm_round_id": "r3", "input_tokens": 500, "output_tokens": 10}),
-                ("run-other", "llm_round_completed", {"llm_round_id": "r9", "input_tokens": 9999, "output_tokens": 9}),
+                ("run-1", "llm_round_started", {"llm_round_id": "r2", "model": "fallback"}, peak),
+                (
+                    "run-1",
+                    "llm_round_completed",
+                    {"llm_round_id": "r2", "input_tokens": 2000, "output_tokens": 50},
+                    peak,
+                ),
+                # 没有开始事件的轮次退回完成时刻（高峰）。
+                (
+                    "run-2",
+                    "llm_round_completed",
+                    {"llm_round_id": "r3", "input_tokens": 500, "output_tokens": 10},
+                    peak,
+                ),
+                (
+                    "run-other",
+                    "llm_round_completed",
+                    {"llm_round_id": "r9", "input_tokens": 9999, "output_tokens": 9},
+                    peak,
+                ),
             ]
-            for sequence, (run_id, event_type, payload) in enumerate(events, start=1):
+            for sequence, (run_id, event_type, payload, event_ts) in enumerate(events, start=1):
                 db.add(
                     AgentEvent(
                         event_id=uuid.uuid4(),
@@ -764,18 +839,19 @@ class UsageTests(unittest.TestCase):
                         run_id=run_id,
                         sequence=sequence,
                         event_type=event_type,
-                        event_ts=utc_now(),
+                        event_ts=event_ts,
                         payload=payload,
                     )
                 )
             db.commit()
 
-            prices = {"primary": _PRICED, "fallback": {}}
+            priced = {"token_costs": {**_PRICED["token_costs"], "off_peak_pricing": _OFF_PEAK}}
+            prices = {"primary": priced, "fallback": {}}
             with patch.object(usage_module.litellm_catalog, "get_model_entry", prices.get):
                 usage = load_runs_usage(db, ["run-1", "run-2", None])
 
         self.assertEqual((usage.input_tokens, usage.output_tokens, usage.cache_read_tokens), (3500, 160, 800))
-        self.assertAlmostEqual(usage.cost_usd, (200 * 1e-6 + 800 * 1e-7 + 100 * 2e-6) + (500 * 1e-6 + 10 * 2e-6))
+        self.assertAlmostEqual(usage.cost_usd, (200 * 5e-7 + 800 * 5e-8 + 100 * 1e-6) + (500 * 1e-6 + 10 * 2e-6))
         self.assertEqual(usage.unpriced_models, ("fallback",))
 
 

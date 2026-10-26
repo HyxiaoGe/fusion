@@ -163,7 +163,15 @@ def _fetch_catalog() -> Dict[str, Dict[str, Any]]:
             "max_input_tokens": info.get("max_input_tokens"),
             "max_output_tokens": info.get("max_output_tokens"),
             "db_model": bool(info.get("db_model")),
-            "token_costs": {key: info[key] for key in _TOKEN_COST_KEYS if info.get(key) is not None},
+            "token_costs": {
+                **{key: info[key] for key in _TOKEN_COST_KEYS if info.get(key) is not None},
+                # 按时段计价的模型（DeepSeek）：空闲时段单价与时段规则，计价时按请求时刻选价。
+                **(
+                    {"off_peak_pricing": info["off_peak_pricing"]}
+                    if isinstance(info.get("off_peak_pricing"), dict)
+                    else {}
+                ),
+            },
         }
     return catalog
 
