@@ -676,7 +676,7 @@ def test_granting_cards_and_resetting_credits_notify_the_affected_users(db):
     rows = db.execute(select(Notification).where(Notification.user_id == "user-1")).scalars().all()
     assert len(rows) == 2
     item = notification_item(rows[0])
-    assert (item.business_type, item.target.type) == ("credits", "credits")
+    assert (item.business_type, item.target.type) == ("system", "credits")
 
 
 def _first_login(db, subject, *, email, scopes=None):

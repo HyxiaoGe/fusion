@@ -340,7 +340,7 @@ def reset_user_credits(db: Session, *, user_id: str, actor_id: str, now: datetim
         actor_id=actor_id,
     )
     db.add(entry)
-    NotificationRepository(db).enqueue_credits(
+    NotificationRepository(db).enqueue_system(
         user_id=user_id, kind="credits_reset", title=RESET_NOTICE_TITLE, body="管理员已清零你今日和本周的已用额度。"
     )
     db.commit()
@@ -441,7 +441,7 @@ def reset_all_credits(db: Session, *, actor_id: str, now: datetime | None = None
     )
     notifications = NotificationRepository(db)
     for user_id in recipients:
-        notifications.enqueue_credits(
+        notifications.enqueue_system(
             user_id=user_id,
             kind="credits_reset",
             title=RESET_NOTICE_TITLE,

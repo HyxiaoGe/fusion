@@ -11,7 +11,7 @@ export type NotificationKind =
   | 'reset_cards_granted'
   | 'credits_reset';
 export type NotificationFilter = 'all' | 'unread';
-export type NotificationBusinessType = 'ai_conversation' | 'changelog' | 'credits';
+export type NotificationBusinessType = 'ai_conversation' | 'changelog' | 'system';
 
 export type NotificationTarget = {
   type: 'conversation';
@@ -55,10 +55,11 @@ interface NotificationResultsReadRequest {
 const notificationsPath = `${API_CONFIG.BASE_URL}/api/notifications`;
 
 export function getNotifications(
-  params: { filter?: NotificationFilter; cursor?: string; limit?: number } = {},
+  params: { filter?: NotificationFilter; businessType?: NotificationBusinessType; cursor?: string; limit?: number } = {},
   signal?: AbortSignal,
 ): Promise<NotificationPage> {
   const query = new URLSearchParams({ filter: params.filter ?? 'all', limit: String(params.limit ?? 20) });
+  if (params.businessType) query.set('business_type', params.businessType);
   if (params.cursor) query.set('cursor', params.cursor);
   return apiRequest<NotificationPage>(`${notificationsPath}?${query}`, { signal });
 }

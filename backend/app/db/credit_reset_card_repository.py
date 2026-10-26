@@ -30,7 +30,7 @@ def add_reset_cards(
     notifications = NotificationRepository(db)
     # 固定升序，和更新日志广播一致，避免交叉锁住用户通知水位。
     for user_id in sorted(user_ids):
-        notifications.enqueue_credits(
+        notifications.enqueue_system(
             user_id=user_id, kind="reset_cards_granted", title=f"你收到了 {count} 张额度重置卡", body=body
         )
     return cards

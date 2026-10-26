@@ -59,7 +59,7 @@ describe('消息盒子', () => {
     expect(await screen.findByText('结果 b')).toBeVisible();
     expect(screen.getByText('第 2 页')).toBeVisible();
     expect(screen.getByRole('button', { name: /下一页/ })).toBeDisabled();
-    expect(getNotifications).toHaveBeenLastCalledWith({ filter: 'all', cursor: 'c2', limit: 10 }, expect.any(AbortSignal));
+    expect(getNotifications).toHaveBeenLastCalledWith({ filter: 'all', businessType: undefined, cursor: 'c2', limit: 10 }, expect.any(AbortSignal));
 
     fireEvent.click(screen.getByRole('button', { name: /上一页/ }));
     expect(await screen.findByText('结果 a')).toBeVisible();
@@ -73,12 +73,36 @@ describe('消息盒子', () => {
     fireEvent.click(screen.getByRole('button', { name: /下一页/ }));
     await screen.findByText('第 2 页');
 
-    fireEvent.click(screen.getByRole('button', { name: '未读' }));
+    fireEvent.click(screen.getByRole('button', { name: '只看未读' }));
 
     await waitFor(() => expect(getNotifications).toHaveBeenLastCalledWith(
-      { filter: 'unread', cursor: undefined, limit: 10 }, expect.any(AbortSignal),
+      { filter: 'unread', businessType: undefined, cursor: undefined, limit: 10 }, expect.any(AbortSignal),
     ));
     expect(screen.getByText('第 1 页')).toBeVisible();
+  });
+
+  it('切换分类从第一页重新取，可与只看未读组合', async () => {
+    getNotifications.mockResolvedValue(page([item('a')], 'c2'));
+    render(<NotificationsDialog />);
+    await screen.findByText('结果 a');
+    expect(screen.getAllByRole('button', { pressed: true }).map((button) => button.textContent)).toEqual(['全部']);
+    fireEvent.click(screen.getByRole('button', { name: /下一页/ }));
+    await screen.findByText('第 2 页');
+
+    fireEvent.click(screen.getByRole('button', { name: '系统' }));
+    await waitFor(() => expect(getNotifications).toHaveBeenLastCalledWith(
+      { filter: 'all', businessType: 'system', cursor: undefined, limit: 10 }, expect.any(AbortSignal),
+    ));
+    expect(screen.getByText('第 1 页')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: '只看未读' }));
+    await waitFor(() => expect(getNotifications).toHaveBeenLastCalledWith(
+      { filter: 'unread', businessType: 'system', cursor: undefined, limit: 10 }, expect.any(AbortSignal),
+    ));
+    fireEvent.click(screen.getByRole('button', { name: '全部' }));
+    await waitFor(() => expect(getNotifications).toHaveBeenLastCalledWith(
+      { filter: 'unread', businessType: undefined, cursor: undefined, limit: 10 }, expect.any(AbortSignal),
+    ));
   });
 
   it('点通知关闭窗口并跳到对应回答', async () => {
