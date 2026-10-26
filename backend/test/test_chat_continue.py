@@ -8,6 +8,12 @@ from app.services.stream_state_service import StreamInitResult
 
 
 class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # 路由转发测试不涉及 credits 准入，准入见 test_guest_quota / test_credits
+        patcher = patch("app.api.chat._admit_run")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     async def test_continue_rejects_invalid_previous_before_any_redis_or_generation_side_effect(self):
         base = {
             "id": "run-old",
@@ -139,6 +145,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=StreamInitResult(ok=True)),
             ) as init_stream_mock,
             patch("app.services.chat_service.register_task") as register_task_mock,
+            patch("app.services.chat_service.credit_service.settle_after") as settle_after_mock,
             patch("app.services.chat_service.asyncio.create_task") as create_task_mock,
         ):
             task = object()
@@ -158,6 +165,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             )
 
         init_stream_mock.assert_awaited_once()
+        settle_after_mock.assert_called_once_with(task, run_id="trace-1")
         self.assertEqual(init_stream_mock.await_args.args[3], "msg-1")
         self.assertEqual(init_stream_mock.await_args.kwargs["stream_mode"], "continuation")
         self.assertEqual(init_stream_mock.await_args.kwargs["message_sequence"], 42)

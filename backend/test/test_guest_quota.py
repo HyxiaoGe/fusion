@@ -76,7 +76,6 @@ class FakeRedis:
 
 def _limits(**overrides):
     values = {
-        "GUEST_DAILY_MESSAGES": 20,
         "GUEST_DAILY_MESSAGES_PER_IP": 60,
         "GUEST_DAILY_MESSAGES_GLOBAL": 2000,
         "GUEST_DAILY_SEARCHES": 10,
@@ -92,8 +91,8 @@ class GuestRunQuotaTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _user_count(self, user="g1"):
-        return self.redis.values.get(f"guest_quota:msg:{guest_quota.china_day(NOW)}:{user}", 0)
+    def _ip_count(self, ip="1.1.1.1"):
+        return self.redis.values.get(f"guest_quota:msg_ip:{guest_quota.china_day(NOW)}:{guest_quota.ip_digest(ip)}", 0)
 
     def test_only_one_run_at_a_time_until_released(self):
         with _limits():
@@ -101,20 +100,20 @@ class GuestRunQuotaTests(unittest.TestCase):
             with self.assertRaises(ApiException) as ctx:
                 guest_quota.reserve_guest_run("g1", "1.1.1.1", now=NOW)
             self.assertEqual((ctx.exception.code, ctx.exception.status_code), ("GUEST_RUN_IN_PROGRESS", 429))
-            self.assertEqual(self._user_count(), 1)
+            self.assertEqual(self._ip_count(), 1)
             first.release(refund=False)
             guest_quota.reserve_guest_run("g1", "1.1.1.1", now=NOW).release(refund=False)
-        self.assertEqual(self._user_count(), 2)
+        self.assertEqual(self._ip_count(), 2)
 
-    def test_daily_message_limit_rejects_without_consuming(self):
-        with _limits(GUEST_DAILY_MESSAGES=2):
+    def test_ip_limit_rejects_without_consuming(self):
+        with _limits(GUEST_DAILY_MESSAGES_PER_IP=2):
             for _ in range(2):
                 guest_quota.reserve_guest_run("g1", "1.1.1.1", now=NOW).release(refund=False)
             with self.assertRaises(ApiException) as ctx:
                 guest_quota.reserve_guest_run("g1", "1.1.1.1", now=NOW)
         self.assertEqual((ctx.exception.code, ctx.exception.status_code), ("GUEST_QUOTA_EXHAUSTED", 429))
         self.assertIn("登录后继续", ctx.exception.message)
-        self.assertEqual(self._user_count(), 2)
+        self.assertEqual(self._ip_count(), 2)
         self.assertFalse(any(":active:" in key for key in self.redis.values))
 
     def test_ip_and_global_limits_apply_across_guests(self):
@@ -132,7 +131,7 @@ class GuestRunQuotaTests(unittest.TestCase):
             reservation = guest_quota.reserve_guest_run("g1", "1.1.1.1", now=NOW)
             reservation.release(refund=True)
             reservation.release(refund=True)
-        self.assertEqual(self._user_count(), 0)
+        self.assertEqual(self._ip_count(), 0)
 
     def test_redis_failure_is_service_unavailable(self):
         broken = MagicMock()
@@ -142,13 +141,9 @@ class GuestRunQuotaTests(unittest.TestCase):
                 guest_quota.reserve_guest_run("g1", "1.1.1.1", now=NOW)
         self.assertEqual((ctx.exception.code, ctx.exception.status_code), ("GUEST_UNAVAILABLE", 503))
 
-    def test_search_quota_and_usage(self):
+    def test_search_quota(self):
         with _limits(GUEST_DAILY_SEARCHES=2):
             self.assertEqual([guest_quota.reserve_guest_search("g1", now=NOW) for _ in range(3)], [True, True, False])
-            guest_quota.reserve_guest_run("g1", "1.1.1.1", now=NOW)
-            usage = guest_quota.guest_usage("g1", now=NOW)
-        self.assertEqual(usage["searches"], {"limit": 2, "used": 2, "remaining": 0})
-        self.assertEqual(usage["messages"], {"limit": 20, "used": 1, "remaining": 19})
 
 
 class GuestRunSettlementTests(unittest.IsolatedAsyncioTestCase):
@@ -294,6 +289,11 @@ class GuestApiTests(unittest.TestCase):
                     cls.deps.setdefault(name, dep.call)
                 pending.extend(dep.dependencies)
 
+    def setUp(self):
+        patcher = patch("app.api.chat.credit_service.ensure_can_start")
+        self.ensure_can_start = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def tearDown(self):
         self.main.app.dependency_overrides.clear()
 
@@ -322,25 +322,48 @@ class GuestApiTests(unittest.TestCase):
     def test_registered_send_skips_guest_quota(self):
         service = MagicMock()
         service.process_message = AsyncMock(return_value={"ok": True})
-        self._as(SimpleNamespace(id="u1", is_guest=False, is_superuser=False), service)
+        user = SimpleNamespace(id="u1", username="admin", is_guest=False, is_superuser=True)
+        self._as(user, service)
         with patch("app.api.chat.reserve_guest_run") as reserve:
             response = self.client.post("/api/chat/send", json={"model_id": "auto", "message": "hi", "stream": False})
         self.assertEqual(response.status_code, 200)
         reserve.assert_not_called()
         self.assertIsNone(service.process_message.call_args.kwargs["guest_run"])
+        self.ensure_can_start.assert_called_once_with(service.db, user)
+
+    def test_credit_limited_user_cannot_send_non_stream(self):
+        service = MagicMock()
+        service.process_message = AsyncMock(return_value={"ok": True})
+        self._as(SimpleNamespace(id="u1", username="u1", is_guest=False, is_superuser=False), service)
+        response = self.client.post("/api/chat/send", json={"model_id": "auto", "message": "hi", "stream": False})
+        self.assertEqual(response.status_code, 400)
+        service.process_message.assert_not_called()
+
+    def test_exhausted_credits_block_before_guest_reservation(self):
+        service = MagicMock()
+        service.process_message = AsyncMock()
+        self._as(SimpleNamespace(id="g1", is_guest=True, is_superuser=False), service)
+        self.ensure_can_start.side_effect = ApiException("GUEST_QUOTA_EXHAUSTED", "今天免登录额度已用完", 429)
+        with patch("app.api.chat.reserve_guest_run") as reserve:
+            response = self.client.post("/api/chat/send", json={"model_id": "auto", "message": "hi", "stream": True})
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.json()["code"], "GUEST_QUOTA_EXHAUSTED")
+        reserve.assert_not_called()
+        service.process_message.assert_not_called()
 
     def test_entitlements_reflect_tier(self):
         self._as(SimpleNamespace(id="g1", is_guest=True))
-        usage = {"messages": {"limit": 20, "used": 3, "remaining": 17}}
-        with patch("app.services.guest_quota.guest_usage", return_value=usage):
+        usage = {"tier": "guest", "daily": {"limit": 300, "used": 30, "remaining": 270}}
+        with patch("app.api.auth.usage_summary", return_value=usage):
             data = self.client.get("/api/auth/me/entitlements").json()["data"]
-        self.assertEqual(data["tier"], "guest")
-        self.assertFalse(data["features"]["image_generation"])
-        self.assertEqual(data["quota"], usage)
-        self.assertEqual(data["models"], list(guest_quota.guest_model_ids()))
-        self._as(SimpleNamespace(id="u1", is_guest=False))
-        data = self.client.get("/api/auth/me/entitlements").json()["data"]
-        self.assertEqual((data["tier"], data["quota"], data["models"]), ("registered", None, None))
+            self.assertEqual(data["tier"], "guest")
+            self.assertFalse(data["features"]["image_generation"])
+            self.assertEqual(data["credits"], usage)
+            self.assertNotIn("quota", data)
+            self.assertEqual(data["models"], list(guest_quota.guest_model_ids()))
+            self._as(SimpleNamespace(id="u1", is_guest=False))
+            data = self.client.get("/api/auth/me/entitlements").json()["data"]
+        self.assertEqual((data["tier"], data["models"]), ("registered", None))
         self.assertTrue(all(data["features"].values()))
 
 

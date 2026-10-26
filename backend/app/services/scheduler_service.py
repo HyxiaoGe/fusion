@@ -23,12 +23,23 @@ async def start_scheduler() -> None:
         return
 
     from app.services.agent.trajectory_reconciliation import reconcile_trajectory_best_effort
+    from app.services.credit_service import settle_pending_runs_job
     from app.services.guest_cleanup import purge_inactive_guests_hourly
     from app.services.inspiration_generator import generate_daily_inspirations_job
     from app.services.notification_service import purge_expired_notifications_daily
     from app.services.user_memory_consolidation import consolidate_user_memories_job
 
     scheduler = AsyncIOScheduler()
+
+    # 补结算 credits：回答结束时没来得及结算的 run（轨迹账本迟到、进程重启）；run_id 唯一，多 worker 重复跑无副作用
+    scheduler.add_job(
+        settle_pending_runs_job,
+        trigger=IntervalTrigger(seconds=60),
+        id="settle_pending_credit_runs",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
 
     # 每天凌晨按功能目录为首页「今日灵感」出题；多 worker 由任务内的 Redis 锁去重
     scheduler.add_job(

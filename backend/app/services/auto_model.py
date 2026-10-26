@@ -19,6 +19,7 @@ from app.ai.model_circuit_breaker import model_circuit_breaker
 from app.db.model_catalog_control_repository import ModelCatalogControlRepository
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
 from app.services.config_defaults import DEFAULT_AUTO_MODEL_CONFIG
+from app.services.credit_pricing import cost_tier
 
 AUTO_MODEL_ID = "auto"
 
@@ -204,4 +205,4 @@ def _is_usable(alias: str, control: Any) -> bool:
 
 def _cost_tier(entry: Mapping[str, Any]) -> str:
     metadata = entry.get("metadata") or {}
-    return str(metadata.get("cost_tier") or "mid")
+    return cost_tier(entry.get("token_costs") or {}) or str(metadata.get("cost_tier") or "mid")

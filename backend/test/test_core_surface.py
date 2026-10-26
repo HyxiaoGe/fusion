@@ -20,6 +20,12 @@ os.environ["AUTH_SERVICE_JWKS_URL"] = "http://auth.example:8100/.well-known/jwks
 
 
 class ChatCoreSurfaceTests(unittest.TestCase):
+    def setUp(self):
+        # 路由转发测试不涉及 credits 准入，准入见 test_guest_quota / test_credits
+        patcher = patch("app.api.chat._admit_run")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @classmethod
     def setUpClass(cls):
         sys.modules.pop("main", None)

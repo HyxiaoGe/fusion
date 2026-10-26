@@ -9,6 +9,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -711,6 +712,35 @@ class HomeShowcaseImage(Base):
     # 从管理员生成过的图里挑来的，记下原文件，挑选列表据此标出已在图片池
     source_file_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+
+class CreditLedger(Base):
+    """Credits 流水：每个 run 结算一条（kind=run），管理员重置额度记一条（kind=reset）。
+
+    不对会话、消息、run 建外键：删除会话不能把已经发生的消耗一起删掉。
+    """
+
+    __tablename__ = "credit_ledger"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String(16), nullable=False)  # 'run' | 'reset'
+    run_id = Column(String, nullable=True, unique=True)
+    conversation_id = Column(String, nullable=True)
+    message_id = Column(String, nullable=True, index=True)
+    model_id = Column(String(100), nullable=True)
+    run_status = Column(String(30), nullable=True)
+    # 出错结束的 run 不扣（charged=false、credits=0），明细照样保留
+    charged = Column(Boolean, nullable=False, default=True, server_default="true")
+    credits = Column(Float, nullable=False, default=0, server_default="0")
+    # {"model_credits", "tool_credits", "rounds": [...], "tools": [...]}
+    breakdown = Column(JSONB, nullable=True)
+    # 计入哪个日/周窗口：run 按开始时刻，重置按操作时刻
+    occurred_at = Column(DateTime(timezone=True), nullable=False)
+    actor_id = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_credit_ledger_user_occurred", "user_id", "occurred_at"),)
 
 
 class McpServer(Base):

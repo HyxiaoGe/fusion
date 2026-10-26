@@ -21,6 +21,7 @@ from app.schemas.chat import (
     TitleGenerationRequest,
 )
 from app.schemas.response import ApiException, ErrorCode, success
+from app.services import credit_service
 from app.services.chat_service import ChatService
 from app.services.guest_quota import GuestRunReservation, is_guest, reserve_guest_run
 from app.services.stream import stream_redis_as_sse
@@ -63,6 +64,13 @@ async def _read_stream_meta_strict(conv_id: str):
     return redis, meta
 
 
+def _admit_run(current_user: User, chat_service: ChatService, *, stream: bool) -> None:
+    """开始生成前查 credits：日或周额度用完时拒绝；受限的登录用户只能流式生成（游客由服务层拦）。"""
+    if not stream and not is_guest(current_user) and credit_service.requires_stream(current_user):
+        raise ApiException.bad_request("当前账号仅支持流式对话")
+    credit_service.ensure_can_start(chat_service.db, current_user)
+
+
 def _reserve_guest_run(current_user: User, request: Request) -> GuestRunReservation | None:
     """游客每次开始生成前预扣额度并占并发位；登录用户不受影响。"""
     if not is_guest(current_user):
@@ -90,6 +98,7 @@ async def send_message(
     current_user: User = Depends(get_current_user),
 ):
     """发送消息，返回流式或非流式响应"""
+    _admit_run(current_user, chat_service, stream=chat_request.stream)
     guest_run = _reserve_guest_run(current_user, request)
     with _refund_guest_run_on_error(guest_run):
         result = await chat_service.process_message(
@@ -220,6 +229,7 @@ async def continue_agent_run(
     """继续执行已触顶的 agent run，续写同一条 assistant 消息。"""
     if not continue_request.stream:
         raise ApiException.bad_request("continue 仅支持流式响应")
+    _admit_run(current_user, chat_service, stream=True)
     guest_run = _reserve_guest_run(current_user, request)
     with _refund_guest_run_on_error(guest_run):
         return await chat_service.continue_agent_run(
