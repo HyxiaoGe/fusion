@@ -393,3 +393,38 @@ def message_credits(db: Session, *, user_id: str, message_id: str) -> dict[str, 
         "pending_runs": pending,
         "entries": [serialize_entry(entry) for entry in entries],
     }
+
+
+def conversation_credits(db: Session, *, user_id: str, conversation_id: str) -> dict[str, Any]:
+    """整个对话的消耗：近期结束还没结算的 run 顺手结算，仍在生成的计入 pending_runs。
+
+    只补结算补结算窗口内的 run，打开老对话不会给上线 credits 之前的运行补记流水。
+    """
+    unsettled = (
+        db.execute(
+            select(AgentSession.id)
+            .outerjoin(CreditLedger, CreditLedger.run_id == AgentSession.id)
+            .where(
+                AgentSession.conversation_id == conversation_id,
+                AgentSession.user_id == user_id,
+                AgentSession.created_at >= utc_now() - _SWEEP_LOOKBACK,
+                CreditLedger.id.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    pending = sum(1 for run_id in unsettled if settle_run(db, run_id) is None)
+    total, runs = db.execute(
+        select(func.coalesce(func.sum(CreditLedger.credits), 0.0), func.count(CreditLedger.id)).where(
+            CreditLedger.user_id == user_id,
+            CreditLedger.conversation_id == conversation_id,
+            CreditLedger.kind == "run",
+        )
+    ).one()
+    return {
+        "conversation_id": conversation_id,
+        "credits": round(float(total), 2),
+        "runs": int(runs),
+        "pending_runs": pending,
+    }

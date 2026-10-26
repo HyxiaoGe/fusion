@@ -1,8 +1,15 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { CreditsSummary } from '@/lib/api/credits';
+import { fetchConversationCredits, type CreditsSummary } from '@/lib/api/credits';
 import CreditsMeter from './CreditsMeter';
+
+vi.mock('@/lib/api/credits', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/credits')>()),
+  fetchConversationCredits: vi.fn(),
+}));
+
+const fetchConversationCreditsMock = vi.mocked(fetchConversationCredits);
 
 function credits(daily: number, weekly: number): CreditsSummary {
   return {
@@ -15,6 +22,46 @@ function credits(daily: number, weekly: number): CreditsSummary {
 }
 
 describe('CreditsMeter', () => {
+  beforeEach(() => {
+    fetchConversationCreditsMock.mockReset();
+  });
+
+  it('打开着对话时，点开才拉这个对话的累计消耗，并提示还没结算的生成', async () => {
+    fetchConversationCreditsMock.mockResolvedValue({
+      conversation_id: 'conv-1',
+      credits: 445.01,
+      runs: 2,
+      pending_runs: 1,
+    });
+    render(<CreditsMeter credits={credits(60, 900)} isGuest={false} onLogin={vi.fn()} conversationId="conv-1" />);
+    expect(fetchConversationCreditsMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '额度已用 90%' }));
+
+    const row = screen.getByTestId('credits-meter-conversation');
+    expect(row.textContent).toContain('计算中');
+    await waitFor(() => expect(row.textContent).toContain('本对话已用445'));
+    expect(row.textContent).toContain('还有 1 次生成正在结算');
+    expect(fetchConversationCreditsMock).toHaveBeenCalledWith('conv-1', expect.any(AbortSignal));
+  });
+
+  it('没有打开对话时不显示本对话一行，也不请求', () => {
+    render(<CreditsMeter credits={credits(60, 900)} isGuest={false} onLogin={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '额度已用 90%' }));
+
+    expect(screen.queryByTestId('credits-meter-conversation')).toBeNull();
+    expect(fetchConversationCreditsMock).not.toHaveBeenCalled();
+  });
+
+  it('对话消耗拉取失败时显示暂不可用，不影响日、周额度', async () => {
+    fetchConversationCreditsMock.mockRejectedValue(new Error('boom'));
+    render(<CreditsMeter credits={credits(60, 900)} isGuest={false} onLogin={vi.fn()} conversationId="conv-1" />);
+    fireEvent.click(screen.getByRole('button', { name: '额度已用 90%' }));
+
+    await waitFor(() => expect(screen.getByTestId('credits-meter-conversation').textContent).toContain('暂不可用'));
+    expect(screen.getByTestId('credits-meter-panel').textContent).toContain('今日60 / 300');
+  });
+
   it('环按用得更满的窗口显示百分比，点开看日、周总额度与已用量', () => {
     render(<CreditsMeter credits={credits(60, 900)} isGuest onLogin={vi.fn()} />);
 

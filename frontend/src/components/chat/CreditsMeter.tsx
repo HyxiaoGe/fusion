@@ -1,10 +1,17 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Infinity as InfinityIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { formatCredits, type CreditsSummary, type CreditsWindow } from '@/lib/api/credits';
+import {
+  fetchConversationCredits,
+  formatCredits,
+  type ConversationCredits,
+  type CreditsSummary,
+  type CreditsWindow,
+} from '@/lib/api/credits';
 import { cn } from '@/lib/utils';
 
 const RING_RADIUS = 6;
@@ -58,23 +65,64 @@ function UnlimitedUsage({ label, window }: { label: string; window: CreditsWindo
   );
 }
 
+type ConversationLoad =
+  | { status: 'loading' }
+  | { status: 'ready'; data: ConversationCredits }
+  | { status: 'error' };
+
+function ConversationUsage({ load }: { load: ConversationLoad }) {
+  const value =
+    load.status === 'ready' ? formatCredits(load.data.credits) : load.status === 'error' ? '暂不可用' : '计算中';
+  const pending = load.status === 'ready' ? load.data.pending_runs : 0;
+  return (
+    <div className="space-y-1 border-t pt-2.5" data-testid="credits-meter-conversation">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="font-medium text-foreground">本对话已用</span>
+        <span className={cn('tabular-nums', load.status === 'ready' ? 'text-foreground' : 'text-muted-foreground')}>
+          {value}
+        </span>
+      </div>
+      {pending > 0 && <div className="text-muted-foreground">还有 {pending} 次生成正在结算，暂未计入</div>}
+    </div>
+  );
+}
+
 /** 输入框工具栏的额度环：环按日、周里用得更满的窗口画，点开看两个窗口的总额度与已用量。
- * 不限额账号（管理员、评测白名单）显示无穷符号，只看已用量。 */
+ * 不限额账号（管理员、评测白名单）显示无穷符号，只看已用量。打开着对话时，点开才拉这个对话的累计消耗。 */
 export default function CreditsMeter({
   credits,
   isGuest,
   onLogin,
+  conversationId = null,
 }: {
   credits: CreditsSummary;
   isGuest: boolean;
   onLogin: () => void;
+  conversationId?: string | null;
 }) {
+  const [open, setOpen] = useState(false);
+  const [conversationLoad, setConversationLoad] = useState<ConversationLoad>({ status: 'loading' });
+
+  useEffect(() => {
+    if (!open || !conversationId) return;
+    const controller = new AbortController();
+    setConversationLoad({ status: 'loading' });
+    fetchConversationCredits(conversationId, controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) setConversationLoad({ status: 'ready', data });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setConversationLoad({ status: 'error' });
+      });
+    return () => controller.abort();
+  }, [conversationId, open]);
+
   const ratio = Math.max(usedRatio(credits.daily), usedRatio(credits.weekly));
   const percent = Math.round(ratio * 100);
   const label = credits.unlimited ? '额度不限' : `额度已用 ${percent}%`;
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -125,6 +173,7 @@ export default function CreditsMeter({
             <WindowUsage label="本周" window={credits.weekly} resetHint="下周一 0 点恢复" />
           </>
         )}
+        {conversationId && <ConversationUsage load={conversationLoad} />}
         <p className="border-t pt-2.5 leading-relaxed text-muted-foreground">
           按模型与工具的实际用量扣除，每条回答的消耗可在回答下方查看。
         </p>

@@ -1532,6 +1532,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 credits={credits}
                 isGuest={isGuest}
                 onLogin={() => promptLogin("登录后可使用全部模型和功能")}
+                conversationId={activeChatId ?? null}
               />
             )}
             <ModelSelector

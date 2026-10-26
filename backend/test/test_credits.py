@@ -440,6 +440,31 @@ def test_message_credits_settles_finished_runs_and_hides_other_users(client, db)
     assert test_client.get("/api/credits/messages/msg-x").json()["data"]["entries"] == []
 
 
+def test_conversation_credits_sum_every_answer_and_skip_runs_before_credits(client, db):
+    test_client, state = client
+    now = datetime.now(timezone.utc)
+    _run(db, "run-a", message_id="msg-x", started=now)
+    _round(db, "run-a", 1, round_id="a1", at=MONDAY_PEAK, input_tokens=1000, output_tokens=100)
+    _run(db, "run-b", message_id="msg-y", started=now)
+    _round(db, "run-b", 1, round_id="b1", at=MONDAY_PEAK, input_tokens=2000, output_tokens=200)
+    _run(db, "run-live", message_id="msg-z", status="running", trajectory="recording", started=now)
+    # credits 上线前的老运行：打开对话不给它补记流水
+    _run(db, "run-old", message_id="msg-w", started=now - timedelta(days=30))
+    _round(db, "run-old", 1, round_id="o1", at=MONDAY_PEAK, input_tokens=5000, output_tokens=500)
+
+    data = test_client.get("/api/credits/conversations/conv-user-1").json()["data"]
+    entries = {
+        entry.run_id: entry.credits
+        for entry in db.execute(select(CreditLedger).where(CreditLedger.kind == "run")).scalars()
+    }
+    assert set(entries) == {"run-a", "run-b"}
+    assert data["runs"] == 2 and data["pending_runs"] == 1
+    assert data["credits"] == pytest.approx(entries["run-a"] + entries["run-b"], abs=0.01)
+
+    state.user_id = "guest-1"
+    assert test_client.get("/api/credits/conversations/conv-user-1").json()["data"]["credits"] == 0
+
+
 def test_only_admin_can_view_and_reset_user_credits(client, db):
     test_client, state = client
     _charge(db, "user-1", 80, datetime.now(timezone.utc), "spent")

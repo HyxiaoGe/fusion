@@ -68,6 +68,15 @@ export interface MessageCredits {
   entries: CreditsEntry[];
 }
 
+export interface ConversationCredits {
+  conversation_id: string;
+  credits: number;
+  /** 已结算的运行数 */
+  runs: number;
+  /** 还在生成、尚未结算的运行数 */
+  pending_runs: number;
+}
+
 export interface AdminUserCredits {
   summary: CreditsSummary;
   items: CreditsEntry[];
@@ -79,6 +88,13 @@ const ADMIN_BASE = `${API_CONFIG.BASE_URL}/api/admin/credits`;
 
 export function fetchMessageCredits(messageId: string, signal?: AbortSignal): Promise<MessageCredits> {
   return apiRequest<MessageCredits>(`${BASE}/messages/${encodeURIComponent(messageId)}`, signal ? { signal } : {});
+}
+
+export function fetchConversationCredits(conversationId: string, signal?: AbortSignal): Promise<ConversationCredits> {
+  return apiRequest<ConversationCredits>(
+    `${BASE}/conversations/${encodeURIComponent(conversationId)}`,
+    signal ? { signal } : {},
+  );
 }
 
 export function fetchAdminUserCredits(userId: string, signal?: AbortSignal): Promise<AdminUserCredits> {
