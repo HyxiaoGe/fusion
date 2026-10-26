@@ -1430,9 +1430,22 @@ class ModelUnavailableFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         labels = {"model": "gemini-4-argon", "fallback": "qwen3.8-flash", "reason": "first_output_timeout"}
         before = _sample("fusion_model_fallback_total", **labels)
-        state, warnings = await self._run_loop(run_round_fn)
+        with patch("app.services.stream.agent_loop_driver.product_analytics.track") as track:
+            state, warnings = await self._run_loop(run_round_fn)
 
         self.assertEqual(_sample("fusion_model_fallback_total", **labels), before + 1)
+        # 换模型是用户感知不到但影响体验的事，按用户记一条产品事件
+        track.assert_called_once_with(
+            "user-driver",
+            "model_fallback",
+            {
+                "run_id": "run-driver",
+                "conversation_id": "conv-driver",
+                "failed_model": "gemini-4-argon",
+                "fallback_model": "qwen3.8-flash",
+                "reason": "first_output_timeout",
+            },
+        )
         self.assertEqual(calls, ["gemini-4-argon", "qwen3.8-flash", "qwen3.8-flash"])
         self.assertEqual(state.active_model_id, "qwen3.8-flash")
         self.assertTrue(any("fallback=qwen3.8-flash" in warning for warning in warnings))

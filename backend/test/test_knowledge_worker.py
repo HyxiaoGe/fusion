@@ -159,7 +159,10 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
             vector_store=self.vector_store,
         )
 
-        with patch("app.services.knowledge.worker.get_storage_for_backend", return_value=self.storage):
+        with (
+            patch("app.services.knowledge.worker.get_storage_for_backend", return_value=self.storage),
+            patch("app.services.knowledge.worker.product_analytics.track") as track,
+        ):
             handled = await worker.run_once()
 
         self.assertTrue(handled)
@@ -174,6 +177,16 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(task.status, "completed")
             self.assertEqual(version.status, "active")
             self.assertGreater(document.chunk_count, 0)
+            track.assert_called_once_with(
+                "user-1",
+                "knowledge_ingest_completed",
+                {
+                    "knowledge_base_id": "kb-1",
+                    "document_id": "doc-1",
+                    "chunk_count": document.chunk_count,
+                    "attempt_count": 1,
+                },
+            )
 
     async def test_heartbeat_failure_waits_for_uncancellable_external_work_before_retry(self):
         external_started = Event()
@@ -231,10 +244,25 @@ class KnowledgeWorkerTests(unittest.IsolatedAsyncioTestCase):
             vector_store=self.vector_store,
         )
 
-        with patch("app.services.knowledge.worker.get_storage_for_backend", return_value=self.storage):
+        with (
+            patch("app.services.knowledge.worker.get_storage_for_backend", return_value=self.storage),
+            patch("app.services.knowledge.worker.product_analytics.track") as track,
+        ):
             handled = await worker.run_once()
 
         self.assertTrue(handled)
+        track.assert_called_once_with(
+            "user-1",
+            "knowledge_ingest_failed",
+            {
+                "knowledge_base_id": "kb-1",
+                "document_id": "doc-1",
+                "error_code": "KNOWLEDGE_EMBEDDING_DIMENSION_MISMATCH",
+                "retryable": False,
+                "attempt_count": 1,
+                "max_attempts": 2,
+            },
+        )
         with self.Session() as db:
             document = db.query(KnowledgeDocument).filter_by(id="doc-1").one()
             task = db.query(KnowledgeIndexTask).filter_by(id="task-1").one()

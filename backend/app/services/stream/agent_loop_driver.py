@@ -10,6 +10,7 @@ from app.ai.llm_manager import llm_manager
 from app.ai.llm_round_observability import summarize_messages
 from app.ai.model_circuit_breaker import model_circuit_breaker
 from app.ai.prompts.prompt_message import PromptMessage, ensure_prompt_messages, to_provider_messages
+from app.core import product_analytics
 from app.core.metrics import MODEL_FALLBACK_TOTAL, MODEL_ROUND_UNAVAILABLE_TOTAL
 from app.db.model_catalog_control_repository import ModelCatalogControlRepository
 from app.services.auto_model import pick_fallback_model
@@ -239,6 +240,20 @@ async def _run_round(
     return round_result
 
 
+def _track_model_fallback(runtime: AgentLoopRuntime, *, fallback_model_id: str | None, reason: str) -> None:
+    product_analytics.track(
+        runtime.user_id,
+        "model_fallback",
+        {
+            "run_id": runtime.run_id,
+            "conversation_id": runtime.conversation_id,
+            "failed_model": runtime.model_id,
+            "fallback_model": fallback_model_id,
+            "reason": reason,
+        },
+    )
+
+
 def _record_model_unavailable(model_id: str, reason: str) -> None:
     MODEL_ROUND_UNAVAILABLE_TOTAL.labels(model=model_id, reason=reason).inc()
     model_circuit_breaker.record_failure(model_id, reason)
@@ -273,6 +288,7 @@ async def _switch_to_fallback_model(
             resolved = None
     if fallback_model_id is None or resolved is None:
         MODEL_FALLBACK_TOTAL.labels(model=runtime.model_id, fallback="none", reason=reason).inc()
+        _track_model_fallback(runtime, fallback_model_id=None, reason=reason)
         await runtime.emitter.model_fallback(failed_model=runtime.model_id, fallback_model=None, reason=reason)
         runtime.warning_fn(
             "原模型本轮不可用且没有可换的备用模型，原模型限时再试: "
@@ -282,6 +298,7 @@ async def _switch_to_fallback_model(
         return runtime
     litellm_model, provider, litellm_kwargs = resolved
     MODEL_FALLBACK_TOTAL.labels(model=runtime.model_id, fallback=fallback_model_id, reason=reason).inc()
+    _track_model_fallback(runtime, fallback_model_id=fallback_model_id, reason=reason)
     await runtime.emitter.model_fallback(failed_model=runtime.model_id, fallback_model=fallback_model_id, reason=reason)
     runtime.warning_fn(
         "原模型本轮不可用，本次回答改用备用模型: "

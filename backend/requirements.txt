@@ -12,6 +12,8 @@ fastapi-sso==0.21.0  # LiteLLM logging path 可选 import，不装会刷 ModuleN
 orjson>=3.9.0
 # fusion-api 自身的 Prometheus 指标（独立端口，见 app/core/metrics.py）
 prometheus-client==0.21.1
+# PostHog 产品埋点服务端事件（见 app/core/product_analytics.py）
+posthog==7.75.11
 backoff>=2.2.1
 dashscope==1.23.1
 openai==1.73.0

@@ -465,6 +465,10 @@ class Settings(BaseSettings):
     # Prometheus 指标独立端口：业务端口经 nginx 整站反代到公网，指标不能挂在上面。0 表示不启动。
     METRICS_PORT: int = 0
 
+    # PostHog 产品埋点（服务端事件，和前端共用一个项目）。key 为空时不上报。
+    POSTHOG_API_KEY: str = os.getenv("POSTHOG_API_KEY", "")
+    POSTHOG_HOST: str = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
+
     class Config:
         env_file = ".env"
         extra = "ignore"

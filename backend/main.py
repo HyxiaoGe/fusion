@@ -33,6 +33,7 @@ from app.api import (
     sync,
     trajectory,
 )
+from app.core import product_analytics
 from app.core.config import (
     KNOWLEDGE_MILVUS_FILTER_TERM_BATCH_SIZE,
     KNOWLEDGE_SEARCH_PROFILE_CONCURRENCY,
@@ -230,6 +231,7 @@ async def lifespan(app: FastAPI):
     await get_mcp_client_manager().close()
     await stop_scheduler()
     await close_redis()
+    product_analytics.shutdown()
     app_logger.info("应用关闭完成")
 
 
