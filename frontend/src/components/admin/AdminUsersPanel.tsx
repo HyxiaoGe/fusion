@@ -13,6 +13,8 @@ import { Input } from '@/components/ui/input';
 import { adminPaths } from '@/lib/admin/adminRoutes';
 import { useAdminAccess } from './AdminAccessContext';
 import AdminUserIdentity from './AdminUserIdentity';
+import AdminUserCreditsDialog from './AdminUserCreditsDialog';
+import type { AdminUserSummary } from '@/types/adminAudit';
 import {
   AdminEmpty, AdminError, AdminFilterActions, AdminFilterField, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
 } from './AdminPanelPrimitives';
@@ -43,6 +45,7 @@ export default function AdminUsersPanel() {
     created_to: values.created_to,
   }, signal), [page, values]);
   const resource = useAdminAuditResource(loader, revoke);
+  const [creditsUser, setCreditsUser] = useState<AdminUserSummary | null>(null);
 
   const submitSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -81,7 +84,7 @@ export default function AdminUsersPanel() {
                     <td>{user.email_masked || '—'}</td><td className="text-xs text-muted-foreground">{formatAdminDate(user.last_active_at)}</td>
                     <td className={styles.numeric}>{formatNumber(user.conversation_count)}</td><td className={styles.numeric}>{formatNumber(user.question_count)}</td><td className={styles.numeric}>{formatNumber(user.tool_call_count)}</td>
                     <td className={styles.numeric}>{formatNumber(user.input_tokens + user.output_tokens)}</td>
-                    <td className={styles.actions}><Button asChild variant="ghost" size="sm"><Link href={adminPaths.conversations({ userId: user.id })} aria-label={`查看用户对话 ${user.id}`}>查看对话</Link></Button></td>
+                    <td className={styles.actions}><Button asChild variant="ghost" size="sm"><Link href={adminPaths.conversations({ userId: user.id })} aria-label={`查看用户对话 ${user.id}`}>查看对话</Link></Button><Button variant="ghost" size="sm" onClick={() => setCreditsUser(user)} aria-label={`查看用户额度 ${user.id}`}>额度</Button></td>
                   </tr>
                 ))}
               </tbody>
@@ -91,6 +94,7 @@ export default function AdminUsersPanel() {
         </>
       ) : null}
 
+      {creditsUser ? <AdminUserCreditsDialog user={creditsUser} onClose={() => setCreditsUser(null)} /> : null}
     </section>
   );
 }

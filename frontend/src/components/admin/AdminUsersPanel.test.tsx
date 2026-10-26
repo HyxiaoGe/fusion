@@ -9,7 +9,16 @@ const apiMocks = vi.hoisted(() => ({
   getAdminUsers: vi.fn(),
 }));
 
+const creditsMocks = vi.hoisted(() => ({
+  fetchAdminUserCredits: vi.fn(),
+  resetAdminUserCredits: vi.fn(),
+}));
+
 vi.mock('@/lib/api/adminAudit', () => apiMocks);
+vi.mock('@/lib/api/credits', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/credits')>()),
+  ...creditsMocks,
+}));
 vi.mock('next/navigation', async () => (await import('@/test/adminNavigation')).nextNavigationMock);
 vi.mock('next/link', async () => (await import('@/test/adminNavigation')).nextLinkMock);
 
@@ -39,6 +48,36 @@ beforeEach(() => {
 });
 
 describe('AdminUsersPanel', () => {
+  it('额度弹窗展示用量与流水，二次确认后重置并刷新', async () => {
+    const window = (used: number, limit: number) => ({ limit, used, remaining: limit - used, resets_at: '2026-10-26T16:00:00+00:00' });
+    const credits = (used: number) => ({
+      summary: { tier: 'user', unlimited: false, daily: window(used, 3000), weekly: window(used, 10000), last_reset_at: null },
+      items: [{
+        id: 'e1', kind: 'run', run_id: 'r1', conversation_id: 'c1', message_id: 'm1', model_id: 'deepseek-chat',
+        run_status: 'completed', charged: true, credits: 120, occurred_at: '2026-10-26T05:00:00+00:00', breakdown: null,
+      }],
+      next_before: null,
+    });
+    creditsMocks.fetchAdminUserCredits.mockReset().mockResolvedValueOnce(credits(3000)).mockResolvedValueOnce(credits(0));
+    creditsMocks.resetAdminUserCredits.mockReset().mockResolvedValue({});
+    renderAdmin(<AdminUsersPanel />);
+    await screen.findByText('@alpha');
+
+    fireEvent.click(screen.getByRole('button', { name: '查看用户额度 user-alpha' }));
+
+    const dialog = await screen.findByTestId('admin-user-credits');
+    await waitFor(() => expect(dialog.textContent).toContain('3,000 / 3,000'));
+    expect(creditsMocks.fetchAdminUserCredits).toHaveBeenCalledWith('user-alpha', expect.any(AbortSignal));
+    expect(dialog.textContent).toContain('deepseek-chat');
+
+    fireEvent.click(screen.getByRole('button', { name: '重置额度' }));
+    expect(creditsMocks.resetAdminUserCredits).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认重置' }));
+
+    await waitFor(() => expect(creditsMocks.resetAdminUserCredits).toHaveBeenCalledWith('user-alpha'));
+    await waitFor(() => expect(dialog.textContent).toContain('0 / 3,000'));
+  });
+
   it('英文可见标签与可访问名称一致', async () => {
     await i18n.changeLanguage('en-US');
     renderAdmin(<AdminUsersPanel />);

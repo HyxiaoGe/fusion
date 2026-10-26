@@ -72,6 +72,7 @@ interface ApiModelData {
   health?: ModelHealth;
   description?: string;
   capabilityPresentation?: ModelCapabilityPresentation;
+  cost_tier?: string;
   autoResolvedModelId?: string | null;
   autoResolvedModelName?: string | null;
 }
@@ -98,8 +99,14 @@ export interface ModelInfo {
   health?: ModelHealth; // 健康探测结果，unhealthy 时选择器灰显
   description?: string; // 模型简要描述，用于悬停提示
   capabilityPresentation?: ModelCapabilityPresentation; // 后端派生的能力展示配置
+  costTier?: ModelCostTier; // 按模型单价分的消耗档，和 credits 计价同一来源
   autoResolvedModelName?: string | null; // 仅「自动选择」：不带附加需求时当前会用的模型
 }
+
+export type ModelCostTier = 'low' | 'mid' | 'high';
+
+const toModelCostTier = (value: string | undefined): ModelCostTier | undefined =>
+  value === 'low' || value === 'mid' || value === 'high' ? value : undefined;
 
 export interface ProviderInfo {
   id: string; // 提供商ID
@@ -124,6 +131,7 @@ export const convertApiModelToModelInfo = (apiModel: ApiModelData): ModelInfo =>
     health: apiModel.health,
     description: apiModel.description,
     capabilityPresentation: apiModel.capabilityPresentation,
+    costTier: toModelCostTier(apiModel.cost_tier),
     autoResolvedModelName: apiModel.autoResolvedModelName ?? null,
   };
 };

@@ -138,10 +138,11 @@ def ensure_can_start(db: Session, user: Any, *, now: datetime | None = None) -> 
     if limits.unlimited:
         return
     summary = usage_summary(db, user, now=now)
+    # 两个窗口都用完时按周窗口提示，它恢复得更晚
     exhausted = next(
         (
             name
-            for name in ("daily", "weekly")
+            for name in ("weekly", "daily")
             if summary[name]["limit"] is not None and summary[name]["remaining"] <= 0
         ),
         None,

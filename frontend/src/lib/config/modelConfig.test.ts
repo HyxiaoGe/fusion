@@ -30,6 +30,13 @@ describe('modelConfig', () => {
     expect(model.maxOutputTokens).toBe(32_768);
   });
 
+  it('只认 low / mid / high 三档消耗', () => {
+    const base = { modelId: 'm', name: 'M', provider: 'p', capabilities: {}, enabled: true };
+    expect(convertApiModelToModelInfo({ ...base, cost_tier: 'low' }).costTier).toBe('low');
+    expect(convertApiModelToModelInfo({ ...base, cost_tier: 'premium' }).costTier).toBeUndefined();
+    expect(convertApiModelToModelInfo(base).costTier).toBeUndefined();
+  });
+
   it('保留后端返回的模型能力展示配置', () => {
     const model = convertApiModelToModelInfo({
       modelId: 'deepseek-chat',

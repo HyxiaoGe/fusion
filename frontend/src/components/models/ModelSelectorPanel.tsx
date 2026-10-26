@@ -9,7 +9,7 @@ import {
 } from "@/lib/models/modelCapabilityPresentation";
 import { CapabilityChipList } from "./CapabilityChip";
 import ProviderIcon from "./ProviderIcon";
-import type { ModelInfo, ProviderInfo } from "@/lib/config/modelConfig";
+import type { ModelCostTier, ModelInfo, ProviderInfo } from "@/lib/config/modelConfig";
 import { isModelSelectable } from "@/lib/models/modelPreference";
 import styles from "./ModelSelectorGlass.module.css";
 
@@ -18,6 +18,22 @@ import styles from "./ModelSelectorGlass.module.css";
 const isUnhealthy = (model: ModelInfo) => model.health?.status === "unhealthy";
 // 后端已经把 raw error 翻成中文友好句（litellm_health._classify_error），FE 直接展示。
 const healthTooltip = (model: ModelInfo) => model.health?.error || "服务商暂时不可用";
+
+// 消耗档按模型单价分，单次实际消耗看回答下方的明细
+const COST_TIER_LABELS: Record<ModelCostTier, string> = { low: "低消耗", mid: "标准消耗", high: "高消耗" };
+
+const CostTierLabel = ({ tier }: { tier?: ModelCostTier }) =>
+  tier ? (
+    <span
+      data-testid="model-cost-tier"
+      className={cn(
+        "shrink-0 text-[10px]",
+        tier === "high" ? "text-amber-600 dark:text-amber-500" : "text-muted-foreground",
+      )}
+    >
+      {COST_TIER_LABELS[tier]}
+    </span>
+  ) : null;
 
 /* ---------- types ---------- */
 
@@ -199,6 +215,7 @@ const ModelCard = memo(
             {model.name}
           </span>
           <span className="shrink-0 text-[10px] text-muted-foreground">能力 {recommendation.score}</span>
+          <CostTierLabel tier={model.costTier} />
           {isSelected && <Check size={14} className="shrink-0 text-primary" />}
           {unhealthy && <AlertCircle size={13} className="shrink-0 text-amber-600 dark:text-amber-500" />}
         </div>
@@ -260,6 +277,11 @@ const AutoModelCard = memo(
             <span className={cn("text-sm", isSelected ? "font-semibold" : "font-medium")}>
               {model.name}
               <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">推荐</span>
+              {model.costTier && (
+                <span className="ml-1.5 font-normal">
+                  <CostTierLabel tier={model.costTier} />
+                </span>
+              )}
             </span>
             <span className="truncate text-[11px] text-muted-foreground">
               {unhealthy

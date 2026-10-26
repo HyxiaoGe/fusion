@@ -45,6 +45,7 @@ import {
 } from '@/redux/slices/streamSlice';
 import {
   getChatCapabilities,
+  isCreditsExhaustedStreamError,
   isLoginGateStreamError,
   isRecoverableStreamError,
   reconnectStream,
@@ -94,7 +95,8 @@ import {
 } from '@/lib/chat/streamControllerRegistry';
 import type { Message, ContentBlock } from '@/types/conversation';
 import type { FileAttachment } from '@/lib/utils/fileHelpers';
-import { selectAuthSessionKey, selectGuestMessagesRemaining } from '@/redux/selectors';
+import { selectAuthSessionKey, selectCreditsExhaustedWindow, selectIsGuest } from '@/redux/selectors';
+import { creditsExhaustedMessage } from '@/lib/api/credits';
 import { useTypewriter } from './useTypewriter';
 import { useEditMessage, useRetryMessage } from './useRetryMessage';
 import type { RootState } from '@/redux/store';
@@ -784,10 +786,16 @@ export function useSendMessage(activeConversationId?: string | null) {
         return;
       }
       if (!content.trim() && (!attachments || attachments.length === 0)) return;
-      // 游客今日额度已用完：重试、推荐问题等入口都不再发出注定被拒的请求，直接给登录入口。
-      if (selectGuestMessagesRemaining(store.getState()) === 0) {
+      // 额度已用完：重试、推荐问题等入口都不再发出注定被拒的请求。游客直接给登录入口，
+      // 登录用户告知何时恢复。
+      const exhaustedWindow = selectCreditsExhaustedWindow(store.getState());
+      if (exhaustedWindow) {
         options.onRejectedBeforeSend?.();
-        (globalThis as { triggerLoginDialog?: () => void }).triggerLoginDialog?.();
+        if (selectIsGuest(store.getState())) {
+          (globalThis as { triggerLoginDialog?: () => void }).triggerLoginDialog?.();
+        } else {
+          dispatch(setGlobalError(creditsExhaustedMessage(exhaustedWindow, false)));
+        }
         return;
       }
       const preparationContext = captureSendSessionContext(
@@ -1819,6 +1827,9 @@ export function useSendMessage(activeConversationId?: string | null) {
           // 游客额度用完或功能需登录：同步最新额度，并直接给出登录入口。
           void dispatch(refreshEntitlements());
           (globalThis as { triggerLoginDialog?: () => void }).triggerLoginDialog?.();
+        } else if (isCreditsExhaustedStreamError(error)) {
+          // 额度用完：同步最新额度，输入框随之提示何时恢复。
+          void dispatch(refreshEntitlements());
         }
       } finally {
         streamClosed = true;

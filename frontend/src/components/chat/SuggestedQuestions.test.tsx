@@ -30,6 +30,12 @@ vi.mock('@/components/ui/toast', () => ({
 
 import SuggestedQuestions from './SuggestedQuestions';
 
+
+function credits(tier: 'guest' | 'user', remaining: { daily: number; weekly: number }) {
+  const window = (value: number) => ({ limit: 1000, used: 1000 - value, remaining: value, resets_at: '' });
+  return { tier, unlimited: false, daily: window(remaining.daily), weekly: window(remaining.weekly), last_reset_at: null };
+}
+
 describe('SuggestedQuestions', () => {
   beforeEach(() => {
     useAppSelectorMock.mockImplementation((selector) => selector(currentState));
@@ -122,7 +128,7 @@ describe('SuggestedQuestions', () => {
     currentState.guest = {
       status: 'ready',
       userId: 'guest-1',
-      entitlements: { quota: { messages: { limit: 20, used: 20, remaining: 0 } } },
+      entitlements: { credits: credits('guest', { daily: 0, weekly: 700 }) },
     };
     const onSelectQuestion = vi.fn();
     render(
@@ -137,9 +143,33 @@ describe('SuggestedQuestions', () => {
 
     expect(onSelectQuestion).not.toHaveBeenCalled();
     expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({ message: '今天免登录可发送的消息已用完，登录后继续' })
+      expect.objectContaining({ message: '今天免登录额度已用完，登录后继续' })
     );
     expect(triggerLoginDialogMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('登录用户本周额度用完时不发送，提示恢复时间且不弹登录', () => {
+    currentState.guest = {
+      status: 'idle',
+      userId: null,
+      entitlements: { credits: credits('user', { daily: 1200, weekly: 0 }) },
+    };
+    const onSelectQuestion = vi.fn();
+    render(
+      <SuggestedQuestions
+        questions={['问题一']}
+        isLoading={false}
+        onSelectQuestion={onSelectQuestion}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /问题一/ }));
+
+    expect(onSelectQuestion).not.toHaveBeenCalled();
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '本周额度已用完，下周一 0 点恢复' })
+    );
+    expect(triggerLoginDialogMock).not.toHaveBeenCalled();
   });
 
   it('shows refresh busy state while loading', () => {

@@ -1,4 +1,5 @@
 import { API_CONFIG } from '../config';
+import type { CreditsSummary } from './credits';
 import { apiRequest } from './fetchWithAuth';
 
 export interface UserProfile {
@@ -27,12 +28,6 @@ export const updateUserSettingsAPI = async (
   });
 };
 
-export interface UsageQuota {
-  limit: number;
-  used: number;
-  remaining: number;
-}
-
 export interface Entitlements {
   tier: 'guest' | 'registered';
   features: {
@@ -46,8 +41,8 @@ export interface Entitlements {
   };
   /** 游客可用的模型；登录用户为 null（不限）。 */
   models: string[] | null;
-  /** 游客今日额度；登录用户或额度服务不可用时为 null。 */
-  quota: { messages: UsageQuota; searches: UsageQuota } | null;
+  /** 当前日、周 credits 额度；游客和登录用户都有，管理员 unlimited。 */
+  credits: CreditsSummary | null;
 }
 
 export const fetchEntitlementsAPI = async (): Promise<Entitlements> => {

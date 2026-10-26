@@ -89,6 +89,7 @@ vi.mock('@/lib/api/chat', () => ({
   reconnectStream: reconnectStreamMock,
   isRecoverableStreamError: (error: unknown) => Boolean((error as { recoverable?: boolean })?.recoverable),
   isLoginGateStreamError: () => false,
+  isCreditsExhaustedStreamError: () => false,
   getConversation: getConversationMock,
   // useSendMessage 内部 dynamic import('@/lib/api/chat') 取 stopStream，
   // 必须在 mock 里也提供 stub，避免「No "stopStream" export」错误
@@ -281,6 +282,12 @@ function knowledgeEvidenceBlock(status: 'success' | 'empty') {
   };
 }
 
+
+function exhaustedCredits(tier: 'guest' | 'user') {
+  const window = (remaining: number) => ({ limit: 300, used: 300 - remaining, remaining, resets_at: '' });
+  return { tier, unlimited: false, daily: window(0), weekly: window(200), last_reset_at: null };
+}
+
 describe('useSendMessage', () => {
   beforeEach(() => {
     sessionStorage.clear();
@@ -347,7 +354,7 @@ describe('useSendMessage', () => {
         guest: (state: unknown = {
           status: 'ready',
           userId: 'guest-1',
-          entitlements: { quota: { messages: { limit: 20, used: 20, remaining: 0 } } },
+          entitlements: { credits: exhaustedCredits('guest') },
         }) => state,
       },
       middleware: (getDefaultMiddleware: any) => getDefaultMiddleware({ serializableCheck: false }),
@@ -370,6 +377,43 @@ describe('useSendMessage', () => {
     expect(sendMessageStreamMock).not.toHaveBeenCalled();
     expect(onRejectedBeforeSend).toHaveBeenCalledTimes(1);
     expect(triggerLoginDialog).toHaveBeenCalledTimes(1);
+  });
+
+  it('登录用户今日额度用完时不发请求，提示恢复时间且不弹登录', async () => {
+    const store = configureStore({
+      reducer: {
+        auth: authReducer,
+        conversation: conversationReducer,
+        models: modelsReducer,
+        stream: streamReducer,
+        trajectory: trajectoryReducer,
+        guest: (state: unknown = {
+          status: 'idle',
+          userId: null,
+          entitlements: { credits: exhaustedCredits('user') },
+        }) => state,
+      },
+      middleware: (getDefaultMiddleware: any) => getDefaultMiddleware({ serializableCheck: false }),
+      preloadedState: {
+        auth: { isAuthenticated: true, token: 't', status: 'idle' as const, error: null, user: null },
+      } as any,
+    } as any);
+    const triggerLoginDialog = vi.fn();
+    vi.stubGlobal('triggerLoginDialog', triggerLoginDialog);
+    const onRejectedBeforeSend = vi.fn();
+
+    const { result } = renderHook(() => useSendMessage(), {
+      wrapper: createWrapper(store as any),
+    });
+
+    await act(async () => {
+      await result.current.sendMessage('再问一个', { conversationId: null, onRejectedBeforeSend });
+    });
+
+    expect(sendMessageStreamMock).not.toHaveBeenCalled();
+    expect(onRejectedBeforeSend).toHaveBeenCalledTimes(1);
+    expect(triggerLoginDialog).not.toHaveBeenCalled();
+    expect((store.getState() as any).conversation.globalError).toBe('今日额度已用完，明天 0 点恢复');
   });
 
   it('发送知识库范围，同时把选择保留在本地会话', async () => {

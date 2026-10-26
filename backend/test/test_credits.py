@@ -322,6 +322,11 @@ def test_admission_blocks_exhausted_windows_per_tier(db):
             credit_service.ensure_can_start(db, db.get(User, "user-1"), now=now)
         assert user_error.value.code == "CREDITS_EXHAUSTED"
         assert "本周" in user_error.value.message
+        # 日、周都用完时提示恢复更晚的周窗口
+        with patch.object(settings, "CREDITS_USER_DAILY", 40):
+            with pytest.raises(ApiException) as both_error:
+                credit_service.ensure_can_start(db, db.get(User, "user-1"), now=now)
+        assert "本周" in both_error.value.message
 
         for uid in ("admin", "eval"):
             _charge(db, uid, 10_000, now - timedelta(hours=1), f"big-{uid}")
