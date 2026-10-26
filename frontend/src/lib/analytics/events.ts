@@ -110,32 +110,34 @@ export interface AnalyticsEvents {
   /** composer=输入框显示额度已用完的提示；send=用户仍尝试发送被拦下。 */
   credits_exhausted_shown: { scope: 'daily' | 'weekly'; trigger: 'composer' | 'send' };
 
-  // —— 回答交互与会话管理（第三批接入）——
-  message_copied: { run_id: string; scope: 'full' | 'code_block' };
+  // —— 回答交互 ——
+  message_copied: { scope: 'full' | 'code_block'; role: 'assistant' | 'user' | null; run_id: string | null };
   message_edited: { conversation_id: string };
-  citation_opened: { run_id: string; kind: 'web' | 'knowledge' | 'video' };
-  evidence_sidebar_opened: { run_id: string };
-  trajectory_opened: { run_id: string };
-  tool_result_expanded: { run_id: string; tool: string };
-  generated_image_opened: { run_id: string };
-  image_edit_requested: { run_id: string };
-  video_played: { run_id: string; platform: string };
+  /** card=点回答下方的来源卡；inline=点正文里的引用角标。 */
+  citation_opened: { run_id: string | null; source: 'card' | 'inline' };
+  evidence_sidebar_opened: { run_id: string | null };
+  trajectory_opened: { run_id: string; conversation_id: string };
+  agent_process_toggled: { run_id: string; expanded: boolean };
+  generated_image_opened: { run_id: string | null };
+  generated_image_regenerate_clicked: { run_id: string | null };
   document_opened: { document_id: string; version: number };
-  conversation_opened: { conversation_id: string; source: 'sidebar' | 'search' | 'url' };
+
+  // —— 会话管理 ——
+  conversation_opened: { conversation_id: string; source: 'sidebar' | 'search' };
   conversation_searched: { query_chars: number; result_count: number };
   conversation_renamed: { conversation_id: string };
   conversation_deleted: { conversation_id: string };
 
-  // —— 设置与知识库（第三批接入）——
+  // —— 设置、记忆与知识库 ——
   settings_opened: { panel: string };
   knowledge_base_created: Record<string, never>;
   knowledge_base_deleted: Record<string, never>;
   knowledge_file_uploaded: { size_kb: number; file_type: string };
-  knowledge_file_failed: { error_code: string };
-  memory_viewed: Record<string, never>;
-  memory_deleted: Record<string, never>;
-  changelog_opened: { version: string };
-  notification_clicked: { kind: string };
+  knowledge_file_failed: { stage: 'validation' | 'upload'; error_code: string };
+  memory_viewed: { enabled: boolean; memory_count: number };
+  memory_deleted: { scope: 'single' | 'all' };
+  changelog_opened: { changelog_id: string | null };
+  notification_clicked: { kind: string; target_type: string };
 }
 
 export type AnalyticsEventName = keyof AnalyticsEvents;

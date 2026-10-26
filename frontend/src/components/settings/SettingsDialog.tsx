@@ -20,6 +20,7 @@ import styles from "./SettingsSurface.module.css";
 import { revealFocusedSettingsTab } from "./settingsNavigation";
 import { useSettingsDialogOpener } from "./SettingsDialogFocusContext";
 import { useSettingsDialogFocus } from "./useSettingsDialogFocus";
+import { track } from "@/lib/analytics/analytics";
 
 const THEME_MODES = [{ mode: 'light', Icon: Sun }, { mode: 'dark', Icon: Moon }, { mode: 'system', Icon: Laptop }] as const;
 
@@ -48,6 +49,10 @@ export const SettingsDialog = () => {
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (isSettingsDialogOpen) track('settings_opened', { panel: selectedSettingsTab });
+  }, [isSettingsDialogOpen, selectedSettingsTab]);
 
   const handleTabChange = (tab: string) => {
     dispatch(setActiveSettingsTab(tab));

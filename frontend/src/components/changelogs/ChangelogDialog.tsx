@@ -7,6 +7,8 @@ import { useNotifications } from '@/components/notifications/NotificationsProvid
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import { closeChangelogDialog } from '@/redux/slices/settingsSlice';
 import ChangelogTimeline from './ChangelogTimeline';
+import { useEffect } from 'react';
+import { track } from '@/lib/analytics/analytics';
 
 /** 更新日志与设置一样在当前页面上弹出，头像菜单和通知都只打开这个窗口，不离开对话。 */
 export default function ChangelogDialog() {
@@ -14,6 +16,9 @@ export default function ChangelogDialog() {
   const dispatch = useAppDispatch();
   const { sessionKey } = useNotifications();
   const { isChangelogDialogOpen, focusChangelogId } = useAppSelector((state) => state.settings);
+  useEffect(() => {
+    if (isChangelogDialogOpen) track('changelog_opened', { changelog_id: focusChangelogId ?? null });
+  }, [isChangelogDialogOpen, focusChangelogId]);
   return (
     <Dialog open={isChangelogDialogOpen} onOpenChange={(open) => { if (!open) dispatch(closeChangelogDialog()); }}>
       <DialogContent closeLabel={t('changelogs.close')} className="flex h-[85vh] w-full max-w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[90vw] lg:max-w-6xl xl:max-w-7xl">

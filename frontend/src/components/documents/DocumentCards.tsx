@@ -7,6 +7,7 @@ import type { DocumentBlock } from '@/types/conversation';
 import GlassHoverLens, { pointGlassLight, resetGlassLight } from '@/components/ui/GlassHoverLens';
 import DocumentPanel from './DocumentPanel';
 import styles from './DocumentCards.module.css';
+import { track } from '@/lib/analytics/analytics';
 
 interface DocumentCardsProps {
   blocks: DocumentBlock[];
@@ -53,7 +54,10 @@ function DocumentCards({ blocks, autoOpen = false }: DocumentCardsProps) {
           className={styles.card}
           onPointerMove={pointGlassLight}
           onPointerLeave={resetGlassLight}
-          onClick={() => setOpenBlock(block)}
+          onClick={() => {
+            track('document_opened', { document_id: block.document_id, version: block.version });
+            setOpenBlock(block);
+          }}
         >
           <GlassHoverLens />
           <span className={styles.icon} aria-hidden="true">

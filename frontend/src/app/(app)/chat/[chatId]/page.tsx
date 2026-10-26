@@ -64,6 +64,7 @@ import {
 } from '@/lib/chat/stopOutcomeNotice';
 import { fetchStreamStatus } from '@/lib/api/streamStatus';
 import { reconnectStream, stopStream, type StreamCallbacks } from '@/lib/api/chat';
+import { track } from '@/lib/analytics/analytics';
 import { runResumableStream } from '@/lib/api/resumableStream';
 import { useConversation } from '@/hooks/useConversation';
 import { useNotifications } from '@/components/notifications/NotificationsProvider';
@@ -828,6 +829,7 @@ export default function ChatPage() {
   const handleEditMessage = useCallback(
     (messageId: string, content: string) => {
       if (!chatId || composerKnowledgeSelectionStatus !== 'ready') return;
+      track('message_edited', { conversation_id: chatId });
       void editMessage(messageId, chatId, content, composerKnowledgeBaseIds);
     },
     [
@@ -1267,6 +1269,7 @@ export default function ChatPage() {
   const notificationInspectKeyRef = useRef<string | null>(null);
 
   const handleInspectTrajectory = useCallback((messageId: string, runId: string) => {
+    track('trajectory_opened', { run_id: runId, conversation_id: chatId });
     trajectoryInspectSequenceRef.current += 1;
     dispatch(requestTrajectoryInspect({
       conversationId: chatId,

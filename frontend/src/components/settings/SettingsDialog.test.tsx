@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const dispatchMock = vi.hoisted(() => vi.fn());
 const useAppSelectorMock = vi.hoisted(() => vi.fn());
 
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/analytics/analytics', () => ({ track: trackMock }));
+
 vi.mock('@/redux/hooks', () => ({
   useAppDispatch: () => dispatchMock,
   useAppSelector: useAppSelectorMock,
@@ -146,5 +149,15 @@ describe('SettingsDialog 页签', () => {
     expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toHaveLength(3);
     expect(screen.queryByRole('tab', { name: /服务用量|MCP 服务|模型管理|运行时配置/ })).toBeNull();
     expect(screen.getByRole('tabpanel', { name: /常规设置/ })).toBeInTheDocument();
+  });
+
+  it('弹窗打开时按当前页签记一次 settings_opened', () => {
+    trackMock.mockReset();
+    mockSettingsDialogState(false, 'knowledge');
+
+    render(<SettingsDialog />);
+
+    expect(trackMock).toHaveBeenCalledTimes(1);
+    expect(trackMock).toHaveBeenCalledWith('settings_opened', { panel: 'knowledge' });
   });
 });

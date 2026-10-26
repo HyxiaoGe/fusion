@@ -11,6 +11,7 @@ import type { ContentBlock, FileBlock as FileBlockType, Message } from '@/types/
 import AuthImage from './AuthImage';
 import MessageActions from './MessageActions';
 import { useMessageCopy } from './useMessageCopy';
+import { track } from '@/lib/analytics/analytics';
 import styles from './UserMessage.module.css';
 
 interface UserMessageProps {
@@ -182,7 +183,7 @@ function UserMessage({
         <MessageActions
           timestamp={message.timestamp}
           copied={copied}
-          onCopy={messageText ? copy : undefined}
+          onCopy={messageText ? () => { track('message_copied', { scope: 'full', role: 'user', run_id: null }); void copy(); } : undefined}
           // 只有页面接上了编辑重发（且该消息已送达）时才显示编辑入口。
           onEdit={onEdit && message.status !== 'pending' && message.status !== 'failed' ? handleStartEdit : undefined}
           onRetry={onRetry ? () => onRetry(message.id) : undefined}

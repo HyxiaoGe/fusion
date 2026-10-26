@@ -8,6 +8,9 @@ import { getFileUrl } from '@/lib/api/files';
 import type { AgentRunState, ToolCallState } from '@/types/agentRun';
 import type { GeneratedImageBlock } from '@/types/conversation';
 
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/analytics/analytics', () => ({ track: trackMock }));
+
 vi.mock('@/lib/api/files', () => ({
   getFileUrl: vi.fn(),
 }));
@@ -70,7 +73,8 @@ describe('GeneratedImages', () => {
   it('shows the providing model, keeps the prompt collapsed and opens the viewer on click', async () => {
     getFileUrlMock.mockResolvedValue('/api/files/file-1/content?variant=processed&token=t');
 
-    render(<GeneratedImages blocks={[block]} />);
+    trackMock.mockReset();
+    render(<GeneratedImages blocks={[block]} runId="run-1" />);
 
     const image = await screen.findByAltText('一只红狐狸');
     expect(getFileUrlMock).toHaveBeenCalledWith('file-1', 'processed');
@@ -85,6 +89,8 @@ describe('GeneratedImages', () => {
     expect(image).toHaveAttribute('data-loaded', 'true');
     fireEvent.click(image);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(trackMock).toHaveBeenCalledTimes(1);
+    expect(trackMock).toHaveBeenCalledWith('generated_image_opened', { run_id: 'run-1' });
   });
 
   it('reuses the loaded image when the card remounts after streaming ends', async () => {
@@ -106,10 +112,12 @@ describe('GeneratedImages', () => {
     getFileUrlMock.mockResolvedValue('/img');
     const onRegenerate = vi.fn();
 
-    render(<GeneratedImages blocks={[block]} onRegenerate={onRegenerate} />);
+    trackMock.mockReset();
+    render(<GeneratedImages blocks={[block]} onRegenerate={onRegenerate} runId="run-1" />);
     fireEvent.click(await screen.findByRole('button', { name: '重新生成' }));
 
     expect(onRegenerate).toHaveBeenCalledWith('用同样的描述再生成一张');
+    expect(trackMock).toHaveBeenCalledWith('generated_image_regenerate_clicked', { run_id: 'run-1' });
   });
 
   it('hides regenerate when the conversation cannot continue from this message', async () => {

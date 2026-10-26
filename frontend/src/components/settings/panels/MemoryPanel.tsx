@@ -9,6 +9,7 @@ import ConfirmDialog from "@/components/ui/confirm-dialog";
 import { Switch } from "@/components/ui/switch";
 import styles from "@/components/settings/SettingsSurface.module.css";
 import { clearMemories, deleteMemory, getMemories, setMemoryEnabled, type MemoryItem } from "@/lib/api/memories";
+import { track } from "@/lib/analytics/analytics";
 
 const RULE_KEYS = ["when", "keep", "skip", "use", "control"] as const;
 // 与后端 MEMORY_CATEGORIES 的展示顺序一致；整理时新增的分类排在最后、显示原名。
@@ -54,6 +55,7 @@ export default function MemoryPanel() {
       setEnabled(overview.enabled);
       setItems(overview.items);
       setLoadState("ready");
+      track('memory_viewed', { enabled: overview.enabled, memory_count: overview.items.length });
     } catch {
       if (!controller.signal.aborted) setLoadState("error");
     }
@@ -90,6 +92,7 @@ export default function MemoryPanel() {
     setError(null);
     try {
       await deleteMemory(id);
+      track('memory_deleted', { scope: 'single' });
       setItems((prev) => prev.filter((item) => item.id !== id));
     } catch {
       setError(t("settings.memory.deleteFailed"));
@@ -108,6 +111,7 @@ export default function MemoryPanel() {
     setError(null);
     try {
       await clearMemories();
+      track('memory_deleted', { scope: 'all' });
       setItems([]);
     } catch {
       setError(t("settings.memory.clearFailed"));

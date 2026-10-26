@@ -28,6 +28,7 @@ import {
 } from './useAssistantMessageViewModel';
 import type { AssistantMessageViewModel } from './useAssistantMessageViewModel';
 import { useMessageCopy } from './useMessageCopy';
+import { track } from '@/lib/analytics/analytics';
 
 interface AssistantMessageProps {
   message: Message;
@@ -236,15 +237,18 @@ function AssistantMessageFrame({
     [activity.searchBlock, activity.urlBlocks, answerEvidence, knowledgeBlocks, searchQueries],
   );
 
+  const analyticsRunId = agentRun?.runId ?? null;
   const handleCitationClick = useCallback((index: number) => {
+    track('citation_opened', { run_id: analyticsRunId, source: 'card' });
     setAnswerEvidenceSidebarOpen(true);
     setCitationHighlight(prev => ({ index, tick: prev.tick + 1 }));
-  }, []);
+  }, [analyticsRunId]);
 
   const handleMarkdownCitationClick = useCallback((index: number) => {
+    track('citation_opened', { run_id: analyticsRunId, source: 'inline' });
     setAnswerEvidenceSidebarOpen(true);
     setCitationHighlight(prev => ({ index, tick: prev.tick + 1, citationIndex: searchSources[index]?.citation_index }));
-  }, [searchSources]);
+  }, [analyticsRunId, searchSources]);
 
   const handleSourcesClose = useCallback(() => {
     setAnswerEvidenceSidebarOpen(false);
@@ -252,8 +256,14 @@ function AssistantMessageFrame({
   }, []);
 
   const handleOpenSources = useCallback(() => {
+    track('evidence_sidebar_opened', { run_id: analyticsRunId });
     setAnswerEvidenceSidebarOpen(true);
-  }, []);
+  }, [analyticsRunId]);
+
+  const handleCopy = useCallback(() => {
+    track('message_copied', { scope: 'full', role: 'assistant', run_id: analyticsRunId });
+    void copy();
+  }, [analyticsRunId, copy]);
 
   const handleToggleReasoning = useCallback(() => {
     userToggledReasoningRef.current = true;
@@ -397,7 +407,7 @@ function AssistantMessageFrame({
             <MessageActions
               timestamp={message.timestamp}
               copied={copied}
-              onCopy={copy}
+              onCopy={handleCopy}
               onRetry={handleRetry}
               retryLabel="重新生成"
             >
