@@ -36,13 +36,13 @@ export interface AnalyticsEvents {
   };
   logout: Record<string, never>;
 
-  // —— 对话核心（第二批接入）——
-  conversation_created: {
-    conversation_id: string;
-    source: 'new_button' | 'home' | 'showcase_reuse' | 'suggested_question';
-  };
+  // —— 对话核心 ——
+  // message_sent 在请求发出前记，此时还没有 run_id，用浏览器生成的 message_id 与后续
+  // response_* 事件对齐；新对话发出时 conversation_id 还是本地草稿 ID，落地后由
+  // conversation_created 给出服务端 ID。
+  conversation_created: { conversation_id: string; model: string };
   message_sent: {
-    run_id: string;
+    message_id: string;
     conversation_id: string;
     model: string;
     reasoning_enabled: boolean;
@@ -50,12 +50,22 @@ export interface AnalyticsEvents {
     attachment_types: string[];
     knowledge_base_count: number;
     prompt_chars: number;
-    is_first_message: boolean;
+    is_new_conversation: boolean;
+    is_retry: boolean;
     is_edit_resend: boolean;
   };
-  response_first_token: { run_id: string; conversation_id: string; model: string; ttft_ms: number };
+  /** 用户感知的首个输出（思考或正文）到达，ttft_ms 从点击发送起算。 */
+  response_first_token: {
+    message_id: string;
+    run_id: string | null;
+    conversation_id: string;
+    model: string;
+    ttft_ms: number;
+    output_kind: 'reasoning' | 'content';
+  };
   response_completed: {
-    run_id: string;
+    message_id: string;
+    run_id: string | null;
     conversation_id: string;
     model: string;
     duration_ms: number;
@@ -67,28 +77,40 @@ export interface AnalyticsEvents {
     output_chars: number;
     image_count: number;
     document_count: number;
-    credits_cost: number | null;
   };
   response_failed: {
-    run_id: string;
+    message_id: string;
+    run_id: string | null;
     conversation_id: string;
     model: string;
-    stage: 'connect' | 'stream' | 'parse';
+    /** connect=请求没被接受；stream=流中途断且重连用尽；run=服务端 run 报失败。 */
+    stage: 'connect' | 'stream' | 'run';
     error_code: string;
     duration_ms: number;
+    had_output: boolean;
   };
-  response_stopped: { run_id: string; conversation_id: string; elapsed_ms: number; had_output: boolean };
-  stream_slow_hint_shown: { run_id: string; conversation_id: string; model: string; gap_ms: number };
-  stream_reconnected: { run_id: string; conversation_id: string; attempt: number; reason: string };
-  agent_context_submitted: { run_id: string; conversation_id: string; kind: string };
-  model_switched: { from_model: string; to_model: string; location: 'composer' | 'settings' };
+  response_stopped: {
+    message_id: string;
+    run_id: string | null;
+    conversation_id: string;
+    model: string;
+    duration_ms: number;
+    had_output: boolean;
+  };
+  /** 流断线后续传成功，attempt 是本次回答里第几次续传。 */
+  stream_reconnected: { message_id: string; run_id: string | null; conversation_id: string; attempt: number };
+  /** 模型阶段超过阈值没有新输出，界面提示「模型响应变慢」。 */
+  stream_slow_hint_shown: { run_id: string | null };
+  agent_context_submitted: { run_id: string; conversation_id: string; status: string };
+  model_switched: { from_model: string | null; to_model: string; location: 'composer' | 'settings' };
   reasoning_toggled: { enabled: boolean; model: string };
   attachment_added: { type: 'image' | 'file'; size_kb: number; source: 'button' | 'paste' | 'drop' };
-  attachment_failed: { type: 'image' | 'file'; error_code: string };
+  attachment_failed: { type: 'image' | 'file'; stage: 'upload' | 'processing'; error_code: string };
   knowledge_base_toggled: { attached: boolean; knowledge_base_count: number };
-  credits_exhausted_shown: { scope: 'daily' | 'weekly' };
+  /** composer=输入框显示额度已用完的提示；send=用户仍尝试发送被拦下。 */
+  credits_exhausted_shown: { scope: 'daily' | 'weekly'; trigger: 'composer' | 'send' };
 
-  // —— 回答交互与会话管理（第二批接入）——
+  // —— 回答交互与会话管理（第三批接入）——
   message_copied: { run_id: string; scope: 'full' | 'code_block' };
   message_edited: { conversation_id: string };
   citation_opened: { run_id: string; kind: 'web' | 'knowledge' | 'video' };
@@ -104,7 +126,7 @@ export interface AnalyticsEvents {
   conversation_renamed: { conversation_id: string };
   conversation_deleted: { conversation_id: string };
 
-  // —— 设置与知识库（第二批接入）——
+  // —— 设置与知识库（第三批接入）——
   settings_opened: { panel: string };
   knowledge_base_created: Record<string, never>;
   knowledge_base_deleted: Record<string, never>;

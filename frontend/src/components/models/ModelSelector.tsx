@@ -6,6 +6,7 @@ import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import { setSelectedModel } from "@/redux/slices/modelsSlice";
 import { updateConversationModel } from "@/redux/slices/conversationSlice";
 import { getPreferredModelId, isModelVisibleInSelector } from "@/lib/models/modelPreference";
+import { track } from "@/lib/analytics/analytics";
 import { getRecentModels, addRecentModel } from "@/lib/models/recentModels";
 import { getRouteConversationId } from "@/lib/routes/chatRoutes";
 import { AUTO_MODEL_ID } from "@/lib/config/modelConfig";
@@ -131,6 +132,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     (value: string) => {
       if (isDisabled || isModelBound) return;
 
+      if (value !== currentModel?.id) {
+        track('model_switched', {
+          from_model: currentModel?.id ?? null,
+          to_model: value,
+          location: toolbarMode ? 'composer' : 'settings',
+        });
+      }
       dispatch(setSelectedModel(value));
 
       if (activeChatId && !hasMessages) {
@@ -148,7 +156,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       onChange?.(value);
       setIsOpen(false);
     },
-    [dispatch, activeChatId, hasMessages, onChange, models, isDisabled, isModelBound],
+    [dispatch, activeChatId, hasMessages, onChange, models, isDisabled, isModelBound, currentModel?.id, toolbarMode],
   );
 
   const handleProviderChange = useCallback((providerId: string) => {

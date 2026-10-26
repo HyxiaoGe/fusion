@@ -5,6 +5,7 @@ import { AlertCircle, BookOpen, Check, ChevronDown, Loader2, RotateCw, ShieldChe
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
+import { track } from '@/lib/analytics/analytics';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   ensureKnowledgeBaseCatalog,
@@ -116,6 +117,7 @@ export function useKnowledgeBaseComposer({
 
   const toggleKnowledgeBase = useCallback((knowledgeBaseId: string) => {
     if (selectedIds.includes(knowledgeBaseId)) {
+      track('knowledge_base_toggled', { attached: false, knowledge_base_count: selectedIds.length - 1 });
       onChange(selectedIds.filter((id) => id !== knowledgeBaseId));
       return;
     }
@@ -123,6 +125,7 @@ export function useKnowledgeBaseComposer({
       maxSelectedKnowledgeBases === null
       || selectedIds.length >= maxSelectedKnowledgeBases
     ) return;
+    track('knowledge_base_toggled', { attached: true, knowledge_base_count: selectedIds.length + 1 });
     onChange([...selectedIds, knowledgeBaseId]);
   }, [maxSelectedKnowledgeBases, onChange, selectedIds]);
 

@@ -17,6 +17,7 @@ import {
   selectIsGuest,
 } from "@/redux/selectors";
 import { creditsExhaustedMessage } from "@/lib/api/credits";
+import { errorCodeOf, track } from "@/lib/analytics/analytics";
 import { refreshEntitlements } from "@/redux/slices/guestSlice";
 import CreditsMeter from "./CreditsMeter";
 import { NEW_CHAT_SETTINGS_KEY, selectReasoningEnabled, setReasoningEnabled } from "@/redux/slices/conversationSlice";
@@ -262,6 +263,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const hasCredits = credits !== null;
   const creditsExhaustedWindow = useAppSelector(selectCreditsExhaustedWindow);
   const isCreditsExhausted = creditsExhaustedWindow !== null;
+  useEffect(() => {
+    if (!hasHydrated || !creditsExhaustedWindow) return;
+    track('credits_exhausted_shown', { scope: creditsExhaustedWindow, trigger: 'composer' });
+  }, [creditsExhaustedWindow, hasHydrated]);
   const authIdentity = useAppSelector(selectUploadAuthIdentity);
   const previousAuthIdentityRef = useRef<string | null>(authIdentity);
   const processingFiles = useAppSelector((state) => state.fileUpload.processingFiles);
@@ -866,6 +871,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           }
 
           const readableError = success ? undefined : formatFileErrorMessage(errorMessage);
+          if (!success) track('attachment_failed', { type: 'image', stage: 'processing', error_code: 'processing_failed' });
 
           setLocalFiles((prev) =>
             prev.map((file) =>
@@ -947,6 +953,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
       }
 
       const errorMessage = formatFileErrorMessage((error as Error).message || "文件上传失败，请重试");
+      activeFilesToUpload.forEach(() => {
+        track('attachment_failed', { type: 'image', stage: 'upload', error_code: errorCodeOf(error) });
+      });
 
       setLocalFiles((prev) =>
         prev.map((file) =>
@@ -964,7 +973,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  const queueFilesForUpload = async (selectedFiles: File[]) => {
+  const queueFilesForUpload = async (selectedFiles: File[], source: 'button' | 'paste' | 'drop') => {
     if (selectedFiles.length === 0 || !ensureCanUploadFiles()) {
       return;
     }
@@ -999,6 +1008,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
+    acceptedFiles.forEach((file) => {
+      track('attachment_added', { type: 'image', size_kb: Math.round(file.size / 1024), source });
+    });
     const pendingFiles = addPendingFiles(acceptedFiles);
     await handleUploadFiles(pendingFiles);
   };
@@ -1015,7 +1027,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     const selectedFiles = event.target.files ? Array.from(event.target.files) : [];
 
     if (selectedFiles.length > 0) {
-      void queueFilesForUpload(selectedFiles);
+      void queueFilesForUpload(selectedFiles, 'button');
     }
 
     event.target.value = "";
@@ -1036,7 +1048,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
-    void queueFilesForUpload(pastedFiles);
+    void queueFilesForUpload(pastedFiles, 'paste');
 
     if (event.clipboardData.items.length === pastedFiles.length) {
       event.preventDefault();
@@ -1048,7 +1060,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setIsDragOver(false);
     const droppedFiles = Array.from(event.dataTransfer.files);
     if (droppedFiles.length > 0) {
-      void queueFilesForUpload(droppedFiles);
+      void queueFilesForUpload(droppedFiles, 'drop');
     }
   };
 
@@ -1512,6 +1524,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               className={`h-8 px-2 gap-1.5 ${reasoningEnabled && supportsReasoning ? "bg-info-bg text-info hover:bg-info-bg hover:text-info" : "text-muted-foreground hover:text-foreground"} ${!supportsReasoning ? "opacity-50 cursor-not-allowed" : ""}`}
               onClick={() => {
                 if (!supportsReasoning || isComposerBlocked) return;
+                track('reasoning_toggled', { enabled: !reasoningEnabled, model: selectedModel?.id ?? '' });
                 dispatch(setReasoningEnabled({ chatId: chatSettingsKey, enabled: !reasoningEnabled }));
               }}
               disabled={!supportsReasoning || isComposerBlocked}

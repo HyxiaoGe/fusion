@@ -229,6 +229,7 @@ function AssistantResponseStack({
           reasoningVisible={reasoningVisible}
           stopPending={stopAwaitingConfirmation}
           outputMark={outputMark}
+          analyticsRunId={agentRun?.runId ?? null}
         />
       </div>
     </div>
