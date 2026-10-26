@@ -1,4 +1,4 @@
-"""Credits 额度：当前额度、消耗流水、单条回答的消耗明细；管理员查看与重置用户额度、全员重置。"""
+"""Credits 额度：当前额度、消耗流水、单条回答与整个对话的消耗；管理员查看与重置用户额度、全员重置。"""
 
 from datetime import datetime
 
@@ -53,6 +53,18 @@ def get_message_credits(
 ):
     """一条回答各次运行的消耗；已结束但还没结算的运行在这里补结算。"""
     data = credit_service.message_credits(db, user_id=str(current_user.id), message_id=message_id)
+    return success(data=data, request_id=request.state.request_id)
+
+
+@router.get("/conversations/{conversation_id}")
+def get_conversation_credits(
+    conversation_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """整个对话已结算的消耗；已结束但还没结算的运行在这里补结算。"""
+    data = credit_service.conversation_credits(db, user_id=str(current_user.id), conversation_id=conversation_id)
     return success(data=data, request_id=request.state.request_id)
 
 
