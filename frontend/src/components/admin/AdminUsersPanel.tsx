@@ -14,6 +14,7 @@ import { adminPaths } from '@/lib/admin/adminRoutes';
 import { useAdminAccess } from './AdminAccessContext';
 import AdminUserIdentity from './AdminUserIdentity';
 import AdminUserCreditsDialog from './AdminUserCreditsDialog';
+import AdminGrantAllResetCardsButton from './AdminGrantAllResetCardsButton';
 import AdminResetAllCreditsButton from './AdminResetAllCreditsButton';
 import type { AdminUserSummary } from '@/types/adminAudit';
 import {
@@ -62,6 +63,7 @@ export default function AdminUsersPanel() {
         description="检索全部用户，查看活跃度、对话统计与 token 汇总。"
         action={(
           <div className="flex flex-wrap items-center gap-2">
+            <AdminGrantAllResetCardsButton />
             <AdminResetAllCreditsButton />
             <Button variant="outline" size="sm" onClick={resource.reload} aria-label="刷新用户列表"><RefreshCw />刷新</Button>
           </div>

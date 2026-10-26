@@ -489,12 +489,14 @@ def test_reset_card_clears_both_windows_and_uses_the_earliest_expiring_card(db):
     _charge(db, "user-1", 900, wednesday - timedelta(days=1), "tue")
     _charge(db, "user-1", 2900, wednesday - timedelta(hours=2), "wed")
     credit_service.grant_reset_cards(
-        db, user_id="user-1", actor_id="admin", count=1, now=wednesday - timedelta(days=20)
+        db, user=db.get(User, "user-1"), actor_id="admin", count=1, now=wednesday - timedelta(days=20)
     )
-    credit_service.grant_reset_cards(db, user_id="user-1", actor_id="admin", count=1, now=wednesday - timedelta(days=2))
+    credit_service.grant_reset_cards(
+        db, user=db.get(User, "user-1"), actor_id="admin", count=1, now=wednesday - timedelta(days=2)
+    )
     # 发放超过 30 天的卡已过期，不计入也不会被用掉
     credit_service.grant_reset_cards(
-        db, user_id="user-1", actor_id="admin", count=1, now=wednesday - timedelta(days=31)
+        db, user=db.get(User, "user-1"), actor_id="admin", count=1, now=wednesday - timedelta(days=31)
     )
 
     before = credit_service.usage_summary(db, user, now=wednesday)
@@ -520,7 +522,7 @@ def test_reset_card_clears_both_windows_and_uses_the_earliest_expiring_card(db):
 def test_reset_card_is_refused_without_usage_or_cards_so_repeat_clicks_keep_cards(db):
     wednesday = _bj(2026, 10, 28, 15, 0)
     user = db.get(User, "user-1")
-    credit_service.grant_reset_cards(db, user_id="user-1", actor_id="admin", count=2, now=wednesday)
+    credit_service.grant_reset_cards(db, user=db.get(User, "user-1"), actor_id="admin", count=2, now=wednesday)
 
     # 没有用量时用卡没有意义：连点第二次也落在这里，不多扣卡
     with pytest.raises(ApiException, match="没有可重置的用量"):
@@ -537,8 +539,12 @@ def test_reset_card_is_refused_without_usage_or_cards_so_repeat_clicks_keep_card
         credit_service.use_reset_card(db, guest, now=wednesday)
     with pytest.raises(ApiException, match="不限额"):
         credit_service.use_reset_card(db, db.get(User, "admin"), now=wednesday)
+    with pytest.raises(ApiException, match="游客不发放"):
+        credit_service.grant_reset_cards(db, user=guest, actor_id="admin", count=1, now=wednesday)
+    with pytest.raises(ApiException, match="不限额"):
+        credit_service.grant_reset_cards(db, user=db.get(User, "admin"), actor_id="admin", count=1, now=wednesday)
     with pytest.raises(ApiException, match="最多发放"):
-        credit_service.grant_reset_cards(db, user_id="user-1", actor_id="admin", count=11, now=wednesday)
+        credit_service.grant_reset_cards(db, user=db.get(User, "user-1"), actor_id="admin", count=11, now=wednesday)
 
 
 def test_admin_grants_reset_cards_and_user_spends_one_through_api(client, db):
@@ -558,6 +564,22 @@ def test_admin_grants_reset_cards_and_user_spends_one_through_api(client, db):
     assert test_client.post("/api/credits/me/reset-card").status_code == 409
     items = test_client.get("/api/credits/me/entries").json()["data"]["items"]
     assert items[0]["kind"] == "reset" and items[0]["source"] == "reset_card"
+
+
+def test_grant_all_gives_each_limited_signed_in_account_one_card(client, db):
+    test_client, state = client
+    db.add(User(id="user-2", username="two"))
+    db.commit()
+
+    with patch.object(settings, "CREDITS_EXEMPT_USERNAMES", "fusion-eval"):
+        assert test_client.post("/api/admin/credits/reset-cards/grant-all").status_code == 403
+        state.user_id = "admin"
+        assert test_client.post("/api/admin/credits/reset-cards/grant-all").json()["data"] == {"granted": 2}
+
+    owners = sorted(db.execute(select(CreditResetCard.user_id)).scalars())
+    # 游客、管理员、免限额账号不发
+    assert owners == ["user-1", "user-2"]
+    assert test_client.post("/api/admin/credits/users/guest-1/reset-cards", json={"count": 1}).status_code == 400
 
 
 def test_reset_all_clears_every_account_without_moving_windows(db):

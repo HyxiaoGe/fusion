@@ -1,4 +1,4 @@
-"""Credits 额度：当前额度、消耗流水、单条回答与整个对话的消耗、使用重置卡；管理员查看与重置用户额度、发放重置卡、全员重置。"""
+"""Credits 额度：当前额度、消耗流水、单条回答与整个对话的消耗、使用重置卡；管理员查看与重置用户额度、发放重置卡（单个或全员）、全员重置。"""
 
 from datetime import datetime
 
@@ -128,10 +128,21 @@ def grant_user_reset_cards(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin_user),
 ):
-    """给用户发重置卡，每张 30 天内有效；返回该用户的额度（含可用卡数）。"""
+    """给登录用户发重置卡，每张 30 天内有效；返回该用户的额度（含可用卡数）。游客、不限额账号拒绝。"""
     user = _target_user(db, user_id)
-    credit_service.grant_reset_cards(db, user_id=user_id, actor_id=str(admin.id), count=payload.count)
+    credit_service.grant_reset_cards(db, user=user, actor_id=str(admin.id), count=payload.count)
     return success(data=credit_service.usage_summary(db, user), request_id=request.state.request_id)
+
+
+@admin_router.post("/reset-cards/grant-all")
+def grant_reset_cards_to_all(
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """给每个受限登录账号各发一张重置卡（游客、管理员、免限额账号不发），每张 30 天内有效。"""
+    granted = credit_service.grant_reset_cards_to_all(db, actor_id=str(admin.id))
+    return success(data={"granted": granted}, request_id=request.state.request_id)
 
 
 @admin_router.get("/reset-all")
