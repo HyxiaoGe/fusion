@@ -20,6 +20,14 @@ inputs:
     description: 认证回调公开地址
     required: false
     default: ''
+  posthog-key:
+    description: PostHog 项目 key（公开 token，不填则埋点关闭）
+    required: false
+    default: ''
+  posthog-host:
+    description: PostHog 采集地址（/ingest 反代目标）
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -102,6 +110,8 @@ runs:
         NEXT_PUBLIC_AUTH_SERVICE_BASE_URL: ${{ inputs.auth-service-base-url }}
         NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID: ${{ inputs.auth-service-client-id }}
         NEXT_PUBLIC_AUTH_CALLBACK_URL: ${{ inputs.auth-callback-url }}
+        NEXT_PUBLIC_POSTHOG_KEY: ${{ inputs.posthog-key }}
+        NEXT_PUBLIC_POSTHOG_HOST: ${{ inputs.posthog-host }}
       run: |
         $ErrorActionPreference = "Stop"
         $runnerKey = '${{ runner.name }}' -replace '[^A-Za-z0-9_.-]', '-'
@@ -134,6 +144,8 @@ runs:
           "--build-arg", "NEXT_PUBLIC_AUTH_SERVICE_BASE_URL=$env:NEXT_PUBLIC_AUTH_SERVICE_BASE_URL",
           "--build-arg", "NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID=$env:NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID",
           "--build-arg", "NEXT_PUBLIC_AUTH_CALLBACK_URL=$env:NEXT_PUBLIC_AUTH_CALLBACK_URL",
+          "--build-arg", "NEXT_PUBLIC_POSTHOG_KEY=$env:NEXT_PUBLIC_POSTHOG_KEY",
+          "--build-arg", "NEXT_PUBLIC_POSTHOG_HOST=$env:NEXT_PUBLIC_POSTHOG_HOST",
           "--build-arg", "API_BACKEND_URL=http://fusion-api:8000",
           "-t", $image,
           $context

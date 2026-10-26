@@ -44,6 +44,9 @@ import {
   accountSessionSwitchStarted,
 } from "@/redux/actions/authSessionActions";
 import { LoginDialog } from "@/components/auth/LoginDialog";
+import AnalyticsBootstrap from "@/components/analytics/AnalyticsBootstrap";
+import { track } from "@/lib/analytics/analytics";
+import type { LoginDialogSource, LoginGateReason } from "@/lib/analytics/events";
 import { registerBackgroundTask } from "@/lib/scheduler/backgroundScheduler";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { NewVersionNotice } from "@/components/layouts/NewVersionNotice";
@@ -111,12 +114,16 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
   const accountSwitchError = useAppSelector((state) => state.auth.accountSwitchError);
   const switchedAccountEmail = useAppSelector((state) => state.auth.switchedAccountEmail);
   const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false);
+  const [loginDialogSource, setLoginDialogSource] = useState<LoginDialogSource>('initial');
   const [hasShownInitialLogin, setHasShownInitialLogin] = useState(false);
   const sdkSwitchObserved = useRef(false);
   const initialLocalRecoveryInFlight = useRef(false);
   
   // 导出函数供其他组件使用
-  (globalThis as any).triggerLoginDialog = () => {
+  // reason 表示因为受限才要求登录（游客额度用尽、功能需登录），用于埋点；没给就是普通入口。
+  (globalThis as any).triggerLoginDialog = (reason?: LoginGateReason) => {
+    if (reason) track('login_gate_shown', { reason });
+    setLoginDialogSource(reason ? 'login_gate' : 'header');
     setIsLoginDialogOpen(true);
   };
 
@@ -244,8 +251,14 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
         guestRequested = true;
         // 游客模式开放时直接以游客身份使用；领取失败（未开放、名额用完）才回到登录弹窗。
         void Promise.resolve(dispatch(bootstrapGuestSession())).then((action) => {
-          if (cancelled || isGuestSessionReady(action)) return;
+          if (cancelled) return;
+          if (isGuestSessionReady(action)) {
+            track('guest_session_started');
+            return;
+          }
           loginTimer = setTimeout(() => {
+            track('login_gate_shown', { reason: 'guest_unavailable' });
+            setLoginDialogSource('initial');
             setIsLoginDialogOpen(true);
             setHasShownInitialLogin(true);
           }, 1500);
@@ -359,7 +372,13 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
     const onGuestSessionInvalid = () => {
       dispatch(guestSessionInvalidated());
       void Promise.resolve(dispatch(bootstrapGuestSession())).then((action) => {
-        if (!isGuestSessionReady(action)) setIsLoginDialogOpen(true);
+        if (isGuestSessionReady(action)) {
+          track('guest_session_started');
+          return;
+        }
+        track('login_gate_shown', { reason: 'guest_invalid' });
+        setLoginDialogSource('login_gate');
+        setIsLoginDialogOpen(true);
       });
     };
     window.addEventListener(GUEST_SESSION_INVALID_EVENT, onGuestSessionInvalid);
@@ -418,7 +437,8 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
         </div>
       )}
       <NewVersionNotice />
-      <LoginDialog open={isLoginDialogOpen} onOpenChange={handleDialogVisibilityChange} />
+      <AnalyticsBootstrap />
+      <LoginDialog open={isLoginDialogOpen} onOpenChange={handleDialogVisibilityChange} source={loginDialogSource} />
       <SettingsDialog />
       </SettingsDialogFocusProvider>
     </ToastProvider>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { errorCodeOf, track } from "@/lib/analytics/analytics";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAppDispatch } from "@/redux/hooks";
@@ -43,10 +44,14 @@ export default function AuthCallbackPage() {
       .unwrap()
       .then(({ redirectPath, signedInEmail }) => {
         // 只有确实换了授权码的登录才提示；登出回跳、静默探测不提示。
-        if (interactiveLogin && signedInEmail !== undefined) notifyLoginSucceeded(signedInEmail);
+        if (interactiveLogin && signedInEmail !== undefined) {
+          track("login_completed", { method: "sso" });
+          notifyLoginSucceeded(signedInEmail);
+        }
         router.replace(redirectPath || "/");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        track("login_failed", { method: "sso", stage: "callback", error_code: errorCodeOf(error) });
         toast({ message: "登录失败，请重试", type: "error" });
         router.replace("/");
       });

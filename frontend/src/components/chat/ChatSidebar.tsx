@@ -266,7 +266,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ onNewChat, activeChatIdOverri
   }, [generateTitle]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="ph-no-capture flex h-full min-h-0 flex-col">
       <ChatSidebarHeader onNewChat={onNewChat} isNewChatActive={isNewChatActive} />
 
       {/* 搜索框 */}

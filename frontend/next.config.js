@@ -40,6 +40,20 @@ function buildAdminContentSecurityPolicy() {
   ].join('; ')
 }
 
+// PostHog 采集走同源 /ingest 反代（和 src/lib/analytics/analytics.ts 的 ANALYTICS_INGEST_PATH 一致）：
+// 浏览器只请求自己的域名，避开广告拦截与跨境连通性问题，管理页 CSP 也无需放行第三方域名。
+// 回放脚本等静态资源在 *-assets 域名；没配采集地址时不加规则。
+function posthogRewrites() {
+  const host = (process.env.NEXT_PUBLIC_POSTHOG_HOST || '').trim().replace(/\/+$/, '')
+  if (!host) return []
+  const assets = host.replace(/^(https?:\/\/[a-z0-9-]+)\.i\.posthog\.com$/i, '$1-assets.i.posthog.com')
+  return [
+    { source: '/ingest/static/:path*', destination: `${assets}/static/:path*` },
+    { source: '/ingest/:path*/', destination: `${host}/:path*/` },
+    { source: '/ingest/:path*', destination: `${host}/:path*` },
+  ]
+}
+
 // 前端版本号：按源码内容算哈希，同一份代码在任意 runner 上构建都得到同一个值，
 // 只改后端的部署不会让已打开的页面误报「有新版本」。
 function computeBuildVersion() {
@@ -215,6 +229,7 @@ const nextConfig = {
   async rewrites() {
     const backend = process.env.API_BACKEND_URL || 'http://localhost:8000'
     return [
+      ...posthogRewrites(),
       {
         source: '/api/:path*/',
         destination: `${backend}/api/:path*/`,

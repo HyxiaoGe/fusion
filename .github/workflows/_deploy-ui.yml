@@ -104,6 +104,8 @@ jobs:
       NEXT_PUBLIC_AUTH_SERVICE_BASE_URL: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_BASE_URL }}
       NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID }}
       NEXT_PUBLIC_AUTH_CALLBACK_URL: ${{ vars.NEXT_PUBLIC_AUTH_CALLBACK_URL }}
+      NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
+      NEXT_PUBLIC_POSTHOG_HOST: ${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}
     defaults:
       run:
         shell: cmd
@@ -173,6 +175,8 @@ jobs:
           auth-service-base-url: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_BASE_URL }}
           auth-service-client-id: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID }}
           auth-callback-url: ${{ vars.NEXT_PUBLIC_AUTH_CALLBACK_URL }}
+          posthog-key: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
+          posthog-host: ${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}
 
       - name: Cleanup local Docker artifacts
         if: always()

@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction, createAsyncThunk } from "@reduxjs/toolkit";
+import { track } from '@/lib/analytics/analytics';
 import { jwtDecode } from "jwt-decode";
 import { fetchUserProfileAPI, updateUserSettingsAPI, UserProfile } from '../../lib/api/user';
 import {
@@ -747,6 +748,8 @@ export const checkLiveness = createAsyncThunk<
 
 // 退出登录：先尽力撤销 SSO 会话（失败也不阻塞），再无条件清掉本地 Redux + 存储。
 export const logoutWithSso = createAsyncThunk('auth/logoutWithSso', async (_, { dispatch }) => {
+  // 身份还挂在当前用户上时先记登出事件，随后 AnalyticsBootstrap 看到用户态清空会 reset。
+  track('logout');
   // 先落登出守卫：即便随后撤销抛错，也保证登出后本标签页不被中央会话恢复重新登入
   //（IdP 会话可能仍在，无守卫会被立刻恢复回去）。
   markExplicitLogout();
