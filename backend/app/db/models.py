@@ -717,13 +717,15 @@ class HomeShowcaseImage(Base):
 class CreditLedger(Base):
     """Credits 流水：每个 run 结算一条（kind=run），管理员重置额度记一条（kind=reset）。
 
+    user_id 为空的重置记录是全员重置：之后所有账号的日、周用量都从这一刻重新累计。
+
     不对会话、消息、run 建外键：删除会话不能把已经发生的消耗一起删掉。
     """
 
     __tablename__ = "credit_ledger"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     kind = Column(String(16), nullable=False)  # 'run' | 'reset'
     run_id = Column(String, nullable=True, unique=True)
     conversation_id = Column(String, nullable=True)

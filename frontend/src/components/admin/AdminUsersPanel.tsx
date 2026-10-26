@@ -14,6 +14,7 @@ import { adminPaths } from '@/lib/admin/adminRoutes';
 import { useAdminAccess } from './AdminAccessContext';
 import AdminUserIdentity from './AdminUserIdentity';
 import AdminUserCreditsDialog from './AdminUserCreditsDialog';
+import AdminResetAllCreditsButton from './AdminResetAllCreditsButton';
 import type { AdminUserSummary } from '@/types/adminAudit';
 import {
   AdminEmpty, AdminError, AdminFilterActions, AdminFilterField, AdminLoading, AdminPagination, AdminPanelHeader, formatAdminDate, formatNumber,
@@ -59,7 +60,12 @@ export default function AdminUsersPanel() {
       <AdminPanelHeader
         title="用户审计"
         description="检索全部用户，查看活跃度、对话统计与 token 汇总。"
-        action={<Button variant="outline" size="sm" onClick={resource.reload} aria-label="刷新用户列表"><RefreshCw />刷新</Button>}
+        action={(
+          <div className="flex flex-wrap items-center gap-2">
+            <AdminResetAllCreditsButton />
+            <Button variant="outline" size="sm" onClick={resource.reload} aria-label="刷新用户列表"><RefreshCw />刷新</Button>
+          </div>
+        )}
       />
       <form onSubmit={submitSearch} className={`${styles.filters} ${styles.usersFilters}`}>
         <AdminFilterField label={t('admin.filters.userSearch')}><Input aria-label={t('admin.filters.userSearch')} value={draft.q} onChange={event => setDraft(current => ({ ...current, q: event.target.value }))} placeholder="用户 ID、用户名、昵称或邮箱" /></AdminFilterField>

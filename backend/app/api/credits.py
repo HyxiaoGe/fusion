@@ -1,4 +1,4 @@
-"""Credits 额度：当前额度、消耗流水、单条回答的消耗明细；管理员查看与重置用户额度。"""
+"""Credits 额度：当前额度、消耗流水、单条回答的消耗明细；管理员查看与重置用户额度、全员重置。"""
 
 from datetime import datetime
 
@@ -90,3 +90,27 @@ def reset_user_credits(
     user = _target_user(db, user_id)
     credit_service.reset_user_credits(db, user_id=user_id, actor_id=str(admin.id))
     return success(data=credit_service.usage_summary(db, user), request_id=request.state.request_id)
+
+
+@admin_router.get("/reset-all")
+def get_reset_all(
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin_user),
+):
+    last = credit_service.last_reset_all_at(db)
+    return success(data={"last_reset_at": last.isoformat() if last else None}, request_id=request.state.request_id)
+
+
+@admin_router.post("/reset-all")
+def reset_all_credits(
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin_user),
+):
+    """把所有账号当前日、周窗口的已用量清零；之前的流水保留，日、周窗口照常按自然日和周一计算。"""
+    entry = credit_service.reset_all_credits(db, actor_id=str(admin.id))
+    return success(
+        data={"last_reset_at": credit_service.serialize_entry(entry)["occurred_at"]},
+        request_id=request.state.request_id,
+    )
