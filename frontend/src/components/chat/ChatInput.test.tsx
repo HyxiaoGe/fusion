@@ -73,6 +73,9 @@ const {
       theme: {
         mode: 'light',
       },
+      settings: {
+        creditsPanelRequest: 0,
+      },
     } as any,
     dispatchMock: vi.fn(),
     useAppDispatchMock: vi.fn(),
