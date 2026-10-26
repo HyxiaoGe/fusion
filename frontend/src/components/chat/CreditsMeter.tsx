@@ -58,7 +58,7 @@ function UnlimitedUsage({ label, window }: { label: string; window: CreditsWindo
   );
 }
 
-/** 输入框下方的额度环：环按日、周里用得更满的窗口画，点开看两个窗口的总额度与已用量。
+/** 输入框工具栏的额度环：环按日、周里用得更满的窗口画，点开看两个窗口的总额度与已用量。
  * 不限额账号（管理员、评测白名单）显示无穷符号，只看已用量。 */
 export default function CreditsMeter({
   credits,
@@ -83,12 +83,12 @@ export default function CreditsMeter({
           aria-label={label}
           title={label}
           data-testid="credits-meter"
-          className="-my-0.5 h-5 gap-1 rounded-full px-1.5 has-[>svg]:px-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
+          className="h-8 shrink-0 gap-1.5 px-2 has-[>svg]:px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
         >
           {credits.unlimited ? (
-            <InfinityIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            <InfinityIcon className="h-4 w-4" aria-hidden="true" />
           ) : (
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 -rotate-90" aria-hidden="true">
+            <svg viewBox="0 0 16 16" className="h-4 w-4 -rotate-90" aria-hidden="true">
               <circle cx="8" cy="8" r={RING_RADIUS} fill="none" stroke="var(--border)" strokeWidth="2.5" />
               <circle
                 cx="8"

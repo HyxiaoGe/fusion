@@ -1525,8 +1525,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
             <KnowledgeBaseComposerTrigger state={knowledgeBaseComposer} />
           </div>
 
-          {/* 右侧：模型选择器 + 发送按钮 */}
+          {/* 右侧：额度 + 模型选择器 + 发送按钮 */}
           <div className="ml-auto flex min-w-0 items-center gap-1.5">
+            {hasHydrated && credits && (
+              <CreditsMeter
+                credits={credits}
+                isGuest={isGuest}
+                onLogin={() => promptLogin("登录后可使用全部模型和功能")}
+              />
+            )}
             <ModelSelector
               toolbarMode
               modelId={selectedModel?.id}
@@ -1561,21 +1568,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
-        <div className="min-w-0" role="status" aria-live="polite">
+      <div className="px-1 text-xs text-muted-foreground" role="status" aria-live="polite">
         {isStopUnconfirmed ? <span className="inline-flex items-center gap-2">停止结果未确认，请刷新会话核实<Button type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => window.location.reload()}>刷新确认</Button></span>
           : isStopping ? "正在确认停止结果，已输入的草稿会保留"
             : isSubmitting ? "正在提交消息，草稿暂时保留"
               : isCurrentConversationStreaming ? (isTouchInput ? "正在生成，可继续编写下一条消息" : "正在生成，可继续编写下一条消息 · Shift+Enter 换行")
                 : isTouchInput ? null : "Enter 发送 · Shift+Enter 换行"}
-        </div>
-        {hasHydrated && credits && (
-          <CreditsMeter
-            credits={credits}
-            isGuest={isGuest}
-            onLogin={() => promptLogin("登录后可使用全部模型和功能")}
-          />
-        )}
       </div>
 
       {/* 状态提示（卡片外部） */}
