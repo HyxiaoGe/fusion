@@ -42,7 +42,7 @@ function WindowRow({ label, window }: { label: string; window: CreditsWindow }) 
 
 function entryDescription(entry: CreditsEntry): string {
   if (entry.kind === 'reset') return '管理员重置额度';
-  const status = entry.charged ? '' : '（出错结束，未扣除）';
+  const status = entry.charged ? '' : '（异常结束，未扣除）';
   return `${entry.model_id ?? '未知模型'}${status}`;
 }
 

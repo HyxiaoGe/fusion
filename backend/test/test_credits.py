@@ -28,6 +28,7 @@ from app.db.models import (
 )
 from app.schemas.response import ApiException
 from app.services import credit_pricing, credit_service
+from app.services.agent.trajectory_reconciliation import ORPHANED_RUN_ERROR_MESSAGE
 from app.services.mcp.tool_contract import build_agent_tool_alias
 
 BJ = timezone(timedelta(hours=8))
@@ -239,18 +240,31 @@ def test_settle_prices_each_round_by_its_model_and_start_time_and_counts_success
     assert entry.message_id == "msg-1" and entry.occurred_at.replace(tzinfo=timezone.utc) == MONDAY_PEAK
 
 
-def test_error_run_keeps_breakdown_without_charging_but_cancelled_run_is_charged(db):
-    _run(db, "run-error", status="error")
-    _round(db, "run-error", 1, round_id="e1", at=MONDAY_PEAK, input_tokens=1000, output_tokens=100)
-    _run(db, "run-stopped", status="interrupted")
-    _round(db, "run-stopped", 1, round_id="s1", at=MONDAY_PEAK, input_tokens=1000, output_tokens=100)
+def test_only_user_caused_endings_are_charged(db):
+    """出错、原因不明、进程退出后对账改成的中断不扣；用户停止、顶替、达到上限照扣。"""
+    cases = {
+        "run-error": ("error", None),
+        "run-incomplete": ("incomplete", None),
+        "run-orphaned": ("interrupted", ORPHANED_RUN_ERROR_MESSAGE),
+        "run-stopped": ("interrupted", None),
+        "run-regenerated": ("interrupted", "回答已重新生成"),
+        "run-limit": ("limit_reached", None),
+    }
+    for index, (run_id, (status, error_message)) in enumerate(cases.items()):
+        _run(db, run_id, status=status, message_id=f"msg-{index}")
+        db.get(AgentSession, run_id).error_message = error_message
+        _round(db, run_id, 1, round_id=f"r-{run_id}", at=MONDAY_PEAK, input_tokens=1000, output_tokens=100)
+    db.commit()
 
-    failed = credit_service.settle_run(db, "run-error")
-    stopped = credit_service.settle_run(db, "run-stopped")
+    entries = {run_id: credit_service.settle_run(db, run_id) for run_id in cases}
 
-    assert (failed.charged, failed.credits) == (False, 0.0)
-    assert failed.breakdown["model_credits"] > 0
-    assert stopped.charged is True and stopped.credits == pytest.approx(failed.breakdown["model_credits"])
+    model_credits = entries["run-error"].breakdown["model_credits"]
+    assert model_credits > 0
+    for run_id in ("run-error", "run-incomplete", "run-orphaned"):
+        assert (entries[run_id].charged, entries[run_id].credits) == (False, 0.0), run_id
+        assert entries[run_id].breakdown["model_credits"] == pytest.approx(model_credits)
+    for run_id in ("run-stopped", "run-regenerated", "run-limit"):
+        assert entries[run_id].charged is True and entries[run_id].credits == pytest.approx(model_credits), run_id
 
 
 def test_settle_waits_for_run_end_and_trajectory_and_is_idempotent(db):

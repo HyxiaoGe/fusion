@@ -24,7 +24,7 @@ export interface MessageCreditsSummary {
   tools: MessageCreditsToolRow[];
   /** 这条回答经过几次生成（重新生成、继续生成各算一次） */
   runs: number;
-  /** 出错结束、没扣 credits 的生成次数 */
+  /** 异常结束（出错、进程退出等非用户原因）、没扣 credits 的生成次数 */
   uncharged: number;
   pending: number;
   offPeak: boolean;

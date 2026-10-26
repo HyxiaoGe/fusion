@@ -26,6 +26,7 @@ from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import AgentSession, CreditLedger, RunTrajectoryMeta
 from app.schemas.response import ApiException
+from app.services.agent.trajectory_reconciliation import ORPHANED_RUN_ERROR_MESSAGE
 from app.services.credit_pricing import compute_run_charge
 from app.utils.time import utc_now
 
@@ -36,7 +37,8 @@ CREDITS_EXHAUSTED_CODE = "CREDITS_EXHAUSTED"
 GUEST_QUOTA_EXHAUSTED_CODE = "GUEST_QUOTA_EXHAUSTED"
 
 TERMINAL_RUN_STATUSES = ("completed", "limit_reached", "incomplete", "interrupted", "error")
-UNCHARGED_RUN_STATUSES = frozenset({"error"})
+# 出错、原因不明的结束不扣：不是用户造成的
+UNCHARGED_RUN_STATUSES = frozenset({"error", "incomplete"})
 
 _CHINA_TZ = timezone(timedelta(hours=8))
 # 回答结束后等轨迹账本落定的时长；超过后交给补结算
@@ -166,6 +168,16 @@ def requires_stream(user: Any) -> bool:
     return not limits_for(user).unlimited
 
 
+def is_charged_run(run: AgentSession) -> bool:
+    """用户造成的结束才扣：正常完成、达到上限、用户停止或发新消息顶替。
+
+    部署、崩溃导致进程退出的运行由后台对账改成中断，这类中断不扣。
+    """
+    if run.status in UNCHARGED_RUN_STATUSES:
+        return False
+    return not (run.status == "interrupted" and run.error_message == ORPHANED_RUN_ERROR_MESSAGE)
+
+
 def _existing_entry(db: Session, run_id: str) -> CreditLedger | None:
     return db.execute(select(CreditLedger).where(CreditLedger.run_id == run_id)).scalar_one_or_none()
 
@@ -188,7 +200,7 @@ def settle_run(db: Session, run_id: str, *, force: bool = False) -> CreditLedger
     if not force and not _trajectory_settled(db, run_id):
         return None
     charge = compute_run_charge(db, run_id, fallback_model_id=run.model_id)
-    charged = run.status not in UNCHARGED_RUN_STATUSES
+    charged = is_charged_run(run)
     entry = CreditLedger(
         user_id=run.user_id,
         kind="run",

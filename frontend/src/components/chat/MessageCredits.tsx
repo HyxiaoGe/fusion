@@ -78,7 +78,7 @@ export default function MessageCredits({ messageId }: { messageId: string }) {
   const notes = summary
     ? [
         summary.runs > 1 ? `共 ${summary.runs} 次生成（含重新生成、继续生成）` : null,
-        summary.uncharged > 0 ? `${summary.uncharged} 次生成出错结束，没有扣除` : null,
+        summary.uncharged > 0 ? `${summary.uncharged} 次生成异常结束，没有扣除` : null,
         summary.pending > 0 ? `还有 ${summary.pending} 次生成正在结算` : null,
         summary.offPeak ? '部分轮次按空闲时段价计算' : null,
       ].filter((note): note is string => note !== null)
