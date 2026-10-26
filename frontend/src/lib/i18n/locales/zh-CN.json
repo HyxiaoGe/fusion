@@ -853,7 +853,9 @@
     }
   },
   "notifications": {
-    "businessTypes": { "ai_conversation": "AI 对话生成", "changelog": "更新日志", "credits": "额度" },
+    "businessTypes": { "ai_conversation": "对话", "changelog": "更新", "system": "系统" },
+    "categories": "通知分类",
+    "unreadOnly": "只看未读",
     "title": "通知",
     "triggerUnread": "通知，{{count}} 条未读",
     "close": "关闭通知",
@@ -874,7 +876,7 @@
     "loadMore": "加载更多",
     "viewAll": "查看全部",
     "boxTitle": "消息盒子",
-    "boxDescription": "回答结果与更新日志通知；已读保留 7 天，未读保留 30 天。",
+    "boxDescription": "对话结果、更新日志与系统通知；已读保留 7 天，未读保留 30 天。",
     "previousPage": "上一页",
     "nextPage": "下一页",
     "pageNumber": "第 {{page}} 页"

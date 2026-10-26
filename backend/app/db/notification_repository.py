@@ -68,10 +68,10 @@ class NotificationRepository:
             body=body,
         )
 
-    def enqueue_credits(self, *, user_id: str, kind: str, title: str, body: str) -> Notification:
-        # 额度通知没有来源对象，每次发卡、重置都单独一条。
+    def enqueue_system(self, *, user_id: str, kind: str, title: str, body: str) -> Notification:
+        # 系统通知（发卡、额度重置）没有来源对象，每次都单独一条。
         return self._enqueue(
-            user_id=user_id, kind=kind, source_clause=false(), business_type="credits", title=title, body=body
+            user_id=user_id, kind=kind, source_clause=false(), business_type="system", title=title, body=body
         )
 
     def _enqueue(self, *, user_id: str, kind: str, source_clause, **values) -> Notification:

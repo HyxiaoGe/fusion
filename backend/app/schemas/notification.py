@@ -16,7 +16,7 @@ NotificationKind = Literal[
     "reset_cards_granted",
     "credits_reset",
 ]
-NotificationBusinessType = Literal["ai_conversation", "changelog", "credits"]
+NotificationBusinessType = Literal["ai_conversation", "changelog", "system"]
 NotificationFilter = Literal["all", "unread"]
 
 

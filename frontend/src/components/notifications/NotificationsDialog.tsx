@@ -5,7 +5,7 @@ import { Bell, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { getNotifications, type NotificationFilter, type NotificationItem } from '@/lib/api/notifications';
+import { getNotifications, type NotificationBusinessType, type NotificationFilter, type NotificationItem } from '@/lib/api/notifications';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import { closeNotificationsDialog } from '@/redux/slices/settingsSlice';
 import NotificationListItem, { useOpenNotification } from './NotificationListItem';
@@ -13,6 +13,7 @@ import { useNotifications } from './NotificationsProvider';
 
 // 横向窗口一页放得下，不用在页内再滚动。
 const PAGE_SIZE = 10;
+const CATEGORIES: (NotificationBusinessType | 'all')[] = ['all', 'ai_conversation', 'changelog', 'system'];
 
 interface PageState {
   items: NotificationItem[];
@@ -29,6 +30,7 @@ export default function NotificationsDialog() {
   const openNotification = useOpenNotification();
   const open = useAppSelector((state) => state.settings.isNotificationsDialogOpen);
   const [filter, setFilter] = useState<NotificationFilter>('all');
+  const [category, setCategory] = useState<NotificationBusinessType | 'all'>('all');
   // 第 N 页的游标；第一页没有游标。
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -57,7 +59,8 @@ export default function NotificationsDialog() {
     if (!open || !sessionKey) return;
     const controller = new AbortController();
     setPage((current) => ({ ...current, loading: true, error: false }));
-    getNotifications({ filter, cursor: cursor ?? undefined, limit: PAGE_SIZE }, controller.signal)
+    const businessType = category === 'all' ? undefined : category;
+    getNotifications({ filter, businessType, cursor: cursor ?? undefined, limit: PAGE_SIZE }, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return;
         if (!result.items.length && pageIndex > 0) {
@@ -71,12 +74,17 @@ export default function NotificationsDialog() {
         if (!controller.signal.aborted) setPage((current) => ({ ...current, loading: false, error: true }));
       });
     return () => controller.abort();
-  }, [open, sessionKey, filter, cursor, pageIndex, revision, reloadKey, resetPaging]);
+  }, [open, sessionKey, filter, category, cursor, pageIndex, revision, reloadKey, resetPaging]);
 
   const close = () => dispatch(closeNotificationsDialog());
   const selectFilter = (next: NotificationFilter) => {
     if (next === filter) return;
     setFilter(next);
+    resetPaging();
+  };
+  const selectCategory = (next: NotificationBusinessType | 'all') => {
+    if (next === category) return;
+    setCategory(next);
     resetPaging();
   };
   const goNext = () => {
@@ -104,21 +112,28 @@ export default function NotificationsDialog() {
           <DialogDescription>{t('notifications.boxDescription')}</DialogDescription>
         </DialogHeader>
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
-          <div className="flex gap-1" role="group" aria-label={t('notifications.filters')}>
-            {(['all', 'unread'] as const).map((value) => (
+          <div className="flex gap-1" role="group" aria-label={t('notifications.categories')}>
+            {CATEGORIES.map((value) => (
               <Button key={value} type="button" size="sm"
-                variant={filter === value ? 'secondary' : 'ghost'}
-                aria-pressed={filter === value} onClick={() => selectFilter(value)}>
-                {t(`notifications.${value}`)}
+                variant={category === value ? 'secondary' : 'ghost'}
+                aria-pressed={category === value} onClick={() => selectCategory(value)}>
+                {t(value === 'all' ? 'notifications.all' : `notifications.businessTypes.${value}`)}
               </Button>
             ))}
           </div>
-          <Button type="button" variant="ghost" size="sm" className="text-xs"
-            disabled={!notifications.loaded || !notifications.unreadCount || notifications.readingAll}
-            onClick={() => { void notifications.markAllRead(); }}>
-            {notifications.readingAll && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
-            {t('notifications.readAll')}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button type="button" size="sm" className="text-xs"
+              variant={filter === 'unread' ? 'secondary' : 'ghost'}
+              aria-pressed={filter === 'unread'} onClick={() => selectFilter(filter === 'unread' ? 'all' : 'unread')}>
+              {t('notifications.unreadOnly')}
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="text-xs"
+              disabled={!notifications.loaded || !notifications.unreadCount || notifications.readingAll}
+              onClick={() => { void notifications.markAllRead(); }}>
+              {notifications.readingAll && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
+              {t('notifications.readAll')}
+            </Button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {notifications.readError && <p role="alert" className="px-4 pt-3 text-xs text-destructive">{t('notifications.readFailed')}</p>}

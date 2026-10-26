@@ -70,7 +70,7 @@ describe('通知中心交互', () => {
     fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
     expect(state.ensureFresh).toHaveBeenCalledOnce();
     expect(state.refresh).not.toHaveBeenCalled();
-    expect(screen.getByText('AI 对话生成')).toBeVisible();
+    expect(screen.getByText('对话')).toBeVisible();
     expect(screen.getByText('研究已完成')).toBeVisible();
     expect(state.markAllRead).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /研究已完成/ }));
@@ -94,7 +94,7 @@ describe('通知中心交互', () => {
     state.items = [{ ...item(), business_type: 'changelog', kind: 'changelog_published', title: '通知中心上线', target: { type: 'changelog', changelog_id: 'update/一' } }];
     render(<NotificationCenter />);
     fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
-    expect(screen.getByText('更新日志')).toBeVisible();
+    expect(screen.getByText('更新')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: /通知中心上线/ }));
     expect(dispatch).toHaveBeenCalledWith(openChangelogDialog({ changelogId: 'update/一' }));
     expect(push).not.toHaveBeenCalled();
@@ -104,10 +104,10 @@ describe('通知中心交互', () => {
 
   it('额度通知点开即已读并展开额度面板，不跳转', async () => {
     markNotificationsRead.mockResolvedValue({});
-    state.items = [{ ...item(), business_type: 'credits', kind: 'reset_cards_granted', title: '你收到了 1 张额度重置卡', target: { type: 'credits' } }];
+    state.items = [{ ...item(), business_type: 'system', kind: 'reset_cards_granted', title: '你收到了 1 张额度重置卡', target: { type: 'credits' } }];
     render(<NotificationCenter />);
     fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
-    expect(screen.getByText('额度')).toBeVisible();
+    expect(screen.getByText('系统')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: /你收到了 1 张额度重置卡/ }));
     expect(dispatch).toHaveBeenCalledWith(openCreditsPanel());
     expect(markNotificationsRead).toHaveBeenCalledWith(['notice-a']);

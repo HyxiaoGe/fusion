@@ -859,7 +859,9 @@
     }
   },
   "notifications": {
-    "businessTypes": { "ai_conversation": "AI conversations", "changelog": "Product updates", "credits": "Credits" },
+    "businessTypes": { "ai_conversation": "Conversations", "changelog": "Updates", "system": "System" },
+    "categories": "Notification categories",
+    "unreadOnly": "Unread only",
     "title": "Notifications",
     "triggerUnread": "Notifications, {{count}} unread",
     "close": "Close notifications",
@@ -880,7 +882,7 @@
     "loadMore": "Load more",
     "viewAll": "View all",
     "boxTitle": "Inbox",
-    "boxDescription": "Answer results and product update notices. Read items are kept for 7 days, unread for 30 days.",
+    "boxDescription": "Conversation results, product updates and system notices. Read items are kept for 7 days, unread for 30 days.",
     "previousPage": "Previous",
     "nextPage": "Next",
     "pageNumber": "Page {{page}}"

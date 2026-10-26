@@ -14,6 +14,7 @@ from app.schemas.notification import (
     MAX_NOTIFICATION_REVISION,
     ChangelogNotificationTarget,
     CreditsNotificationTarget,
+    NotificationBusinessType,
     NotificationFilter,
     NotificationItem,
     NotificationPage,
@@ -81,6 +82,9 @@ def enqueue_run_notification(
     )
 
 
+# 系统类里点开后打开额度面板的通知
+_CREDITS_KINDS = frozenset({"reset_cards_granted", "credits_reset"})
+
 READ_RETENTION = timedelta(days=7)
 UNREAD_RETENTION = timedelta(days=30)
 _PURGE_USER_BATCH = 200
@@ -141,7 +145,7 @@ def _item(row: Notification) -> NotificationItem:
 def _target(row: Notification) -> NotificationTarget | ChangelogNotificationTarget | CreditsNotificationTarget:
     if row.business_type == "changelog":
         return ChangelogNotificationTarget(changelog_id=row.changelog_id)
-    if row.business_type == "credits":
+    if row.kind in _CREDITS_KINDS:
         return CreditsNotificationTarget()
     return NotificationTarget(conversation_id=row.conversation_id, message_id=row.message_id, run_id=row.run_id)
 
@@ -156,6 +160,7 @@ class NotificationService:
         user_id: str,
         *,
         filter: NotificationFilter = "all",
+        business_type: NotificationBusinessType | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> NotificationPage:
@@ -172,6 +177,8 @@ class NotificationService:
         query = select(Notification).where(Notification.user_id == user_id)
         if filter == "unread":
             query = query.where(Notification.read_at.is_(None))
+        if business_type is not None:
+            query = query.where(Notification.business_type == business_type)
         if before is not None:
             query = query.where(Notification.created_revision < before)
         rows = list(self.db.scalars(query.order_by(Notification.created_revision.desc()).limit(limit + 1)))

@@ -439,6 +439,62 @@ def test_api_rejects_foreign_or_pending_results(client, db):
         assert response.status_code == expected
 
 
+def test_list_filters_by_category_and_credit_notices_target_the_credits_panel(client, db):
+    add_run(db, "answer")
+    repository = NotificationRepository(db)
+    repository.enqueue_system(user_id="user-1", kind="credits_reset", title="额度已重置", body="正文")
+    db.commit()
+
+    system = client.get("/api/notifications?business_type=system").json()["data"]
+    assert [(item["business_type"], item["target"]) for item in system["items"]] == [("system", {"type": "credits"})]
+    # 未读数与分类无关，始终是全部未读
+    assert system["unread_count"] == 2
+    conversation = client.get("/api/notifications?business_type=ai_conversation&filter=unread").json()["data"]
+    assert [item["kind"] for item in conversation["items"]] == ["run_completed"]
+    assert client.get("/api/notifications?business_type=credits").status_code == 422
+
+
+def _load_migration(name):
+    path = Path(__file__).parents[1] / f"alembic/versions/{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration
+
+
+def test_credit_notifications_move_to_system_category_and_back():
+    chain = [
+        _load_migration(name)
+        for name in (
+            "6a1e9f3c8b20_add_notifications",
+            "b8e2f4a6d0c1_add_changelog_notifications",
+            "d7a3c9e1f2b5_add_credit_notifications",
+        )
+    ]
+    rename = _load_migration("e4b8d2a6c1f3_rename_credit_notifications_to_system")
+    engine = create_engine("sqlite://")
+    insert = (
+        "INSERT INTO notifications (id,user_id,business_type,kind,title,body,created_revision) "
+        "VALUES ('{id}','user','{business_type}','credits_reset','标题','正文',{revision})"
+    )
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE users (id VARCHAR PRIMARY KEY)")
+        connection.exec_driver_sql("CREATE TABLE conversations (id VARCHAR PRIMARY KEY)")
+        connection.exec_driver_sql("INSERT INTO users (id) VALUES ('user')")
+        with Operations.context(MigrationContext.configure(connection)):
+            for migration in chain:
+                migration.upgrade()
+            connection.exec_driver_sql(insert.format(id="old", business_type="credits", revision=1))
+            rename.upgrade()
+            business_type = "SELECT business_type FROM notifications WHERE id = 'old'"
+            assert connection.exec_driver_sql(business_type).scalar() == "system"
+            with pytest.raises(IntegrityError), connection.begin_nested():
+                connection.exec_driver_sql(insert.format(id="new", business_type="credits", revision=2))
+            rename.downgrade()
+            assert connection.exec_driver_sql(business_type).scalar() == "credits"
+    engine.dispose()
+
+
 def test_notification_migration_round_trip_and_constraints():
     path = Path(__file__).parents[1] / "alembic/versions/6a1e9f3c8b20_add_notifications.py"
     spec = importlib.util.spec_from_file_location("notification_migration", path)
