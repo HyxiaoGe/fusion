@@ -109,4 +109,9 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 NEXT_PUBLIC_AUTH_SERVICE_BASE_URL=http://localhost:8100
 NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID=fusion-client
 NEXT_PUBLIC_AUTH_CALLBACK_URL=http://localhost:3000/auth/callback
+# 产品埋点（PostHog）：不配 key 时所有 track 为空操作；浏览器经同源 /ingest 反代，见 src/lib/analytics/
+NEXT_PUBLIC_POSTHOG_KEY=phc_xxx
+NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 ```
+
+公开变量在构建期烤入：GitHub 仓库变量 → 部署工作流 build-arg → Dockerfile ARG。只改变量不改代码时，发布账本会因同一 SHA 绑定不同镜像身份而拒绝，需要一个新的 master 提交。
