@@ -7,16 +7,18 @@ export type NotificationKind =
   | 'run_limit_reached'
   | 'run_incomplete'
   | 'run_interrupted'
-  | 'changelog_published';
+  | 'changelog_published'
+  | 'reset_cards_granted'
+  | 'credits_reset';
 export type NotificationFilter = 'all' | 'unread';
-export type NotificationBusinessType = 'ai_conversation' | 'changelog';
+export type NotificationBusinessType = 'ai_conversation' | 'changelog' | 'credits';
 
 export type NotificationTarget = {
   type: 'conversation';
   conversation_id: string;
   message_id: string;
   run_id: string;
-} | { type: 'changelog'; changelog_id: string };
+} | { type: 'changelog'; changelog_id: string } | { type: 'credits' };
 
 export interface NotificationItem {
   id: string;

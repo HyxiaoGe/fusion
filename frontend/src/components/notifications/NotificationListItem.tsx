@@ -2,29 +2,40 @@
 
 import { useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, CheckCircle2, Info, ScrollText } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, ScrollText, Ticket } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { buildChatConversationPath } from '@/lib/routes/chatRoutes';
 import { cn } from '@/lib/utils';
-import type { NotificationItem } from '@/lib/api/notifications';
+import { markNotificationsRead, type NotificationItem } from '@/lib/api/notifications';
+import { notifyNotificationsChanged } from '@/lib/notifications/events';
 import { useAppDispatch } from '@/redux/hooks';
-import { openChangelogDialog } from '@/redux/slices/settingsSlice';
+import { openChangelogDialog, openCreditsPanel } from '@/redux/slices/settingsSlice';
+import { useNotifications } from './NotificationsProvider';
 
-/** 打开通知指向的结果：更新日志弹窗，或跳到对应对话并定位回答。 */
+/** 打开通知指向的结果：更新日志弹窗、额度面板，或跳到对应对话并定位回答。 */
 export function useOpenNotification() {
   const router = useRouter();
   const dispatch = useAppDispatch();
+  const { sessionKey } = useNotifications();
   const navigationSequenceRef = useRef(0);
   return useCallback((item: NotificationItem) => {
     if (item.target.type === 'changelog') {
       dispatch(openChangelogDialog({ changelogId: item.target.changelog_id }));
       return;
     }
+    if (item.target.type === 'credits') {
+      // 额度通知的内容就是标题和摘要本身，点开即已读；面板里可以直接用卡。
+      dispatch(openCreditsPanel());
+      if (!item.read_at) {
+        markNotificationsRead([item.id]).then(() => notifyNotificationsChanged(sessionKey ?? undefined), () => {});
+      }
+      return;
+    }
     // 同一记录再次点击也要重新定位，不能被相同 URL 的展示状态吞掉。
     navigationSequenceRef.current += 1;
     const requestId = `${Date.now()}-${navigationSequenceRef.current}`;
     router.push(`${buildChatConversationPath(item.target.conversation_id)}?message=${encodeURIComponent(item.target.message_id)}&run=${encodeURIComponent(item.target.run_id)}&notification=${requestId}`);
-  }, [dispatch, router]);
+  }, [dispatch, router, sessionKey]);
 }
 
 export default function NotificationListItem({ item, onSelect, compact = false }: {
@@ -34,7 +45,7 @@ export default function NotificationListItem({ item, onSelect, compact = false }
   compact?: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  const Icon = item.target.type === 'changelog' ? ScrollText : item.kind === 'run_completed' ? CheckCircle2 : item.kind === 'run_failed' ? AlertCircle : Info;
+  const Icon = item.target.type === 'changelog' ? ScrollText : item.target.type === 'credits' ? Ticket : item.kind === 'run_completed' ? CheckCircle2 : item.kind === 'run_failed' ? AlertCircle : Info;
   const date = new Date(item.created_at);
   const dateLabel = Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat(i18n.language, {
     timeZone: 'Asia/Shanghai', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',

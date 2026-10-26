@@ -1013,7 +1013,9 @@ class Notification(Base):
             "('run_completed', 'run_failed', 'run_limit_reached', 'run_incomplete', 'run_interrupted') "
             "AND conversation_id IS NOT NULL AND message_id IS NOT NULL AND run_id IS NOT NULL AND changelog_id IS NULL) "
             "OR (business_type = 'changelog' AND kind = 'changelog_published' AND changelog_id IS NOT NULL "
-            "AND conversation_id IS NULL AND message_id IS NULL AND run_id IS NULL)",
+            "AND conversation_id IS NULL AND message_id IS NULL AND run_id IS NULL) "
+            "OR (business_type = 'credits' AND kind IN ('reset_cards_granted', 'credits_reset') "
+            "AND conversation_id IS NULL AND message_id IS NULL AND run_id IS NULL AND changelog_id IS NULL)",
             name="ck_notifications_source",
         ),
         Index(

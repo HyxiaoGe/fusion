@@ -1,6 +1,6 @@
 """通知存储与用户修订锁；所有方法由调用方提交事务。"""
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, delete, false, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -66,6 +66,12 @@ class NotificationRepository:
             changelog_id=changelog_id,
             title=title,
             body=body,
+        )
+
+    def enqueue_credits(self, *, user_id: str, kind: str, title: str, body: str) -> Notification:
+        # 额度通知没有来源对象，每次发卡、重置都单独一条。
+        return self._enqueue(
+            user_id=user_id, kind=kind, source_clause=false(), business_type="credits", title=title, body=body
         )
 
     def _enqueue(self, *, user_id: str, kind: str, source_clause, **values) -> Notification:

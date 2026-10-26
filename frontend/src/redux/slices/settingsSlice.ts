@@ -9,6 +9,8 @@ interface SettingsState {
   focusChangelogId: string | null;
   // 消息盒子：通知面板「查看全部」打开的完整列表
   isNotificationsDialogOpen: boolean;
+  // 额度面板：每次从通知请求打开时加一，输入框旁的额度入口据此展开
+  creditsPanelRequest: number;
   // 其他设置项...
 }
 
@@ -19,6 +21,7 @@ const initialState: SettingsState = {
   isChangelogDialogOpen: false,
   focusChangelogId: null,
   isNotificationsDialogOpen: false,
+  creditsPanelRequest: 0,
   // 其他设置的初始值...
 };
 
@@ -52,6 +55,9 @@ const settingsSlice = createSlice({
     closeNotificationsDialog: (state) => {
       state.isNotificationsDialogOpen = false;
     },
+    openCreditsPanel: (state) => {
+      state.creditsPanelRequest += 1;
+    },
     // 其他设置的reducer...
   },
 });
@@ -64,5 +70,6 @@ export const {
   closeChangelogDialog,
   openNotificationsDialog,
   closeNotificationsDialog,
+  openCreditsPanel,
 } = settingsSlice.actions;
 export default settingsSlice.reducer;

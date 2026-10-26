@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Infinity as InfinityIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -154,6 +154,7 @@ export default function CreditsMeter({
   onLogin,
   conversationId = null,
   onCreditsChanged,
+  openRequest = 0,
 }: {
   credits: CreditsSummary;
   isGuest: boolean;
@@ -161,9 +162,18 @@ export default function CreditsMeter({
   conversationId?: string | null;
   /** 用了重置卡后通知上层重新拉额度 */
   onCreditsChanged?: () => void;
+  /** 每次变化展开面板（点开额度通知时）；挂载时已有的值不算新请求 */
+  openRequest?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const seenOpenRequestRef = useRef(openRequest);
   const [conversationLoad, setConversationLoad] = useState<ConversationLoad>({ status: 'loading' });
+
+  useEffect(() => {
+    if (openRequest === seenOpenRequestRef.current) return;
+    seenOpenRequestRef.current = openRequest;
+    setOpen(true);
+  }, [openRequest]);
 
   useEffect(() => {
     if (!open || !conversationId) return;

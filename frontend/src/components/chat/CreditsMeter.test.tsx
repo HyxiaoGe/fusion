@@ -110,6 +110,15 @@ describe('CreditsMeter', () => {
     expect(fetchConversationCreditsMock).toHaveBeenCalledWith('conv-1', expect.any(AbortSignal));
   });
 
+  it('打开请求变化时展开面板，挂载时已有的请求不重复展开', () => {
+    const props = { credits: credits(60, 900), isGuest: false, onLogin: vi.fn() };
+    const { rerender } = render(<CreditsMeter {...props} openRequest={3} />);
+    expect(screen.queryByTestId('credits-meter-panel')).toBeNull();
+
+    rerender(<CreditsMeter {...props} openRequest={4} />);
+    expect(screen.getByTestId('credits-meter-panel')).toBeVisible();
+  });
+
   it('没有打开对话时不显示本对话一行，也不请求', () => {
     render(<CreditsMeter credits={credits(60, 900)} isGuest={false} onLogin={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '额度已用 90%' }));
