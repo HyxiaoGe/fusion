@@ -103,6 +103,23 @@ describe('ModelSelectorPanel', () => {
     expect(screen.queryByText('不可路由模型')).toBeNull();
   });
 
+  it('按单价标出消耗档，未登记单价的模型不标', () => {
+    render(
+      <ModelSelectorPanel
+        modelsByProvider={[{ ...provider, models: [{ ...models[0], costTier: 'high' }, models[1]] }]}
+        selectedModelId={null}
+        recentModelIds={[]}
+        allModels={models}
+        activeProvider="provider-a"
+        onSelect={vi.fn()}
+        onProviderChange={vi.fn()}
+      />,
+    );
+
+    const tiers = screen.getAllByTestId('model-cost-tier');
+    expect(tiers.map((node) => node.textContent)).toEqual(['高消耗']);
+  });
+
   it('在模型卡片中展示面向用户的能力标签', () => {
     render(
       <ModelSelectorPanel

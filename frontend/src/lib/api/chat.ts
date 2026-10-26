@@ -174,16 +174,24 @@ export class StreamRequestError extends Error {
 
 // 游客额度与登录门槛：服务端的确定答复，重试或重连都不会变，需要用户登录或等明天。
 const LOGIN_GATE_ERROR_CODES = new Set(['LOGIN_REQUIRED', 'GUEST_QUOTA_EXHAUSTED']);
+// 登录用户的日或周 credits 用完：等窗口重置，重试不会变。
+const CREDITS_EXHAUSTED_CODE = 'CREDITS_EXHAUSTED';
 const NON_RETRYABLE_ERROR_CODES = new Set([
   'STREAM_UNAVAILABLE',
   'GUEST_RUN_IN_PROGRESS',
   'GUEST_UNAVAILABLE',
+  CREDITS_EXHAUSTED_CODE,
   ...LOGIN_GATE_ERROR_CODES,
 ]);
 
 /** 需要登录才能继续的发送错误（游客额度用完、功能需登录）。 */
 export function isLoginGateStreamError(error: unknown): boolean {
   return error instanceof StreamRequestError && LOGIN_GATE_ERROR_CODES.has(error.code ?? '');
+}
+
+/** 登录用户 credits 用完被拒。 */
+export function isCreditsExhaustedStreamError(error: unknown): boolean {
+  return error instanceof StreamRequestError && error.code === CREDITS_EXHAUSTED_CODE;
 }
 
 export function isRecoverableStreamError(error: unknown): boolean {

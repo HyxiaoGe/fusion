@@ -3,7 +3,8 @@ import { cn } from '@/lib/utils';
 import { HelpCircle, MessageSquare, RefreshCw } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useAppSelector } from '@/redux/hooks';
-import { selectCanChat, selectGuestMessagesRemaining } from '@/redux/selectors';
+import { creditsExhaustedMessage } from '@/lib/api/credits';
+import { selectCanChat, selectCreditsExhaustedWindow, selectIsGuest } from '@/redux/selectors';
 import { useToast } from '@/components/ui/toast';
 import type { SuggestedQuestionsStatus } from '@/types/conversation';
 
@@ -32,7 +33,8 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
   // 只有先占位、后到达的问题才淡入；挂载时已有问题（流结束切换渲染分支、刷新页面）直接显示，不重播动画。
   const [fadeInArrivals] = useState(() => questions.length === 0);
   const canChat = useAppSelector(selectCanChat);
-  const isGuestQuotaExhausted = useAppSelector(selectGuestMessagesRemaining) === 0;
+  const isGuest = useAppSelector(selectIsGuest);
+  const creditsExhaustedWindow = useAppSelector(selectCreditsExhaustedWindow);
   const { toast } = useToast();
   const isBusy = isLoading || isRefreshing || pendingQuestion !== null;
 
@@ -58,14 +60,16 @@ const SuggestedQuestions: React.FC<SuggestedQuestionsProps> = ({
       return;
     }
 
-    // 检查登录状态；游客今日额度用完也走登录入口
-    if (!canChat || isGuestQuotaExhausted) {
+    // 检查登录状态；额度用完时不发送，游客走登录入口
+    if (!canChat || creditsExhaustedWindow) {
       toast({
-        message: isGuestQuotaExhausted ? "今天免登录可发送的消息已用完，登录后继续" : "请先登录后再使用聊天功能",
+        message: creditsExhaustedWindow
+          ? creditsExhaustedMessage(creditsExhaustedWindow, isGuest)
+          : "请先登录后再使用聊天功能",
         type: "warning",
         duration: 3000
       });
-      if ((globalThis as any).triggerLoginDialog) {
+      if ((!canChat || isGuest) && (globalThis as any).triggerLoginDialog) {
         (globalThis as any).triggerLoginDialog();
       }
       return;

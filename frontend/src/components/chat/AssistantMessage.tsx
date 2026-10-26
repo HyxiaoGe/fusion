@@ -18,6 +18,7 @@ import ProviderIcon from '../models/ProviderIcon';
 import AssistantResponseStack from './AssistantResponseStack';
 import FileCard from './FileCard';
 import MessageActions from './MessageActions';
+import MessageCredits from './MessageCredits';
 import AnswerEvidenceSidebar from './AnswerEvidenceSidebar';
 import { deriveAnswerEvidenceSidebar } from './answerEvidenceSidebarModel';
 import SuggestedQuestions from './SuggestedQuestions';
@@ -399,7 +400,9 @@ function AssistantMessageFrame({
               onCopy={copy}
               onRetry={handleRetry}
               retryLabel="重新生成"
-            />
+            >
+              <MessageCredits messageId={message.id} />
+            </MessageActions>
           )}
         </div>
 

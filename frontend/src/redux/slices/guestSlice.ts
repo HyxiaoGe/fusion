@@ -7,7 +7,7 @@ import { fetchEntitlementsAPI, type Entitlements } from '@/lib/api/user';
  *
  * - status：未登录时是否已拿到游客身份。unavailable 表示游客模式未开放或领取失败，
  *   页面回到原来的「必须登录」流程。
- * - entitlements：服务端返回的权益与今日额度，游客和登录用户都会拉取。
+ * - entitlements：服务端返回的权益与 credits 额度，游客和登录用户都会拉取。
  */
 export type GuestStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 

@@ -16,6 +16,7 @@ vi.mock('./fetchWithAuth', () => ({
 
 import {
   StreamRequestError,
+  isCreditsExhaustedStreamError,
   isLoginGateStreamError,
   continueAgentRunStream,
   fetchSuggestedQuestions,
@@ -2141,6 +2142,35 @@ describe('reconnectStream — 新 envelope 协议', () => {
       statusCode: 429,
     }));
     expect(isLoginGateStreamError(error)).toBe(true);
+  });
+
+  it('登录用户额度用完返回 429 时不可重连，也不当作登录门槛', async () => {
+    fetchWithAuthMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      code: 'CREDITS_EXHAUSTED',
+      message: '今日额度已用完，明天 0 点恢复',
+    }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    const error = await sendMessageStream(
+      { model_id: 'auto', message: 'q', conversation_id: 'conv-1' },
+      {
+        onReady: vi.fn(),
+        onReasoning: vi.fn(),
+        onAnswering: vi.fn(),
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    ).catch((caught) => caught);
+
+    expect(error).toEqual(expect.objectContaining({
+      message: '今日额度已用完，明天 0 点恢复',
+      recoverable: false,
+      statusCode: 429,
+    }));
+    expect(isCreditsExhaustedStreamError(error)).toBe(true);
+    expect(isLoginGateStreamError(error)).toBe(false);
   });
 
   it('SSE redis_read_failed 是可恢复读故障，不提前触发终态 onError', async () => {

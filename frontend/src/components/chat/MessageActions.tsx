@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { Check, Copy, Edit2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -15,6 +16,8 @@ interface MessageActionsProps {
   onEdit?: () => void;
   retryLabel: string;
   className?: string;
+  /** 排在内置按钮之后的额外入口 */
+  children?: ReactNode;
 }
 
 function formatTime(timestamp?: number) {
@@ -41,6 +44,7 @@ function MessageActions({
   onEdit,
   retryLabel,
   className,
+  children,
 }: MessageActionsProps) {
   const { t } = useTranslation();
   const formattedTime = formatTime(timestamp);
@@ -89,6 +93,7 @@ function MessageActions({
           <RefreshCw className="h-4 w-4" />
         </Button>
       ) : null}
+      {children}
     </div>
   );
 }

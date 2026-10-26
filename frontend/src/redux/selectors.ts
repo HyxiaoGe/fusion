@@ -1,4 +1,5 @@
 
+import { exhaustedCreditsWindow } from '@/lib/api/credits';
 import { selectStableAuthIdentity } from '@/lib/auth/authIdentity';
 import type { RootState } from './store';
 
@@ -20,9 +21,15 @@ export const selectCanChat = (state: RootState) => state.auth.isAuthenticated ||
 /** 当前用户权益；尚未拉到时为 null */
 export const selectEntitlements = (state: RootState) => state.guest?.entitlements ?? null;
 
-/** 游客今日剩余可发送消息数；非游客或额度未知时为 null */
-export const selectGuestMessagesRemaining = (state: RootState) =>
-  selectIsGuest(state) ? state.guest?.entitlements?.quota?.messages.remaining ?? null : null;
+/** 受限账号的 credits 额度；不限额（管理员、评测账号）或尚未拉到时为 null */
+export const selectLimitedCredits = (state: RootState) => {
+  const credits = state.guest?.entitlements?.credits ?? null;
+  return credits && !credits.unlimited ? credits : null;
+};
+
+/** 已用完的额度窗口：有值时不能开始新的生成，游客引导登录，登录用户等窗口重置 */
+export const selectCreditsExhaustedWindow = (state: RootState) =>
+  exhaustedCreditsWindow(state.guest?.entitlements?.credits);
 
 /**
  * 获取对话关联的模型对象。
