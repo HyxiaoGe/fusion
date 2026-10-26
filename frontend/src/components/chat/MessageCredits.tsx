@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Coins } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,41 @@ import { fetchMessageCredits, formatCredits, type MessageCredits as MessageCredi
 import { useAppSelector } from '@/redux/hooks';
 import { formatTokens, summarizeMessageCredits } from './messageCreditsModel';
 import styles from './MessageActions.module.css';
+
+const MODEL_COLOR = 'var(--info)';
+const TOOL_COLOR = 'var(--teal)';
+
+function CreditsGroup({ label, color, total, children }: {
+  label: string;
+  color: string;
+  total: number;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 font-medium">
+          <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden="true" />
+          {label}
+        </span>
+        <span className="font-medium tabular-nums">{formatCredits(total)}</span>
+      </div>
+      <div className="space-y-1.5 pl-3.5">{children}</div>
+    </section>
+  );
+}
+
+function CreditsItem({ title, credits, detail }: { title: string; credits: number | null; detail?: string }) {
+  return (
+    <div>
+      <div className="flex justify-between gap-2 text-foreground/80">
+        <span className="truncate">{title}</span>
+        {credits !== null && <span className="shrink-0 tabular-nums">{formatCredits(credits)}</span>}
+      </div>
+      {detail && <div className="mt-0.5 tabular-nums text-muted-foreground">{detail}</div>}
+    </div>
+  );
+}
 
 type LoadState =
   | { status: 'idle' | 'loading' }
@@ -40,6 +75,14 @@ export default function MessageCredits({ messageId }: { messageId: string }) {
     [state],
   );
   const modelName = (id: string) => models.find((model) => model.id === id)?.name ?? id;
+  const notes = summary
+    ? [
+        summary.runs > 1 ? `共 ${summary.runs} 次生成（含重新生成、继续生成）` : null,
+        summary.uncharged > 0 ? `${summary.uncharged} 次生成出错结束，没有扣除` : null,
+        summary.pending > 0 ? `还有 ${summary.pending} 次生成正在结算` : null,
+        summary.offPeak ? '部分轮次按空闲时段价计算' : null,
+      ].filter((note): note is string => note !== null)
+    : [];
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -48,67 +91,71 @@ export default function MessageCredits({ messageId }: { messageId: string }) {
           <Coins className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-3 text-xs" data-testid="message-credits">
+      <PopoverContent align="start" className="w-72 rounded-xl p-0 text-xs" data-testid="message-credits">
         {state.status === 'error' ? (
-          <p className="text-muted-foreground">消耗明细加载失败，请稍后再试</p>
+          <p className="p-3.5 text-muted-foreground">消耗明细加载失败，请稍后再试</p>
         ) : !summary ? (
-          <p className="text-muted-foreground">正在加载…</p>
+          <p className="p-3.5 text-muted-foreground">正在加载…</p>
         ) : summary.runs === 0 ? (
-          <p className="text-muted-foreground">
+          <p className="p-3.5 text-muted-foreground">
             {summary.pending > 0 ? '正在结算，稍后再看' : '这条回答没有消耗记录'}
           </p>
         ) : (
-          <div className="space-y-2.5">
-            <div className="flex items-baseline justify-between">
-              <span className="text-muted-foreground">本条回答消耗</span>
-              <span className="text-sm font-semibold tabular-nums">{formatCredits(summary.credits)} credits</span>
+          <>
+            <div className="space-y-2.5 p-3.5 pb-3">
+              <div className="text-muted-foreground">本条回答消耗</div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-semibold leading-none tabular-nums">{formatCredits(summary.credits)}</span>
+                <span className="text-muted-foreground">credits</span>
+              </div>
+              {summary.credits > 0 && (
+                <div className="flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                  {summary.modelCredits > 0 && (
+                    <div style={{ flexGrow: summary.modelCredits, background: MODEL_COLOR }} />
+                  )}
+                  {summary.toolCredits > 0 && (
+                    <div style={{ flexGrow: summary.toolCredits, background: TOOL_COLOR }} />
+                  )}
+                </div>
+              )}
             </div>
 
-            {summary.models.length > 0 && (
-              <section className="space-y-1">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>模型</span>
-                  <span className="tabular-nums">{formatCredits(summary.modelCredits)}</span>
-                </div>
-                {summary.models.map((row) => (
-                  <div key={row.model} className="pl-2">
-                    <div className="flex justify-between gap-2">
-                      <span className="truncate">{modelName(row.model)} · {row.rounds} 轮</span>
-                      <span className="shrink-0 tabular-nums">{formatCredits(row.credits)}</span>
-                    </div>
-                    <div className="text-muted-foreground">
-                      输入 {formatTokens(row.inputTokens)}
-                      {row.cacheReadTokens > 0 && `（缓存命中 ${formatTokens(row.cacheReadTokens)}）`}
-                      {' · '}输出 {formatTokens(row.outputTokens)}
-                    </div>
-                  </div>
-                ))}
-              </section>
-            )}
+            <div className="space-y-3 border-t px-3.5 py-3">
+              {summary.models.length > 0 && (
+                <CreditsGroup label="模型" color={MODEL_COLOR} total={summary.modelCredits}>
+                  {summary.models.map((row) => (
+                    <CreditsItem
+                      key={row.model}
+                      title={`${modelName(row.model)} · ${row.rounds} 轮`}
+                      credits={summary.models.length > 1 ? row.credits : null}
+                      detail={[
+                        `输入 ${formatTokens(row.inputTokens)}`,
+                        row.cacheReadTokens > 0 ? `缓存命中 ${formatTokens(row.cacheReadTokens)}` : null,
+                        `输出 ${formatTokens(row.outputTokens)}`,
+                      ].filter(Boolean).join(' · ')}
+                    />
+                  ))}
+                </CreditsGroup>
+              )}
+              {summary.tools.length > 0 && (
+                <CreditsGroup label="工具" color={TOOL_COLOR} total={summary.toolCredits}>
+                  {summary.tools.map((row) => (
+                    <CreditsItem
+                      key={row.label}
+                      title={`${row.label} ×${row.count}`}
+                      credits={summary.tools.length > 1 ? row.credits : null}
+                    />
+                  ))}
+                </CreditsGroup>
+              )}
+            </div>
 
-            {summary.tools.length > 0 && (
-              <section className="space-y-1">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>工具</span>
-                  <span className="tabular-nums">{formatCredits(summary.toolCredits)}</span>
-                </div>
-                {summary.tools.map((row) => (
-                  <div key={row.label} className="flex justify-between gap-2 pl-2">
-                    <span className="truncate">{row.label} ×{row.count}</span>
-                    <span className="shrink-0 tabular-nums">{formatCredits(row.credits)}</span>
-                  </div>
-                ))}
-              </section>
+            {notes.length > 0 && (
+              <ul className="space-y-0.5 border-t px-3.5 py-2.5 text-muted-foreground">
+                {notes.map((note) => <li key={note}>{note}</li>)}
+              </ul>
             )}
-
-            <ul className="space-y-0.5 border-t pt-2 text-muted-foreground">
-              {summary.runs > 1 && <li>共 {summary.runs} 次生成（含重新生成、继续生成）</li>}
-              {summary.uncharged > 0 && <li>{summary.uncharged} 次生成出错结束，没有扣除</li>}
-              {summary.pending > 0 && <li>还有 {summary.pending} 次生成正在结算</li>}
-              {summary.offPeak && <li>部分轮次按空闲时段价计算</li>}
-              <li>按模型实际用量计价，工具按调用次数计价</li>
-            </ul>
-          </div>
+          </>
         )}
       </PopoverContent>
     </Popover>

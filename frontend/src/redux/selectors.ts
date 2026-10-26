@@ -21,11 +21,8 @@ export const selectCanChat = (state: RootState) => state.auth.isAuthenticated ||
 /** 当前用户权益；尚未拉到时为 null */
 export const selectEntitlements = (state: RootState) => state.guest?.entitlements ?? null;
 
-/** 受限账号的 credits 额度；不限额（管理员、评测账号）或尚未拉到时为 null */
-export const selectLimitedCredits = (state: RootState) => {
-  const credits = state.guest?.entitlements?.credits ?? null;
-  return credits && !credits.unlimited ? credits : null;
-};
+/** 当前账号的 credits 额度（含不限额账号的已用量）；尚未拉到时为 null */
+export const selectCredits = (state: RootState) => state.guest?.entitlements?.credits ?? null;
 
 /** 已用完的额度窗口：有值时不能开始新的生成，游客引导登录，登录用户等窗口重置 */
 export const selectCreditsExhaustedWindow = (state: RootState) =>

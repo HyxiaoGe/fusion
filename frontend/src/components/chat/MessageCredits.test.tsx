@@ -79,12 +79,14 @@ describe('MessageCredits', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看消耗' }));
 
     const panel = await screen.findByTestId('message-credits');
-    await waitFor(() => expect(panel.textContent).toContain('321 credits'));
+    await waitFor(() => expect(panel.textContent).toContain('本条回答消耗321credits'));
     expect(fetchMessageCreditsMock).toHaveBeenCalledWith('m1', expect.any(AbortSignal));
     expect(panel.textContent).toContain('MiMo Flash · 2 轮');
     expect(panel.textContent).toContain('缓存命中 13k');
     expect(panel.textContent).toContain('生成图片 ×1');
     expect(panel.textContent).toContain('部分轮次按空闲时段价计算');
+    // 只有一个模型时不重复显示单行金额，组合计就是它
+    expect(panel.textContent).toContain('模型21.4MiMo Flash · 2 轮输入');
   });
 
   it('还没结算时提示稍后再看，加载失败给出可理解的提示', async () => {
