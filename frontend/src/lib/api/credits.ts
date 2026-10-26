@@ -92,6 +92,19 @@ export function resetAdminUserCredits(userId: string): Promise<CreditsSummary> {
   return apiRequest<CreditsSummary>(`${ADMIN_BASE}/users/${encodeURIComponent(userId)}/reset`, { method: 'POST' });
 }
 
+export interface CreditsResetAll {
+  /** 最近一次全员重置的时间；从未全员重置过为 null */
+  last_reset_at: string | null;
+}
+
+export function fetchCreditsResetAll(signal?: AbortSignal): Promise<CreditsResetAll> {
+  return apiRequest<CreditsResetAll>(`${ADMIN_BASE}/reset-all`, signal ? { signal } : {});
+}
+
+export function resetAllCredits(): Promise<CreditsResetAll> {
+  return apiRequest<CreditsResetAll>(`${ADMIN_BASE}/reset-all`, { method: 'POST' });
+}
+
 /** 受限账号当前已用完的窗口；不限额或尚有余量返回 null。两个都用完时报周窗口，它恢复得更晚。 */
 export function exhaustedCreditsWindow(summary: CreditsSummary | null | undefined): 'daily' | 'weekly' | null {
   if (!summary || summary.unlimited) return null;

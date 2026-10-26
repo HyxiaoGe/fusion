@@ -88,8 +88,12 @@ def _as_utc(moment: datetime) -> datetime:
 
 
 def _last_reset_at(db: Session, user_id: str) -> datetime | None:
+    """最近一次对这个账号生效的重置：单独重置或全员重置，取较晚的。"""
     value = db.execute(
-        select(func.max(CreditLedger.occurred_at)).where(CreditLedger.user_id == user_id, CreditLedger.kind == "reset")
+        select(func.max(CreditLedger.occurred_at)).where(
+            CreditLedger.kind == "reset",
+            or_(CreditLedger.user_id == user_id, CreditLedger.user_id.is_(None)),
+        )
     ).scalar()
     return _as_utc(value) if value is not None else None
 
@@ -300,6 +304,29 @@ def reset_user_credits(db: Session, *, user_id: str, actor_id: str, now: datetim
     db.commit()
     logger.info("credits_reset user=%s actor=%s", user_id, actor_id)
     return entry
+
+
+def reset_all_credits(db: Session, *, actor_id: str, now: datetime | None = None) -> CreditLedger:
+    """管理员把所有账号当前日、周窗口的已用量清零：只记一条全员重置，不逐个账号写记录。"""
+    entry = CreditLedger(
+        user_id=None,
+        kind="reset",
+        charged=False,
+        credits=0.0,
+        occurred_at=_as_utc(now or utc_now()),
+        actor_id=actor_id,
+    )
+    db.add(entry)
+    db.commit()
+    logger.info("credits_reset_all actor=%s", actor_id)
+    return entry
+
+
+def last_reset_all_at(db: Session) -> datetime | None:
+    value = db.execute(
+        select(func.max(CreditLedger.occurred_at)).where(CreditLedger.kind == "reset", CreditLedger.user_id.is_(None))
+    ).scalar()
+    return _as_utc(value) if value is not None else None
 
 
 def serialize_entry(entry: CreditLedger) -> dict[str, Any]:

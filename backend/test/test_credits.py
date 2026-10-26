@@ -439,3 +439,44 @@ def test_only_admin_can_view_and_reset_user_credits(client, db):
     reset = db.execute(select(CreditLedger).where(CreditLedger.kind == "reset")).scalar_one()
     assert (reset.user_id, reset.actor_id) == ("user-1", "admin")
     assert test_client.post("/api/admin/credits/users/missing/reset").status_code == 404
+
+
+def test_reset_all_clears_every_account_without_moving_windows(db):
+    wednesday = _bj(2026, 10, 28, 15, 0)
+    for uid in ("user-1", "guest-1"):
+        _charge(db, uid, 40, wednesday - timedelta(days=1), f"{uid}-tue")
+        _charge(db, uid, 30, wednesday - timedelta(hours=2), f"{uid}-wed")
+
+    credit_service.reset_all_credits(db, actor_id="admin", now=wednesday - timedelta(hours=1))
+    _charge(db, "user-1", 5, wednesday - timedelta(minutes=30), "after")
+
+    user = credit_service.usage_summary(db, db.get(User, "user-1"), now=wednesday)
+    guest = credit_service.usage_summary(db, db.get(User, "guest-1"), now=wednesday)
+    assert (user["daily"]["used"], user["weekly"]["used"]) == (5, 5)
+    assert (guest["daily"]["used"], guest["weekly"]["used"]) == (0, 0)
+    # 窗口照常按自然日和周一计算，不从重置时刻顺延
+    assert user["weekly"]["resets_at"] == _bj(2026, 11, 2, 0, 0).astimezone(timezone.utc).isoformat()
+    assert user["last_reset_at"] == (wednesday - timedelta(hours=1)).astimezone(timezone.utc).isoformat()
+
+    # 全员重置只写一条，不出现在个人流水里
+    resets = db.execute(select(CreditLedger).where(CreditLedger.kind == "reset")).scalars().all()
+    assert [(r.user_id, r.actor_id) for r in resets] == [(None, "admin")]
+    assert all(e.kind == "run" for e in credit_service.list_entries(db, user_id="user-1", limit=10))
+
+    # 之后单独重置某个账号，取较晚的那次
+    credit_service.reset_user_credits(db, user_id="user-1", actor_id="admin", now=wednesday - timedelta(minutes=10))
+    assert credit_service.usage_summary(db, db.get(User, "user-1"), now=wednesday)["daily"]["used"] == 0
+
+
+def test_only_admin_can_reset_all_credits(client, db):
+    test_client, state = client
+    _charge(db, "user-1", 80, datetime.now(timezone.utc) - timedelta(seconds=5), "spent")
+
+    assert test_client.post("/api/admin/credits/reset-all").status_code == 403
+    state.user_id = "admin"
+    assert test_client.get("/api/admin/credits/reset-all").json()["data"] == {"last_reset_at": None}
+
+    reset_at = test_client.post("/api/admin/credits/reset-all").json()["data"]["last_reset_at"]
+    assert test_client.get("/api/admin/credits/reset-all").json()["data"] == {"last_reset_at": reset_at}
+    summary = test_client.get("/api/admin/credits/users/user-1").json()["data"]["summary"]
+    assert summary["daily"]["used"] == 0 and summary["last_reset_at"] == reset_at

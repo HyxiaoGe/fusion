@@ -12,6 +12,8 @@ const apiMocks = vi.hoisted(() => ({
 const creditsMocks = vi.hoisted(() => ({
   fetchAdminUserCredits: vi.fn(),
   resetAdminUserCredits: vi.fn(),
+  fetchCreditsResetAll: vi.fn(),
+  resetAllCredits: vi.fn(),
 }));
 
 vi.mock('@/lib/api/adminAudit', () => apiMocks);
@@ -44,10 +46,29 @@ const page = {
 beforeEach(() => {
   void i18n.changeLanguage('zh-CN');
   apiMocks.getAdminUsers.mockReset().mockResolvedValue(page);
+  creditsMocks.fetchCreditsResetAll.mockReset().mockResolvedValue({ last_reset_at: null });
+  creditsMocks.resetAllCredits.mockReset();
   adminNavigation.reset('/admin/users');
 });
 
 describe('AdminUsersPanel', () => {
+  it('全员重置额度需要确认，成功后显示重置时间', async () => {
+    creditsMocks.resetAllCredits.mockResolvedValue({ last_reset_at: '2026-10-26T07:00:00+00:00' });
+    renderAdmin(<AdminUsersPanel />);
+    await screen.findByText('@alpha');
+    expect(screen.queryByTestId('credits-reset-all-at')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '全员重置额度' }));
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(creditsMocks.resetAllCredits).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '全员重置额度' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认重置' }));
+
+    await waitFor(() => expect(creditsMocks.resetAllCredits).toHaveBeenCalledTimes(1));
+    expect((await screen.findByTestId('credits-reset-all-at')).textContent).toContain('2026/10/26 15:00:00');
+  });
+
   it('额度弹窗展示用量与流水，二次确认后重置并刷新', async () => {
     const window = (used: number, limit: number) => ({ limit, used, remaining: limit - used, resets_at: '2026-10-26T16:00:00+00:00' });
     const credits = (used: number) => ({
