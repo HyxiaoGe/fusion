@@ -859,7 +859,7 @@
     }
   },
   "notifications": {
-    "businessTypes": { "ai_conversation": "AI conversations", "changelog": "Product updates" },
+    "businessTypes": { "ai_conversation": "AI conversations", "changelog": "Product updates", "credits": "Credits" },
     "title": "Notifications",
     "triggerUnread": "Notifications, {{count}} unread",
     "close": "Close notifications",

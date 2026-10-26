@@ -19,8 +19,10 @@ const { push, dispatch, state } = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 vi.mock('./NotificationsProvider', () => ({ useNotifications: () => state }));
 vi.mock('@/redux/hooks', () => ({ useAppDispatch: () => dispatch }));
+const { markNotificationsRead } = vi.hoisted(() => ({ markNotificationsRead: vi.fn() }));
+vi.mock('@/lib/api/notifications', () => ({ markNotificationsRead }));
 import NotificationCenter from './NotificationCenter';
-import { openChangelogDialog, openNotificationsDialog } from '@/redux/slices/settingsSlice';
+import { openChangelogDialog, openCreditsPanel, openNotificationsDialog } from '@/redux/slices/settingsSlice';
 
 function item(read = false): NotificationItem {
   return {
@@ -98,6 +100,19 @@ describe('通知中心交互', () => {
     expect(push).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(state.markAllRead).not.toHaveBeenCalled();
+  });
+
+  it('额度通知点开即已读并展开额度面板，不跳转', async () => {
+    markNotificationsRead.mockResolvedValue({});
+    state.items = [{ ...item(), business_type: 'credits', kind: 'reset_cards_granted', title: '你收到了 1 张额度重置卡', target: { type: 'credits' } }];
+    render(<NotificationCenter />);
+    fireEvent.click(screen.getByRole('button', { name: '通知，1 条未读' }));
+    expect(screen.getByText('额度')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /你收到了 1 张额度重置卡/ }));
+    expect(dispatch).toHaveBeenCalledWith(openCreditsPanel());
+    expect(markNotificationsRead).toHaveBeenCalledWith(['notice-a']);
+    expect(push).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('全部已读后无角标，已读历史仍可查看，Escape 返回铃铛焦点', async () => {

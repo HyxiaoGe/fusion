@@ -256,6 +256,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
   // 游客也能聊天；上传、知识库仍需登录
   const canChat = useAppSelector(selectCanChat);
+  const creditsPanelRequest = useAppSelector((state) => state.settings.creditsPanelRequest);
   const isGuest = useAppSelector(selectIsGuest);
   const credits = useAppSelector(selectCredits);
   const hasCredits = credits !== null;
@@ -1534,6 +1535,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 onLogin={() => promptLogin("登录后可使用全部模型和功能")}
                 conversationId={activeChatId ?? null}
                 onCreditsChanged={() => void dispatch(refreshEntitlements())}
+                openRequest={creditsPanelRequest}
               />
             )}
             <ModelSelector

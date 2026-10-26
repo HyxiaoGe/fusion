@@ -26,10 +26,11 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import AgentSession, CreditLedger, CreditResetCard, RunTrajectoryMeta, User
+from app.db.notification_repository import NotificationRepository
 from app.schemas.response import ApiException
 from app.services.agent.trajectory_reconciliation import ORPHANED_RUN_ERROR_MESSAGE
 from app.services.credit_pricing import compute_run_charge
-from app.utils.time import utc_now
+from app.utils.time import as_china_time, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +326,21 @@ async def settle_pending_runs_job() -> None:
         logger.info("credits_sweep_settled count=%s", settled)
 
 
+RESET_NOTICE_TITLE = "额度已重置"
+
+
+def _notify_cards_granted(db: Session, user_ids: list[str], count: int, granted_at: datetime) -> None:
+    """通知收到重置卡的用户，否则只有点开额度面板才会发现，卡可能放到过期。"""
+    expires = as_china_time(granted_at + timedelta(days=RESET_CARD_VALID_DAYS))
+    body = f"可在额度面板中使用，清零今日和本周已用额度，{expires.month} 月 {expires.day} 日 {expires:%H:%M} 前有效。"
+    notifications = NotificationRepository(db)
+    # 固定升序，和更新日志广播一致，避免交叉锁住用户通知水位。
+    for user_id in sorted(user_ids):
+        notifications.enqueue_credits(
+            user_id=user_id, kind="reset_cards_granted", title=f"你收到了 {count} 张额度重置卡", body=body
+        )
+
+
 def reset_user_credits(db: Session, *, user_id: str, actor_id: str, now: datetime | None = None) -> CreditLedger:
     """管理员把用户当前日、周窗口的已用量清零。"""
     entry = CreditLedger(
@@ -336,6 +352,9 @@ def reset_user_credits(db: Session, *, user_id: str, actor_id: str, now: datetim
         actor_id=actor_id,
     )
     db.add(entry)
+    NotificationRepository(db).enqueue_credits(
+        user_id=user_id, kind="credits_reset", title=RESET_NOTICE_TITLE, body="管理员已清零你今日和本周的已用额度。"
+    )
     db.commit()
     logger.info("credits_reset user=%s actor=%s", user_id, actor_id)
     return entry
@@ -366,8 +385,10 @@ def grant_reset_cards(
         raise ApiException.bad_request("游客不发放重置卡")
     if limits_for(user).unlimited:
         raise ApiException.bad_request("该账号不限额，无需重置卡")
-    cards = _new_cards([str(user.id)] * count, actor_id, _as_utc(now or utc_now()))
+    granted_at = _as_utc(now or utc_now())
+    cards = _new_cards([str(user.id)] * count, actor_id, granted_at)
     db.add_all(cards)
+    _notify_cards_granted(db, [str(user.id)], count, granted_at)
     db.commit()
     logger.info("credits_reset_cards_granted user=%s actor=%s count=%s", user.id, actor_id, count)
     return cards
@@ -384,7 +405,9 @@ def grant_reset_cards_to_all(db: Session, *, actor_id: str, now: datetime | None
             )
         ).scalars()
     )
-    db.add_all(_new_cards(user_ids, actor_id, _as_utc(now or utc_now())))
+    granted_at = _as_utc(now or utc_now())
+    db.add_all(_new_cards(user_ids, actor_id, granted_at))
+    _notify_cards_granted(db, user_ids, 1, granted_at)
     db.commit()
     logger.info("credits_reset_cards_granted_all actor=%s count=%s", actor_id, len(user_ids))
     return len(user_ids)
@@ -425,7 +448,10 @@ def use_reset_card(db: Session, user: Any, *, now: datetime | None = None) -> Cr
 
 
 def reset_all_credits(db: Session, *, actor_id: str, now: datetime | None = None) -> CreditLedger:
-    """管理员把所有账号当前日、周窗口的已用量清零：只记一条全员重置，不逐个账号写记录。"""
+    """管理员把所有账号当前日、周窗口的已用量清零：只记一条全员重置，不逐个账号写记录。
+
+    受限账号（含游客）各收到一条通知；管理员和免限额账号不受额度约束，不通知。
+    """
     entry = CreditLedger(
         user_id=None,
         kind="reset",
@@ -435,6 +461,21 @@ def reset_all_credits(db: Session, *, actor_id: str, now: datetime | None = None
         actor_id=actor_id,
     )
     db.add(entry)
+    recipients = list(
+        db.execute(
+            select(User.id)
+            .where(User.is_superuser.is_(False), User.username.not_in(_exempt_usernames()))
+            .order_by(User.id)
+        ).scalars()
+    )
+    notifications = NotificationRepository(db)
+    for user_id in recipients:
+        notifications.enqueue_credits(
+            user_id=user_id,
+            kind="credits_reset",
+            title=RESET_NOTICE_TITLE,
+            body="管理员已为所有用户清零今日和本周的已用额度。",
+        )
     db.commit()
     logger.info("credits_reset_all actor=%s", actor_id)
     return entry

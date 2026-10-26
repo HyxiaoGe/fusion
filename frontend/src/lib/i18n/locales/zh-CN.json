@@ -853,7 +853,7 @@
     }
   },
   "notifications": {
-    "businessTypes": { "ai_conversation": "AI 对话生成", "changelog": "更新日志" },
+    "businessTypes": { "ai_conversation": "AI 对话生成", "changelog": "更新日志", "credits": "额度" },
     "title": "通知",
     "triggerUnread": "通知，{{count}} 条未读",
     "close": "关闭通知",

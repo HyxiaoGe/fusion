@@ -7,9 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 MAX_NOTIFICATION_REVISION = 2**63 - 1
 NotificationKind = Literal[
-    "run_completed", "run_failed", "run_limit_reached", "run_incomplete", "run_interrupted", "changelog_published"
+    "run_completed",
+    "run_failed",
+    "run_limit_reached",
+    "run_incomplete",
+    "run_interrupted",
+    "changelog_published",
+    "reset_cards_granted",
+    "credits_reset",
 ]
-NotificationBusinessType = Literal["ai_conversation", "changelog"]
+NotificationBusinessType = Literal["ai_conversation", "changelog", "credits"]
 NotificationFilter = Literal["all", "unread"]
 
 
@@ -25,6 +32,10 @@ class ChangelogNotificationTarget(BaseModel):
     changelog_id: str
 
 
+class CreditsNotificationTarget(BaseModel):
+    type: Literal["credits"] = "credits"
+
+
 class NotificationItem(BaseModel):
     id: str
     business_type: NotificationBusinessType
@@ -34,7 +45,9 @@ class NotificationItem(BaseModel):
     created_at: datetime
     read_at: datetime | None
     created_revision: int
-    target: Annotated[NotificationTarget | ChangelogNotificationTarget, Field(discriminator="type")]
+    target: Annotated[
+        NotificationTarget | ChangelogNotificationTarget | CreditsNotificationTarget, Field(discriminator="type")
+    ]
 
 
 class NotificationReadResult(BaseModel):

@@ -20,10 +20,13 @@ from app.db.database import Base
 from app.db.models import (
     AgentEvent,
     AgentSession,
+    Changelog,
     Conversation,
     CreditLedger,
     CreditResetCard,
     McpServer,
+    Notification,
+    NotificationUserState,
     RunTrajectoryMeta,
     ToolCallLog,
     User,
@@ -32,6 +35,7 @@ from app.schemas.response import ApiException
 from app.services import credit_pricing, credit_service
 from app.services.agent.trajectory_reconciliation import ORPHANED_RUN_ERROR_MESSAGE
 from app.services.mcp.tool_contract import build_agent_tool_alias
+from app.services.notification_service import _item as notification_item
 
 BJ = timezone(timedelta(hours=8))
 
@@ -90,6 +94,9 @@ def engine():
             McpServer.__table__,
             CreditLedger.__table__,
             CreditResetCard.__table__,
+            Changelog.__table__,
+            Notification.__table__,
+            NotificationUserState.__table__,
         ],
     )
     with Session(engine) as session:
@@ -621,6 +628,51 @@ def test_only_admin_can_reset_all_credits(client, db):
     assert test_client.get("/api/admin/credits/reset-all").json()["data"] == {"last_reset_at": reset_at}
     summary = test_client.get("/api/admin/credits/users/user-1").json()["data"]["summary"]
     assert summary["daily"]["used"] == 0 and summary["last_reset_at"] == reset_at
+
+
+def _credit_notices(db):
+    rows = db.execute(select(Notification).order_by(Notification.user_id, Notification.created_revision)).scalars()
+    return [(row.user_id, row.kind, row.title, row.body) for row in rows]
+
+
+def test_granting_cards_and_resetting_credits_notify_the_affected_users(db):
+    wednesday = _bj(2026, 10, 28, 15, 0)
+    db.add(User(id="user-2", username="two"))
+    db.commit()
+    expiry = "可在额度面板中使用，清零今日和本周已用额度，11 月 27 日 15:00 前有效。"
+
+    credit_service.grant_reset_cards(db, user=db.get(User, "user-1"), actor_id="admin", count=2, now=wednesday)
+    assert _credit_notices(db) == [("user-1", "reset_cards_granted", "你收到了 2 张额度重置卡", expiry)]
+
+    db.execute(Notification.__table__.delete())
+    with patch.object(settings, "CREDITS_EXEMPT_USERNAMES", "fusion-eval"):
+        credit_service.grant_reset_cards_to_all(db, actor_id="admin", now=wednesday)
+    # 和发卡范围一致：游客、管理员、免限额账号不通知
+    assert [(uid, title) for uid, _, title, _ in _credit_notices(db)] == [
+        ("user-1", "你收到了 1 张额度重置卡"),
+        ("user-2", "你收到了 1 张额度重置卡"),
+    ]
+
+    db.execute(Notification.__table__.delete())
+    credit_service.reset_user_credits(db, user_id="user-1", actor_id="admin", now=wednesday)
+    assert _credit_notices(db) == [("user-1", "credits_reset", "额度已重置", "管理员已清零你今日和本周的已用额度。")]
+
+    db.execute(Notification.__table__.delete())
+    with patch.object(settings, "CREDITS_EXEMPT_USERNAMES", "fusion-eval"):
+        credit_service.reset_all_credits(db, actor_id="admin", now=wednesday)
+    # 游客同样被重置，一起通知；管理员和免限额账号不受额度约束
+    notices = _credit_notices(db)
+    assert [uid for uid, *_ in notices] == ["guest-1", "user-1", "user-2"]
+    assert {(kind, body) for _, kind, _, body in notices} == {
+        ("credits_reset", "管理员已为所有用户清零今日和本周的已用额度。")
+    }
+
+    # 同一账号多次重置各留一条，点开指向额度面板
+    credit_service.reset_user_credits(db, user_id="user-1", actor_id="admin", now=wednesday)
+    rows = db.execute(select(Notification).where(Notification.user_id == "user-1")).scalars().all()
+    assert len(rows) == 2
+    item = notification_item(rows[0])
+    assert (item.business_type, item.target.type) == ("credits", "credits")
 
 
 def test_regenerating_over_dead_run_does_not_charge_it_as_user_superseded(db):

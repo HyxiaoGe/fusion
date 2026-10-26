@@ -13,6 +13,7 @@ from app.db.notification_repository import NotificationRepository
 from app.schemas.notification import (
     MAX_NOTIFICATION_REVISION,
     ChangelogNotificationTarget,
+    CreditsNotificationTarget,
     NotificationFilter,
     NotificationItem,
     NotificationPage,
@@ -133,12 +134,16 @@ def _item(row: Notification) -> NotificationItem:
         created_at=as_utc(row.created_at),
         read_at=as_utc(row.read_at) if row.read_at is not None else None,
         created_revision=row.created_revision,
-        target=(
-            ChangelogNotificationTarget(changelog_id=row.changelog_id)
-            if row.business_type == "changelog"
-            else NotificationTarget(conversation_id=row.conversation_id, message_id=row.message_id, run_id=row.run_id)
-        ),
+        target=_target(row),
     )
+
+
+def _target(row: Notification) -> NotificationTarget | ChangelogNotificationTarget | CreditsNotificationTarget:
+    if row.business_type == "changelog":
+        return ChangelogNotificationTarget(changelog_id=row.changelog_id)
+    if row.business_type == "credits":
+        return CreditsNotificationTarget()
+    return NotificationTarget(conversation_id=row.conversation_id, message_id=row.message_id, run_id=row.run_id)
 
 
 class NotificationService:
