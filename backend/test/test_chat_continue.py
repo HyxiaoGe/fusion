@@ -147,6 +147,7 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             patch("app.services.chat_service.register_task") as register_task_mock,
             patch("app.services.chat_service.credit_service.settle_after") as settle_after_mock,
             patch("app.services.chat_service.asyncio.create_task") as create_task_mock,
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
         ):
             task = object()
 
@@ -334,6 +335,8 @@ class ChatContinueTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("app.services.chat_service.register_task") as register_task_mock,
             patch("app.services.chat_service.asyncio.create_task") as create_task_mock,
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
+            patch("app.services.chat_service.credit_service.settle_after"),
         ):
             with self.assertRaises(ApiException) as raised:
                 await service.continue_agent_run(

@@ -1102,6 +1102,8 @@ class ChatServiceTests(unittest.TestCase):
                 new=AsyncMock(return_value=StreamInitResult(ok=True)),
             ) as init_stream_mock,
             patch("app.services.chat_service.asyncio.create_task", side_effect=close_created_coroutine),
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
+            patch("app.services.chat_service.credit_service.settle_after"),
             patch("app.services.chat_service.register_task"),
         ):
             asyncio.run(
@@ -1210,6 +1212,8 @@ class ChatServiceTests(unittest.TestCase):
                 new=AsyncMock(return_value=StreamInitResult(ok=True)),
             ) as init_stream_mock,
             patch("app.services.chat_service.asyncio.create_task", side_effect=close_created_coroutine),
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
+            patch("app.services.chat_service.credit_service.settle_after"),
             patch("app.services.chat_service.register_task"),
         ):
             asyncio.run(
@@ -1316,6 +1320,8 @@ class ChatServiceTests(unittest.TestCase):
                 new=AsyncMock(return_value=StreamInitResult(ok=True)),
             ) as init_stream_mock,
             patch("app.services.chat_service.asyncio.create_task", side_effect=close_created_coroutine),
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
+            patch("app.services.chat_service.credit_service.settle_after"),
             patch("app.services.chat_service.register_task"),
         ):
             asyncio.run(
@@ -1396,6 +1402,8 @@ class ChatServiceTests(unittest.TestCase):
                 new=AsyncMock(return_value=StreamInitResult(ok=True)),
             ) as init_stream_mock,
             patch("app.services.chat_service.asyncio.create_task", side_effect=close_created_coroutine),
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
+            patch("app.services.chat_service.credit_service.settle_after"),
             patch("app.services.chat_service.register_task"),
         ):
             asyncio.run(
@@ -2006,6 +2014,8 @@ class ChatServiceTests(unittest.TestCase):
             patch("app.services.chat_service.init_stream", new=AsyncMock()) as init_stream_mock,
             patch("app.services.chat_service.register_task") as register_task_mock,
             patch("app.services.chat_service.asyncio.create_task") as create_task_mock,
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
+            patch("app.services.chat_service.credit_service.settle_after"),
             patch("app.services.chat_service.litellm") as mock_litellm,
         ):
             mock_litellm.acompletion = AsyncMock()
@@ -2075,6 +2085,8 @@ class ChatServiceTests(unittest.TestCase):
             ),
             patch("app.services.chat_service.register_task") as register_task_mock,
             patch("app.services.chat_service.asyncio.create_task") as create_task_mock,
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
+            patch("app.services.chat_service.credit_service.settle_after"),
         ):
             with self.assertRaises(ApiException) as raised:
                 asyncio.run(
@@ -2141,6 +2153,8 @@ class ChatServiceTests(unittest.TestCase):
             patch("app.services.chat_service.logger.error") as error_log,
             patch("app.services.chat_service.register_task") as register_task_mock,
             patch("app.services.chat_service.asyncio.create_task") as create_task_mock,
+            patch("app.services.chat_service.keep_run_alive", new=AsyncMock()),
+            patch("app.services.chat_service.credit_service.settle_after"),
         ):
             with self.assertRaisesRegex(RuntimeError, "database unavailable"):
                 asyncio.run(

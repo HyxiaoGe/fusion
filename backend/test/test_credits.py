@@ -1,5 +1,6 @@
 """Credits 计价、结算、窗口用量、准入与接口回归。"""
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -494,3 +495,28 @@ def test_only_admin_can_reset_all_credits(client, db):
     assert test_client.get("/api/admin/credits/reset-all").json()["data"] == {"last_reset_at": reset_at}
     summary = test_client.get("/api/admin/credits/users/user-1").json()["data"]["summary"]
     assert summary["daily"]["used"] == 0 and summary["last_reset_at"] == reset_at
+
+
+def test_regenerating_over_dead_run_does_not_charge_it_as_user_superseded(db):
+    """进程已退出的运行停在 running；重新生成前要先记为系统中断，否则替换回答时会按「回答已重新生成」扣费。"""
+    from app.services.chat_service import ChatService
+
+    _run(db, "run-dead", status="running", message_id="msg-regen")
+    _run(db, "run-live", status="running", message_id="msg-live")
+    for run_id in ("run-dead", "run-live"):
+        _round(db, run_id, 1, round_id=f"r-{run_id}", at=MONDAY_PEAK, input_tokens=1000, output_tokens=100)
+    service = ChatService.__new__(ChatService)
+    service.db = db
+
+    async def run_alive(run_id: str) -> bool:
+        return run_id == "run-live"
+
+    with patch("app.services.chat_service.is_run_alive", new=run_alive):
+        asyncio.run(service._interrupt_orphaned_message_runs("conv-user-1", "msg-regen"))
+        asyncio.run(service._interrupt_orphaned_message_runs("conv-user-1", "msg-live"))
+
+    dead = db.get(AgentSession, "run-dead")
+    assert (dead.status, dead.error_message) == ("interrupted", ORPHANED_RUN_ERROR_MESSAGE)
+    assert db.get(AgentSession, "run-live").status == "running"
+    entry = credit_service.settle_run(db, "run-dead")
+    assert (entry.charged, entry.credits) == (False, 0.0)

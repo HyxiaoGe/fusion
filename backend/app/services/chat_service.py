@@ -40,6 +40,7 @@ from app.services.agent.session_cache import (
     StalePreviousRunError,
     validate_latest_previous_run_candidate,
 )
+from app.services.agent.trajectory_reconciliation import mark_orphaned_run
 from app.services.agent_strategy_config import get_agent_tools_disabled_aliases
 from app.services.auto_model import (
     AUTO_MODEL_ID,
@@ -71,7 +72,14 @@ from app.services.stream.agent_loop_request_prep import (
 )
 from app.services.stream.persistence import acquire_message_persistence_lock, merge_partial_content_blocks
 from app.services.stream.runner import _agent_loop_limits
-from app.services.stream_state_service import StreamInitResult, finalize_stream, get_stream_meta, init_stream
+from app.services.stream_state_service import (
+    StreamInitResult,
+    finalize_stream,
+    get_stream_meta,
+    init_stream,
+    is_run_alive,
+    keep_run_alive,
+)
 from app.services.suggested_question_service import (
     SuggestedQuestionGenerationResult,
     SuggestedQuestionService,
@@ -82,6 +90,7 @@ from app.services.utility_model import (
     UTILITY_MAX_TOKENS,
     resolve_utility_model,
 )
+from app.utils.time import utc_now
 
 
 def _require_stream_initialized(result: StreamInitResult) -> None:
@@ -428,6 +437,8 @@ class ChatService:
         elif retry_user_message_id is not None:
             if existing_conversation is None or conversation_id is None:
                 raise ApiException.not_found("会话不存在或无权访问")
+            if retry_assistant_message_id is not None:
+                await self._interrupt_orphaned_message_runs(conversation_id, retry_assistant_message_id)
             retry_user_message, retry_assistant_message = self.conversation_service.prepare_message_retry(
                 conversation_id=conversation_id,
                 user_id=user_id,
@@ -592,6 +603,8 @@ class ChatService:
         if stream:
             # 预分配 assistant 消息 ID 和 task ID
             task_id = retry_generation_task_id or str(uuid_mod.uuid4())
+            # 运行 ID 在这里定下：存活标记和结算都按它找运行（评测等内部调用不传）
+            trace_id = trace_id or str(uuid_mod.uuid4())
 
             # 先初始化 Redis Stream（清除旧数据 + 写 start 标记），
             # 必须在 SSE 读取器启动之前完成，否则读取器会读到上一轮残留数据
@@ -668,6 +681,7 @@ class ChatService:
                 )
             )
             register_task(conversation.id, task, task_id)
+            await keep_run_alive(task, conversation_id=conversation.id, task_id=task_id, run_id=trace_id)
             if trace_id:
                 credit_service.settle_after(task, run_id=trace_id)
             if guest_run is not None:
@@ -773,6 +787,7 @@ class ChatService:
         original_user_text = _user_message_text(continuation_user_message)
 
         task_id = str(uuid_mod.uuid4())
+        trace_id = trace_id or str(uuid_mod.uuid4())
         self.conversation_service.claim_assistant_message_generation(
             conversation_id=conversation_id,
             message_id=assistant_message_id,
@@ -837,6 +852,7 @@ class ChatService:
             )
         )
         register_task(conversation_id, task, task_id)
+        await keep_run_alive(task, conversation_id=conversation_id, task_id=task_id, run_id=trace_id)
         if trace_id:
             credit_service.settle_after(task, run_id=trace_id)
         if guest_run is not None:
@@ -854,6 +870,29 @@ class ChatService:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    async def _interrupt_orphaned_message_runs(self, conversation_id: str, message_id: str) -> None:
+        """重新生成前，把这条回答上进程已退出的 running run 记为系统原因中断。
+
+        否则替换回答时会把它当作被用户顶替（「回答已重新生成」），按用户原因扣额度。
+        """
+        runs = (
+            self.db.query(AgentSession)
+            .filter(
+                AgentSession.conversation_id == conversation_id,
+                AgentSession.message_id == message_id,
+                AgentSession.status == "running",
+            )
+            .all()
+        )
+        orphaned = [run for run in runs if not await is_run_alive(str(run.id))]
+        if not orphaned:
+            return
+        now = utc_now()
+        for run in orphaned:
+            mark_orphaned_run(run, now)
+        self.db.commit()
+        logger.info("重新生成前中断遗留运行: conv_id=%s, runs=%s", conversation_id, [str(run.id) for run in orphaned])
 
     def _validate_retry_previous_run(
         self,
