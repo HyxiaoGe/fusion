@@ -16,8 +16,9 @@ import {
   selectIsGuest,
   selectLimitedCredits,
 } from "@/redux/selectors";
-import { creditsExhaustedMessage, creditsRemainingLabel } from "@/lib/api/credits";
+import { creditsExhaustedMessage } from "@/lib/api/credits";
 import { refreshEntitlements } from "@/redux/slices/guestSlice";
+import CreditsMeter from "./CreditsMeter";
 import { NEW_CHAT_SETTINGS_KEY, selectReasoningEnabled, setReasoningEnabled } from "@/redux/slices/conversationSlice";
 import {
   addFileId,
@@ -1560,27 +1561,20 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       </div>
 
-      <div className="px-1 text-xs text-muted-foreground" role="status" aria-live="polite">
+      <div className="flex items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
+        <div className="min-w-0" role="status" aria-live="polite">
         {isStopUnconfirmed ? <span className="inline-flex items-center gap-2">停止结果未确认，请刷新会话核实<Button type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => window.location.reload()}>刷新确认</Button></span>
           : isStopping ? "正在确认停止结果，已输入的草稿会保留"
             : isSubmitting ? "正在提交消息，草稿暂时保留"
               : isCurrentConversationStreaming ? (isTouchInput ? "正在生成，可继续编写下一条消息" : "正在生成，可继续编写下一条消息 · Shift+Enter 换行")
                 : isTouchInput ? null : "Enter 发送 · Shift+Enter 换行"}
+        </div>
         {hasHydrated && limitedCredits && (
-          <span data-testid="credits-hint">
-            {" · "}{creditsRemainingLabel(limitedCredits, isGuest)}
-            {isGuest && (
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                className="h-auto px-1 py-0 text-xs"
-                onClick={() => promptLogin("登录后可使用全部模型和功能")}
-              >
-                登录
-              </Button>
-            )}
-          </span>
+          <CreditsMeter
+            credits={limitedCredits}
+            isGuest={isGuest}
+            onLogin={() => promptLogin("登录后可使用全部模型和功能")}
+          />
         )}
       </div>
 

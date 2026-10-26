@@ -112,13 +112,3 @@ export function creditsExhaustedMessage(window: 'daily' | 'weekly', isGuest: boo
   if (isGuest) return window === 'daily' ? '今天免登录额度已用完，登录后继续' : '本周免登录额度已用完，登录后继续';
   return window === 'daily' ? '今日额度已用完，明天 0 点恢复' : '本周额度已用完，下周一 0 点恢复';
 }
-
-/** 输入框下方的剩余额度：显示更紧的那个窗口。 */
-export function creditsRemainingLabel(summary: CreditsSummary, isGuest: boolean): string {
-  const daily = summary.daily.remaining ?? Infinity;
-  const weekly = summary.weekly.remaining ?? Infinity;
-  const prefix = isGuest ? '免登录' : '';
-  return weekly < daily
-    ? `${prefix}本周剩余 ${formatCredits(weekly)} credits`
-    : `${prefix}今日剩余 ${formatCredits(daily)} credits`;
-}
