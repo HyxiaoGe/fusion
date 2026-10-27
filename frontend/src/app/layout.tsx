@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description: 'Fusion 智能助手：对话、联网搜索、出行与天气查询、文档创作。',
   // 性能优化的meta标签
   robots: 'index,follow',
-  // favicon.ico 由 src/app 文件约定输出；SVG 内部按系统明暗切换下半部颜色。
+  // favicon.ico 由 src/app 文件约定输出；SVG 为带深色底板的小尺寸轮廓，不随系统明暗切换。
   icons: {
     icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
     apple: '/apple-touch-icon.png',
