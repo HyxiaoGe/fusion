@@ -111,8 +111,8 @@ jobs:
       image_repository: seanfield/fusion-api
       health_check_endpoint: http://127.0.0.1:8002/health
       migration_enabled: true
-      dependency_services: postgres,redis,litellm,flyai-adapter,knowledge-worker
-      rollback_anchor_policy: api-and-adapter-image-identities
+      dependency_services: postgres,redis,litellm,knowledge-worker
+      rollback_anchor_policy: api-image-identity
       deploy_sha: ${{ github.sha }}
       rollback_sha: ${{ inputs.api_rollback_sha || '' }}
       rollback_reason: ${{ inputs.api_rollback_sha != '' && inputs.rollback_reason || '' }}

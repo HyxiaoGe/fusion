@@ -23,19 +23,6 @@ if [ "${actual_api_id}" != "${expected_api_id}" ]; then
   echo "fusion-api 内容 ID 不匹配: expected=${expected_api_id} actual=${actual_api_id}"
   exit 1
 fi
-
-expected_adapter_image="${DEPLOY_ADAPTER_IMAGE}"
-actual_adapter_image="$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')"
-if [ "${actual_adapter_image}" != "${expected_adapter_image}" ]; then
-  echo "fusion-flyai-adapter 镜像不匹配: expected=${expected_adapter_image} actual=${actual_adapter_image}"
-  exit 1
-fi
-expected_adapter_id="$(docker image inspect "${expected_adapter_image}" --format '{{.Id}}')"
-actual_adapter_id="$(docker inspect fusion-flyai-adapter --format '{{.Image}}')"
-if [ "${actual_adapter_id}" != "${expected_adapter_id}" ]; then
-  echo "fusion-flyai-adapter 内容 ID 不匹配: expected=${expected_adapter_id} actual=${actual_adapter_id}"
-  exit 1
-fi
 if [ "${KNOWLEDGE_WORKER_SUPPORTED}" = "true" ]; then
   actual_worker_image="$(docker inspect fusion-knowledge-worker --format '{{.Config.Image}}')"
   actual_worker_id="$(docker inspect fusion-knowledge-worker --format '{{.Image}}')"

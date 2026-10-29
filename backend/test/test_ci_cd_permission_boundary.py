@@ -116,22 +116,18 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         expected_commands = (
             "api_image_ref=\"$(docker inspect fusion-api --format '{{.Config.Image}}')\"",
             "api_image_id=\"$(docker inspect fusion-api --format '{{.Image}}')\"",
-            "adapter_image_ref=\"$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')\"",
-            "adapter_image_id=\"$(docker inspect fusion-flyai-adapter --format '{{.Image}}')\"",
             'api_tag_prefix="${IMAGE_NAME}:"',
             'api_digest_prefix="${IMAGE_NAME}@sha256:"',
             'case "${api_image_ref}" in',
             '"${api_tag_prefix}"*)',
             '"${api_digest_prefix}"*)',
             'if [[ ! "${api_sha}" =~ ^[0-9a-f]{40}$ ]]; then',
-            'if [ "${adapter_image_ref}" != "${expected_adapter_ref}" ]; then',
             'if [[ ! "${api_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then',
-            'if [[ ! "${adapter_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then',
         )
         for command in expected_commands:
             self.assertRegex(commands, rf"(?m)^{re.escape(command)}$")
         self.assertIn(".github/scripts/release_ledger.py", commands)
-        for output_name in ("api_image_ref", "api_image_id", "adapter_image_ref", "adapter_image_id"):
+        for output_name in ("api_image_ref", "api_image_id"):
             self.assertEqual(script.count(f'"{output_name}=${{{output_name}}}"'), 1)
         self.assertEqual(script.count('"deployment_sha=${api_sha}"'), 1)
 
@@ -155,14 +151,6 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             step["env"]["ROLLBACK_API_IMAGE_ID"], "${{ steps.capture_rollback_target.outputs.api_image_id }}"
         )
         self.assertEqual(
-            step["env"]["ROLLBACK_ADAPTER_IMAGE_REF"],
-            "${{ steps.capture_rollback_target.outputs.adapter_image_ref }}",
-        )
-        self.assertEqual(
-            step["env"]["ROLLBACK_ADAPTER_IMAGE_ID"],
-            "${{ steps.capture_rollback_target.outputs.adapter_image_id }}",
-        )
-        self.assertEqual(
             step["env"]["ROLLBACK_DEPLOYMENT_SHA"],
             "${{ steps.capture_rollback_target.outputs.deployment_sha }}",
         )
@@ -171,17 +159,13 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             "docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml up -d",
             "restored_api_ref=\"$(docker inspect fusion-api --format '{{.Config.Image}}')\"",
             "restored_api_id=\"$(docker inspect fusion-api --format '{{.Image}}')\"",
-            "restored_adapter_ref=\"$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')\"",
-            "restored_adapter_id=\"$(docker inspect fusion-flyai-adapter --format '{{.Image}}')\"",
             'if [ "${restored_api_ref}" != "${ROLLBACK_API_IMAGE_REF}" ] \\',
-            'if [ "${restored_adapter_ref}" != "${ROLLBACK_ADAPTER_IMAGE_REF}" ] \\',
         )
         for command in expected_commands:
             self.assertRegex(commands, rf"(?m)^{re.escape(command)}$")
         self.assertIn("docker exec fusion-api", commands)
         self.assertIn("http://127.0.0.1:8000/health", commands)
-        self.assertIn("docker exec fusion-flyai-adapter", commands)
-        self.assertIn("http://127.0.0.1:8080/health", commands)
+        self.assertNotIn("fusion-flyai-adapter", commands)
         self.assertIn('rollback_api_sha="${ROLLBACK_DEPLOYMENT_SHA}"', commands)
         self.assertIn("for rollback_smoke_path in \\", commands)
         self.assertIn("backend/scripts/deployment_smoke.py \\", commands)
@@ -285,8 +269,8 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                         "image_repository": "seanfield/fusion-api",
                         "health_check_endpoint": "http://127.0.0.1:8002/health",
                         "migration_enabled": True,
-                        "dependency_services": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
-                        "rollback_anchor_policy": "api-and-adapter-image-identities",
+                        "dependency_services": "postgres,redis,litellm,knowledge-worker",
+                        "rollback_anchor_policy": "api-image-identity",
                     },
                 },
                 "jobs": {
@@ -362,7 +346,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         app_contract_step = workflow_step(jobs[manifest["jobs"]["prepare"]], "Validate application deployment contract")
         self.assertEqual(app_contract_step["id"], parameter_contract["validation_step"])
         self.assertIn(
-            'expected_dependency_services="postgres,redis,litellm,flyai-adapter,knowledge-worker"',
+            'expected_dependency_services="postgres,redis,litellm,knowledge-worker"',
             app_contract_step["run"],
         )
         self.assertIn(
@@ -580,11 +564,6 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             'if [ "${actual_api_image}" != "${expected_api_image}" ]; then',
             "actual_api_id=\"$(docker inspect fusion-api --format '{{.Image}}')\"",
             'if [ "${actual_api_id}" != "${expected_api_id}" ]; then',
-            'expected_adapter_image="${DEPLOY_ADAPTER_IMAGE}"',
-            "actual_adapter_image=\"$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')\"",
-            'if [ "${actual_adapter_image}" != "${expected_adapter_image}" ]; then',
-            "actual_adapter_id=\"$(docker inspect fusion-flyai-adapter --format '{{.Image}}')\"",
-            'if [ "${actual_adapter_id}" != "${expected_adapter_id}" ]; then',
         )
         for command in expected_commands:
             self.assertRegex(active_shell, rf"(?m)^\s*{re.escape(command)}\s*$")
@@ -757,12 +736,12 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                 "# api_image_ref=\"$(docker inspect fusion-api --format '{{.Config.Image}}')\"",
             ),
             capture_step["run"].replace(
-                "adapter_image_id=\"$(docker inspect fusion-flyai-adapter --format '{{.Image}}')\"",
-                "echo \"adapter_image_id=$(docker inspect fusion-flyai-adapter --format '{{.Image}}')\"",
+                "api_image_id=\"$(docker inspect fusion-api --format '{{.Image}}')\"",
+                "echo \"api_image_id=$(docker inspect fusion-api --format '{{.Image}}')\"",
             ),
             capture_step["run"].replace(
-                'if [ "${adapter_image_ref}" != "${expected_adapter_ref}" ]; then',
-                '# if [ "${adapter_image_ref}" != "${expected_adapter_ref}" ]; then',
+                'if [[ ! "${api_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then',
+                '# if [[ ! "${api_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then',
             ),
         )
         for forged_script in forged_scripts:

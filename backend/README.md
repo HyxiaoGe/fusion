@@ -20,7 +20,7 @@ Fusion Backend 是 Fusion 的 FastAPI 应用，负责把一次用户任务转换
 - PostgreSQL、SQLAlchemy、Alembic
 - Redis、httpx、asyncio
 - LiteLLM Proxy
-- 可选：Milvus、MinIO / OSS、Search Service、Reader Service、远程 MCP 与 FlyAI Adapter
+- 可选：Milvus、MinIO / OSS、远程 MCP 与 agent-tools（生图、搜索、Reader、地图、文档、天气、FlyAI 出行）
 
 认证由独立 Auth Service 提供。模型目录和模型访问凭据由 LiteLLM 侧治理，Backend 不提供用户 BYOK 数据库。
 
@@ -40,7 +40,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-至少需要可访问的 PostgreSQL、Redis、Auth Service 和 LiteLLM。搜索、Reader、MCP、FlyAI、对象存储和知识库按需要配置；知识库默认关闭。
+至少需要可访问的 PostgreSQL、Redis、Auth Service 和 LiteLLM。agent-tools、MCP、对象存储和知识库按需要配置；知识库默认关闭。
 
 ### 3. 启动 API
 
@@ -63,7 +63,7 @@ pytest -q
 需要复现容器测试路径时运行：
 
 ```bash
-bash .github/scripts/linux-build-and-test.sh fusion-api-ci fusion-flyai-adapter-ci local
+bash .github/scripts/linux-build-and-test.sh fusion-api-ci local
 ```
 
 ## 代码结构
@@ -79,7 +79,6 @@ app/
 └── core/         # 配置、安全、Redis 与运行时设施
 
 alembic/          # 数据库迁移
-flyai-adapter/    # 隔离的第三方出行工具适配器
 ops/              # LiteLLM 等运行配置
 scripts/          # smoke、Worker 与维护脚本
 test/             # pytest 测试

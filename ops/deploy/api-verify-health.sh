@@ -25,20 +25,6 @@ if [ "$healthy" != "1" ]; then
   exit 1
 fi
 
-adapter_healthy=0
-for attempt in $(seq 1 30); do
-  if docker exec fusion-flyai-adapter node -e \
-    "fetch('http://127.0.0.1:8080/health',{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
-    adapter_healthy=1
-    break
-  fi
-  sleep 2
-done
-if [ "$adapter_healthy" != "1" ]; then
-  docker logs --tail=120 fusion-flyai-adapter || true
-  exit 1
-fi
-
 if [ "${KNOWLEDGE_WORKER_SUPPORTED}" = "true" ]; then
   worker_healthy=0
   for attempt in $(seq 1 30); do

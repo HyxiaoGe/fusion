@@ -3,16 +3,12 @@
     [string]$ImageName,
 
     [Parameter(Mandatory = $true)]
-    [string]$AdapterImageName,
-
-    [Parameter(Mandatory = $true)]
     [string]$ImageTag
 )
 
 # Release only builds images; Fusion CI runs checks and tests for the same commit (linux-build-and-test.sh).
 $ErrorActionPreference = "Stop"
 $image = "${ImageName}:${ImageTag}"
-$adapterImage = "${AdapterImageName}:${ImageTag}"
 $appRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 
 # 拉 Docker Hub 基础镜像/语法前端偶发 EOF，与 UI 构建（windows-docker-build action）同样重试 3 次。
@@ -39,8 +35,4 @@ function Invoke-DockerBuildWithRetry {
 
 Invoke-DockerBuildWithRetry -Label "API" -Build {
     docker build --target production --provenance=false -t $image $appRoot
-}
-
-Invoke-DockerBuildWithRetry -Label "FlyAI adapter" -Build {
-    docker build --target production --provenance=false -t $adapterImage (Join-Path $appRoot "flyai-adapter")
 }

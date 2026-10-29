@@ -282,8 +282,8 @@ class WorkflowContractTests(unittest.TestCase):
                 "seanfield/fusion-api",
                 "http://127.0.0.1:8002/health",
                 True,
-                "postgres,redis,litellm,flyai-adapter,knowledge-worker",
-                "api-and-adapter-image-identities",
+                "postgres,redis,litellm,knowledge-worker",
+                "api-image-identity",
             ),
             (
                 "publish-ui",

@@ -290,12 +290,6 @@ export MCP_ALLOWED_HOSTS="$(append_csv_value "${MCP_ALLOWED_HOSTS}" "mcp.map.qq.
 export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "TENCENT_MAP_MCP_API_KEY")"
 # agent-tools 网关与 image-service 按 Fusion 的服务密钥认定产品
 export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "AGENT_TOOLS_API_KEY")"
-export FLYAI_API_KEY="${DEPLOY_FLYAI_API_KEY:-}"
-if [ -z "${FLYAI_API_KEY}" ]; then
-  echo "FlyAI 发布密钥未配置，拒绝以静默禁用方式部署"
-  exit 1
-fi
-export FLYAI_ADAPTER_TOKEN="$(python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["FLYAI_API_KEY"].encode(), b"fusion-deploy-flyai-adapter-v1", hashlib.sha256).hexdigest(), end="")')"
 # 游客模式：令牌密钥只来自 GitHub Secret；未配置时游客入口保持关闭，不影响登录用户。
 export GUEST_TOKEN_SECRET="${DEPLOY_GUEST_TOKEN_SECRET:-}"
 export GUEST_MODE_ENABLED="$(printf '%s' "${DEPLOY_GUEST_MODE_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')"
@@ -373,13 +367,6 @@ else
   knowledge_worker_supported="false"
 fi
 printf '%s\n' "knowledge_worker_supported=${knowledge_worker_supported}" >> "${GITHUB_OUTPUT}"
-n=0
-until docker pull "${DEPLOY_ADAPTER_IMAGE}"; do
-  n=$((n+1))
-  if [ $n -ge 6 ]; then echo "FlyAI adapter 镜像拉取重试 $n 次仍失败"; exit 1; fi
-  echo "FlyAI adapter 镜像拉取失败（网络抖动），第 $n 次，10s 后重试..."
-  sleep 10
-done
 # dev 中 auth-service 只在 Docker 网络内暴露，未发布宿主机 8100。
 # 显式覆盖旧 .env 里的宿主机地址，避免 fusion-api JWKS/userinfo 校验连到不可达地址。
 export AUTH_SERVICE_INTERNAL_BASE_URL="http://auth-service:8100"
@@ -396,27 +383,6 @@ if docker container inspect fusion-api >/dev/null 2>&1; then
 fi
 cat > docker-compose.fusion-api-ghcr.yml <<'EOF'
 services:
-  flyai-adapter:
-    image: ${DEPLOY_ADAPTER_IMAGE}
-    container_name: fusion-flyai-adapter
-    restart: always
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    pids_limit: 64
-    mem_limit: 256m
-    cpus: 0.5
-    environment:
-      - FLYAI_API_KEY=${FLYAI_API_KEY}
-      - FLYAI_ADAPTER_TOKEN=${FLYAI_ADAPTER_TOKEN}
-      - PORT=8080
-    networks:
-      - fusion-flyai
-
   fusion-api:
     image: ${DEPLOY_API_IMAGE}
     container_name: fusion-api
@@ -541,7 +507,6 @@ services:
     networks:
       - postgres_default
       - middleware_default
-      - fusion-flyai
       - fusion-knowledge-milvus
 
   knowledge-worker:
@@ -627,9 +592,6 @@ networks:
     external: true
   middleware_default:
     external: true
-  fusion-flyai:
-    name: fusion-flyai
-    driver: bridge
   fusion-knowledge-milvus:
     external: true
     name: ${MILVUS_DOCKER_NETWORK}
@@ -640,3 +602,6 @@ else
   docker compose --project-name fusion -f docker-compose.fusion-api-ghcr.yml up -d
   docker rm -f fusion-knowledge-worker >/dev/null 2>&1 || true
 fi
+# FlyAI 出行工具已改经 agent-tools 网关，Fusion 内的 flyai-adapter 下线：清掉历史部署遗留的容器与专用网络。
+docker rm -f fusion-flyai-adapter >/dev/null 2>&1 || true
+docker network rm fusion-flyai >/dev/null 2>&1 || true

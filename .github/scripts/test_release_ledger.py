@@ -15,7 +15,7 @@ DIGEST_B = "sha256:" + "2" * 64
 IMAGE_ID_A = "sha256:" + "3" * 64
 IMAGE_ID_B = "sha256:" + "4" * 64
 API_REPOSITORY = "registry.example.com/team/fusion-api"
-ADAPTER_REPOSITORY = "registry.example.com/team/fusion-flyai-adapter"
+WORKER_REPOSITORY = "registry.example.com/team/fusion-worker"
 
 
 class ReleaseLedgerTests(unittest.TestCase):
@@ -32,8 +32,8 @@ class ReleaseLedgerTests(unittest.TestCase):
             path = Path(directory) / "release-ledger.json"
             images = {
                 "api": release_ledger.ImageIdentity(f"{API_REPOSITORY}@{DIGEST_A}", IMAGE_ID_A),
-                "adapter": release_ledger.ImageIdentity(
-                    f"{ADAPTER_REPOSITORY}@{DIGEST_B}",
+                "worker": release_ledger.ImageIdentity(
+                    f"{WORKER_REPOSITORY}@{DIGEST_B}",
                     IMAGE_ID_B,
                 ),
             }
@@ -49,8 +49,8 @@ class ReleaseLedgerTests(unittest.TestCase):
 
             self.assertEqual(release_ledger.lookup_ref(path, "api", SHA_A, "api"), images["api"].ref)
             self.assertEqual(
-                release_ledger.lookup_ref(path, "api", SHA_A, "adapter"),
-                images["adapter"].ref,
+                release_ledger.lookup_ref(path, "api", SHA_A, "worker"),
+                images["worker"].ref,
             )
             self.assertEqual(release_ledger.current_sha(path, "api"), SHA_A)
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
