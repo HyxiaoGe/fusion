@@ -16,13 +16,13 @@ if [[ ! "${DEPLOY_TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "部署目标不是 40 位小写 Git SHA，拒绝变更部署"
   exit 1
 fi
-if [ "${DEPLOY_REQUIRED_DEPENDENCY_HOOKS:-}" != "postgres,redis,litellm,flyai-adapter,knowledge-worker" ]; then
+if [ "${DEPLOY_REQUIRED_DEPENDENCY_HOOKS:-}" != "postgres,redis,litellm,knowledge-worker" ]; then
   echo "API 依赖服务契约无效，拒绝选择不完整的部署 hooks"
   exit 1
 fi
 case "${DEPLOY_REQUIRED_ROLLBACK_ANCHORS:-}" in
-  fusion-api,fusion-flyai-adapter) rollback_anchors=(fusion-api fusion-flyai-adapter) ;;
-  *) echo "API 回滚锚点策略未提供 api 与 adapter 的运行镜像身份"; exit 1 ;;
+  fusion-api) rollback_anchors=(fusion-api) ;;
+  *) echo "API 回滚锚点策略未提供 api 的运行镜像身份"; exit 1 ;;
 esac
 for rollback_anchor in "${rollback_anchors[@]}"; do
   if ! docker container inspect "${rollback_anchor}" >/dev/null 2>&1; then
@@ -34,26 +34,18 @@ if ! docker container inspect fusion-api >/dev/null 2>&1; then
   echo "fusion-api 不存在，拒绝在缺少回滚目标时变更部署"
   exit 1
 fi
-if ! docker container inspect fusion-flyai-adapter >/dev/null 2>&1; then
-  echo "fusion-flyai-adapter 不存在，拒绝在缺少回滚目标时变更部署"
-  exit 1
-fi
 
 api_image_ref="$(docker inspect fusion-api --format '{{.Config.Image}}')"
 api_image_id="$(docker inspect fusion-api --format '{{.Image}}')"
-adapter_image_ref="$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')"
-adapter_image_id="$(docker inspect fusion-flyai-adapter --format '{{.Image}}')"
 api_tag_prefix="${IMAGE_NAME}:"
 api_digest_prefix="${IMAGE_NAME}@sha256:"
 case "${api_image_ref}" in
   "${api_tag_prefix}"*)
     api_sha="${api_image_ref#"${api_tag_prefix}"}"
-    expected_adapter_ref="${FLYAI_ADAPTER_IMAGE_NAME}:${api_sha}"
     ;;
   "${api_digest_prefix}"*)
     api_sha="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" current-sha --path "${FUSION_API_LEDGER}" --app api)"
     expected_api_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${api_sha}" --component api --field ref)"
-    expected_adapter_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${api_sha}" --component adapter --field ref)"
     if [ "${api_image_ref}" != "${expected_api_ref}" ]; then
       echo "fusion-api 当前摘要引用与发布账本不一致: expected=${expected_api_ref} actual=${api_image_ref}"
       exit 1
@@ -65,16 +57,8 @@ if [[ ! "${api_sha}" =~ ^[0-9a-f]{40}$ ]]; then
   echo "fusion-api 发布 SHA 不是 40 位小写 Git SHA: ${api_sha}"
   exit 1
 fi
-if [ "${adapter_image_ref}" != "${expected_adapter_ref}" ]; then
-  echo "fusion-flyai-adapter 与 fusion-api 未运行同一 SHA: expected=${expected_adapter_ref} actual=${adapter_image_ref}"
-  exit 1
-fi
 if [[ ! "${api_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "fusion-api 内容 ID 格式无效: ${api_image_id}"
-  exit 1
-fi
-if [[ ! "${adapter_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-  echo "fusion-flyai-adapter 内容 ID 格式无效: ${adapter_image_id}"
   exit 1
 fi
 knowledge_worker_existed="false"
@@ -148,6 +132,7 @@ defaults = {
     "MILVUS_TIMEOUT_SECONDS": "10",
     "MILVUS_DOCKER_NETWORK": "fusion_knowledge_milvus",
 }
+# fusion-flyai 是已下线的 flyai-adapter 专用网络，旧容器上可能仍挂着，不能当成 Milvus 网络。
 known_networks = {"postgres_default", "middleware_default", "fusion-flyai"}
 
 def read_config(container):
@@ -266,8 +251,6 @@ fi
 {
   printf '%s\n' "api_image_ref=${api_image_ref}"
   printf '%s\n' "api_image_id=${api_image_id}"
-  printf '%s\n' "adapter_image_ref=${adapter_image_ref}"
-  printf '%s\n' "adapter_image_id=${adapter_image_id}"
   printf '%s\n' "deployment_sha=${api_sha}"
   printf '%s\n' "knowledge_worker_existed=${knowledge_worker_existed}"
   printf '%s\n' "knowledge_worker_image_ref=${knowledge_worker_image_ref}"

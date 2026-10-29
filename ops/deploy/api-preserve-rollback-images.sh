@@ -12,5 +12,4 @@ fi
 
 # OPS_DEPLOY_BODY_BEGIN
 docker image inspect "${ROLLBACK_API_IMAGE_REF}" >/dev/null
-docker image inspect "${ROLLBACK_ADAPTER_IMAGE_REF}" >/dev/null
 echo "Task 2 保留切换前镜像，待 Task 5 再清理"

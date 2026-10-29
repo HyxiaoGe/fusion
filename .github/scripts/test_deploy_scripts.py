@@ -279,8 +279,8 @@ class DeployScriptContractTests(unittest.TestCase):
                     "DEPLOY_IMAGE_REPOSITORY": "seanfield/fusion-api",
                     "DEPLOY_HEALTH_CHECK_ENDPOINT": "http://127.0.0.1:8002/health",
                     "DEPLOY_MIGRATION_ENABLED": "true",
-                    "DEPLOY_DEPENDENCY_SERVICES": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
-                    "DEPLOY_ROLLBACK_ANCHOR_POLICY": "api-and-adapter-image-identities",
+                    "DEPLOY_DEPENDENCY_SERVICES": "postgres,redis,litellm,knowledge-worker",
+                    "DEPLOY_ROLLBACK_ANCHOR_POLICY": "api-image-identity",
                     **overrides,
                 },
                 text=True,
@@ -291,7 +291,7 @@ class DeployScriptContractTests(unittest.TestCase):
         accepted = run()
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
-        missing_dependency = run(DEPLOY_DEPENDENCY_SERVICES="postgres,redis,litellm,knowledge-worker")
+        missing_dependency = run(DEPLOY_DEPENDENCY_SERVICES="postgres,redis,litellm")
         self.assertNotEqual(missing_dependency.returncode, 0)
         self.assertIn("依赖服务", missing_dependency.stderr)
 
@@ -412,8 +412,8 @@ class DeployScriptContractTests(unittest.TestCase):
             **os.environ,
             "PATH": f"{FIXTURE_BIN}{os.pathsep}{os.environ['PATH']}",
             "DEPLOY_TARGET_SHA": "a" * 40,
-            "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
-            "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api,fusion-flyai-adapter",
+            "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm,knowledge-worker",
+            "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api",
         }
         api = subprocess.run(
             [str(ROOT / "ops/deploy/api-capture-current-deployment.sh")],
@@ -453,8 +453,8 @@ class DeployScriptContractTests(unittest.TestCase):
             cwd=ROOT,
             env={
                 **base_env,
-                "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm,knowledge-worker",
-                "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api,fusion-flyai-adapter",
+                "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm",
+                "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api",
             },
             text=True,
             capture_output=True,
@@ -468,8 +468,8 @@ class DeployScriptContractTests(unittest.TestCase):
             cwd=ROOT,
             env={
                 **base_env,
-                "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm,flyai-adapter,knowledge-worker",
-                "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api",
+                "DEPLOY_REQUIRED_DEPENDENCY_HOOKS": "postgres,redis,litellm,knowledge-worker",
+                "DEPLOY_REQUIRED_ROLLBACK_ANCHORS": "fusion-api,fusion-flyai-adapter",
             },
             text=True,
             capture_output=True,

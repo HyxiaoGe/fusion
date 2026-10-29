@@ -2,10 +2,8 @@
 set -euo pipefail
 
 image_name="${1:?缺少 API 镜像名}"
-adapter_image_name="${2:?缺少 FlyAI Adapter 镜像名}"
-image_tag="${3:?缺少镜像标签}"
+image_tag="${2:?缺少镜像标签}"
 image="${image_name}:${image_tag}"
-adapter_image="${adapter_image_name}:${image_tag}"
 app_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 monorepo_root="$(cd "${app_root}/.." && pwd)"
 
@@ -38,6 +36,3 @@ docker run --rm \
   --mount "type=bind,source=${monorepo_root}/.github,target=/.github,readonly" \
   --mount "type=bind,source=${monorepo_root}/ops,target=/ops,readonly" \
   "${image}" sh -lc "timeout 300s python -m pip install --default-timeout=30 --no-cache-dir -r requirements-ci.txt && python scripts/check_architecture.py && ruff check . && timeout 420s python -u -m pytest -v -p no:cacheprovider test"
-
-docker build --target test -t "${adapter_image}-test" "${app_root}/flyai-adapter"
-docker build --target production -t "${adapter_image}" "${app_root}/flyai-adapter"

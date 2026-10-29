@@ -34,9 +34,9 @@ case "${DEPLOY_APP}" in
     expected_repository="seanfield/fusion-api"
     expected_health_endpoint="http://127.0.0.1:8002/health"
     expected_migration_enabled="true"
-    expected_dependency_services="postgres,redis,litellm,flyai-adapter,knowledge-worker"
-    expected_rollback_anchor_policy="api-and-adapter-image-identities"
-    rollback_anchors="fusion-api,fusion-flyai-adapter"
+    expected_dependency_services="postgres,redis,litellm,knowledge-worker"
+    expected_rollback_anchor_policy="api-image-identity"
+    rollback_anchors="fusion-api"
     ;;
   ui)
     expected_repository="seanfield/fusion-ui"

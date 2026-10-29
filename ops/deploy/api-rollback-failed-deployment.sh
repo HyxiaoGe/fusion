@@ -130,12 +130,6 @@ export MCP_ALLOWED_HOSTS="$(append_csv_value "${MCP_ALLOWED_HOSTS}" "mcp.map.qq.
 export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "TENCENT_MAP_MCP_API_KEY")"
 # agent-tools 网关与 image-service 按 Fusion 的服务密钥认定产品
 export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "AGENT_TOOLS_API_KEY")"
-export FLYAI_API_KEY="${DEPLOY_FLYAI_API_KEY:-}"
-if [ -z "${FLYAI_API_KEY}" ]; then
-  echo "FlyAI 发布密钥未配置，无法恢复原部署"
-  exit 1
-fi
-export FLYAI_ADAPTER_TOKEN="$(python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["FLYAI_API_KEY"].encode(), b"fusion-deploy-flyai-adapter-v1", hashlib.sha256).hexdigest(), end="")')"
 # 游客模式：令牌密钥只来自 GitHub Secret；未配置时游客入口保持关闭，不影响登录用户。
 export GUEST_TOKEN_SECRET="${DEPLOY_GUEST_TOKEN_SECRET:-}"
 export GUEST_MODE_ENABLED="$(printf '%s' "${DEPLOY_GUEST_MODE_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')"
@@ -149,7 +143,6 @@ if [ "${GUEST_MODE_ENABLED}" = "true" ] && [ -z "${GUEST_TOKEN_SECRET}" ]; then
 fi
 export AUTH_SERVICE_INTERNAL_BASE_URL="http://auth-service:8100"
 export DEPLOY_API_IMAGE="${ROLLBACK_API_IMAGE_REF}"
-export DEPLOY_ADAPTER_IMAGE="${ROLLBACK_ADAPTER_IMAGE_REF}"
 
 ensure_rollback_image() {
   image_ref="$1"
@@ -166,12 +159,9 @@ ensure_rollback_image() {
 }
 
 ensure_rollback_image "${ROLLBACK_API_IMAGE_REF}" "${ROLLBACK_API_IMAGE_ID}"
-ensure_rollback_image "${ROLLBACK_ADAPTER_IMAGE_REF}" "${ROLLBACK_ADAPTER_IMAGE_ID}"
 
 current_api_ref="$(docker inspect fusion-api --format '{{.Config.Image}}' 2>/dev/null || true)"
 current_api_id="$(docker inspect fusion-api --format '{{.Image}}' 2>/dev/null || true)"
-current_adapter_ref="$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}' 2>/dev/null || true)"
-current_adapter_id="$(docker inspect fusion-flyai-adapter --format '{{.Image}}' 2>/dev/null || true)"
 current_worker_ref="$(docker inspect fusion-knowledge-worker --format '{{.Config.Image}}' 2>/dev/null || true)"
 current_worker_id="$(docker inspect fusion-knowledge-worker --format '{{.Image}}' 2>/dev/null || true)"
 worker_requires_restore="false"
@@ -191,8 +181,6 @@ case "${ROLLBACK_KNOWLEDGE_WORKER_EXISTED}" in
 esac
 if [ "${current_api_ref}" != "${ROLLBACK_API_IMAGE_REF}" ] \
   || [ "${current_api_id}" != "${ROLLBACK_API_IMAGE_ID}" ] \
-  || [ "${current_adapter_ref}" != "${ROLLBACK_ADAPTER_IMAGE_REF}" ] \
-  || [ "${current_adapter_id}" != "${ROLLBACK_ADAPTER_IMAGE_ID}" ] \
   || [ "${worker_requires_restore}" = "true" ]; then
   if [ ! -f docker-compose.fusion-api-ghcr.yml ]; then
     echo "候选部署未生成 compose 文件且容器身份已变化，无法安全回滚"
@@ -210,16 +198,9 @@ fi
 
 restored_api_ref="$(docker inspect fusion-api --format '{{.Config.Image}}')"
 restored_api_id="$(docker inspect fusion-api --format '{{.Image}}')"
-restored_adapter_ref="$(docker inspect fusion-flyai-adapter --format '{{.Config.Image}}')"
-restored_adapter_id="$(docker inspect fusion-flyai-adapter --format '{{.Image}}')"
 if [ "${restored_api_ref}" != "${ROLLBACK_API_IMAGE_REF}" ] \
   || [ "${restored_api_id}" != "${ROLLBACK_API_IMAGE_ID}" ]; then
   echo "fusion-api 回滚身份校验失败"
-  exit 1
-fi
-if [ "${restored_adapter_ref}" != "${ROLLBACK_ADAPTER_IMAGE_REF}" ] \
-  || [ "${restored_adapter_id}" != "${ROLLBACK_ADAPTER_IMAGE_ID}" ]; then
-  echo "fusion-flyai-adapter 回滚身份校验失败"
   exit 1
 fi
 if [ "${ROLLBACK_KNOWLEDGE_WORKER_EXISTED}" = "true" ]; then
@@ -249,19 +230,6 @@ if [ "${api_healthy}" != "1" ]; then
   exit 1
 fi
 
-adapter_healthy=0
-for attempt in $(seq 1 30); do
-  if docker exec fusion-flyai-adapter node -e \
-    "fetch('http://127.0.0.1:8080/health',{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
-    adapter_healthy=1
-    break
-  fi
-  sleep 2
-done
-if [ "${adapter_healthy}" != "1" ]; then
-  docker logs --tail=120 fusion-flyai-adapter || true
-  exit 1
-fi
 if [ "${ROLLBACK_KNOWLEDGE_WORKER_EXISTED}" = "true" ]; then
   worker_healthy=0
   for attempt in $(seq 1 30); do

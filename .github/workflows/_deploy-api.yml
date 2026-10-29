@@ -15,7 +15,6 @@ permissions: { contents: read } # 顶层 orchestrator 统一持有 fusion-dev co
 env:
   REGISTRY: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com
   IMAGE_NAME: ${{ format('crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/{0}', inputs.image_repository) }}
-  FLYAI_ADAPTER_IMAGE_NAME: crpi-77w10wlykpqilmmb.cn-shenzhen.personal.cr.aliyuncs.com/seanfield/fusion-flyai-adapter
   API_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
   DEPLOY_HEALTH_CHECK_ENDPOINT: ${{ inputs.health_check_endpoint }}
   DEPLOY_APP: ${{ inputs.app }}
@@ -122,7 +121,6 @@ jobs:
         run: |
           & "backend/.github/scripts/windows-build.ps1" `
             -ImageName "${env:IMAGE_NAME}" `
-            -AdapterImageName "${env:FLYAI_ADAPTER_IMAGE_NAME}" `
             -ImageTag "${env:DEPLOY_SHA}"
       - name: Login to ACR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -135,14 +133,12 @@ jobs:
       - name: Push Docker image
         run: |
           docker push "%IMAGE_NAME%:%DEPLOY_SHA%"
-          docker push "%FLYAI_ADAPTER_IMAGE_NAME%:%DEPLOY_SHA%"
       - name: Cleanup local Docker artifacts
         if: always()
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           & "backend/.github/scripts/windows-cleanup.ps1" `
             -ImageName "${env:IMAGE_NAME}" `
-            -AdapterImageName "${env:FLYAI_ADAPTER_IMAGE_NAME}" `
             -ImageTag "${env:DEPLOY_SHA}"
   deploy-dev:
     name: Deploy master on dev server
@@ -181,8 +177,6 @@ jobs:
           PREVIOUS_SHA: ${{ steps.capture_rollback_target.outputs.deployment_sha }}
           PREVIOUS_API_REF: ${{ steps.capture_rollback_target.outputs.api_image_ref }}
           PREVIOUS_API_ID: ${{ steps.capture_rollback_target.outputs.api_image_id }}
-          PREVIOUS_ADAPTER_REF: ${{ steps.capture_rollback_target.outputs.adapter_image_ref }}
-          PREVIOUS_ADAPTER_ID: ${{ steps.capture_rollback_target.outputs.adapter_image_id }}
         run: ops/deploy/api-bootstrap-current-release-ledger.sh
       - name: Resolve API deployment digest
         env:
@@ -217,7 +211,6 @@ jobs:
           DEPLOY_DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           DEPLOY_TENCENT_MAP_MCP_API_KEY: ${{ secrets.TENCENT_MAP_MCP_API_KEY }}
           DEPLOY_AGENT_TOOLS_API_KEY: ${{ secrets.AGENT_TOOLS_API_KEY }}
-          DEPLOY_FLYAI_API_KEY: ${{ secrets.FLYAI_API_KEY }}
           DEPLOY_GUEST_TOKEN_SECRET: ${{ secrets.GUEST_TOKEN_SECRET }}
           DEPLOY_GUEST_MODE_ENABLED: ${{ vars.GUEST_MODE_ENABLED || 'false' }}
           DEPLOY_LITELLM_MODEL_MANAGEMENT_ENABLED: ${{ vars.LITELLM_MODEL_MANAGEMENT_ENABLED || 'false' }}
@@ -272,7 +265,6 @@ jobs:
         if: success()
         env:
           ROLLBACK_API_IMAGE_REF: ${{ steps.capture_rollback_target.outputs.api_image_ref }}
-          ROLLBACK_ADAPTER_IMAGE_REF: ${{ steps.capture_rollback_target.outputs.adapter_image_ref }}
         run: ops/deploy/api-preserve-rollback-images.sh
       - name: Record accepted API release
         if: success()
@@ -284,8 +276,6 @@ jobs:
           ROLLBACK_DEPLOYMENT_SHA: ${{ steps.capture_rollback_target.outputs.deployment_sha }}
           ROLLBACK_API_IMAGE_REF: ${{ steps.capture_rollback_target.outputs.api_image_ref }}
           ROLLBACK_API_IMAGE_ID: ${{ steps.capture_rollback_target.outputs.api_image_id }}
-          ROLLBACK_ADAPTER_IMAGE_REF: ${{ steps.capture_rollback_target.outputs.adapter_image_ref }}
-          ROLLBACK_ADAPTER_IMAGE_ID: ${{ steps.capture_rollback_target.outputs.adapter_image_id }}
           ROLLBACK_KNOWLEDGE_WORKER_EXISTED: ${{ steps.capture_rollback_target.outputs.knowledge_worker_existed }}
           ROLLBACK_KNOWLEDGE_WORKER_IMAGE_REF: ${{ steps.capture_rollback_target.outputs.knowledge_worker_image_ref }}
           ROLLBACK_KNOWLEDGE_WORKER_IMAGE_ID: ${{ steps.capture_rollback_target.outputs.knowledge_worker_image_id }}
@@ -317,7 +307,6 @@ jobs:
           DEPLOY_DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           DEPLOY_TENCENT_MAP_MCP_API_KEY: ${{ secrets.TENCENT_MAP_MCP_API_KEY }}
           DEPLOY_AGENT_TOOLS_API_KEY: ${{ secrets.AGENT_TOOLS_API_KEY }}
-          DEPLOY_FLYAI_API_KEY: ${{ secrets.FLYAI_API_KEY }}
           DEPLOY_GUEST_TOKEN_SECRET: ${{ secrets.GUEST_TOKEN_SECRET }}
           DEPLOY_GUEST_MODE_ENABLED: ${{ vars.GUEST_MODE_ENABLED || 'false' }}
           ROLLBACK_LITELLM_MODEL_MANAGEMENT_ENABLED: ${{ steps.capture_rollback_target.outputs.model_management_enabled }}

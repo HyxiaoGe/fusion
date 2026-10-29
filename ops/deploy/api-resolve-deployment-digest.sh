@@ -21,14 +21,10 @@ resolve_digest_ref() {
 }
 if [ "${ROLLBACK_REQUESTED}" = "true" ]; then
   api_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${DEPLOY_TARGET_SHA}" --component api --field ref)"
-  adapter_ref="$(python3 "${GITHUB_WORKSPACE}/.github/scripts/release_ledger.py" lookup --path "${FUSION_API_LEDGER}" --app api --sha "${DEPLOY_TARGET_SHA}" --component adapter --field ref)"
 else
   api_ref="$(resolve_digest_ref "${IMAGE_NAME}" "${IMAGE_NAME}:${DEPLOY_TARGET_SHA}")"
-  adapter_ref="$(resolve_digest_ref "${FLYAI_ADAPTER_IMAGE_NAME}" "${FLYAI_ADAPTER_IMAGE_NAME}:${DEPLOY_TARGET_SHA}")"
 fi
 docker pull "${api_ref}"
-docker pull "${adapter_ref}"
 {
   printf '%s\n' "DEPLOY_API_IMAGE=${api_ref}"
-  printf '%s\n' "DEPLOY_ADAPTER_IMAGE=${adapter_ref}"
 } >> "${GITHUB_ENV}"

@@ -35,7 +35,7 @@ class CIContainerContractTest(unittest.TestCase):
             env["DOCKER_LOG"] = str(docker_log)
             env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
             subprocess.run(
-                ["bash", str(build_script), "fusion-api-ci", "fusion-adapter-ci", "test-sha"],
+                ["bash", str(build_script), "fusion-api-ci", "test-sha"],
                 cwd=monorepo_root,
                 env=env,
                 check=True,
@@ -145,7 +145,7 @@ class CIContainerContractTest(unittest.TestCase):
             line.strip() for line in windows_build_script.splitlines() if line.strip().startswith("docker build ")
         ]
 
-        self.assertEqual(2, len(build_commands))
+        self.assertEqual(1, len(build_commands))
         for command in build_commands:
             self.assertIn("--provenance=false", command)
 
