@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
-from urllib.parse import urlsplit
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.services.external.agent_tools import agent_tools_url
 from app.services.mcp.amap_coordinate_converter import COORDINATE_CONVERT_TOOL
 
-# 高德与 Context7 不再直连：经 agent-tools 网关上的代理访问，第三方密钥由代理持有，Fusion 只带产品服务密钥。
+# 高德、Context7 与腾讯地图不再直连：经 agent-tools 网关上的代理访问，第三方密钥由代理持有，Fusion 只带产品服务密钥。
 AMAP_GATEWAY_SERVICE = "amap"
 CONTEXT7_GATEWAY_SERVICE = "context7"
+TENCENT_MAP_GATEWAY_SERVICE = "tmap"
 AGENT_TOOLS_CREDENTIAL_REF = "AGENT_TOOLS_API_KEY"
-TENCENT_MAP_MCP_HOST = "mcp.map.qq.com"
+TENCENT_MAP_DATA_SOURCE = ("map", "tencent_map", "腾讯地图")
 CONTEXT7_CONNECT_TIMEOUT_FLOOR_SECONDS = 20.0
 CONTEXT7_CALL_TIMEOUT_FLOOR_SECONDS = 30.0
 CONTEXT7_IDEMPOTENT_TOTAL_TIMEOUT_FLOOR_SECONDS = 45.0
@@ -92,19 +92,16 @@ _CONTEXT7_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
 }
 
 
-def _endpoint_hostname(endpoint_url: str) -> str:
-    try:
-        return (urlsplit(endpoint_url).hostname or "").lower().rstrip(".")
-    except ValueError:
-        return ""
-
-
 def amap_gateway_endpoint() -> str:
     return agent_tools_url(AMAP_GATEWAY_SERVICE, "/mcp")
 
 
 def context7_gateway_endpoint() -> str:
     return agent_tools_url(CONTEXT7_GATEWAY_SERVICE, "/mcp")
+
+
+def tencent_map_gateway_endpoint() -> str:
+    return agent_tools_url(TENCENT_MAP_GATEWAY_SERVICE, "/mcp")
 
 
 def _is_agent_tools_endpoint(endpoint_url: str) -> bool:
@@ -123,14 +120,12 @@ def endpoint_tool_allowlist(endpoint_url: str) -> frozenset[str] | None:
     return None
 
 
-# 按端点域名认定的数据服务商署名 (category, provider, label)；不采信管理员填写的 provider 文本。
-_ENDPOINT_DATA_SOURCES: dict[str, tuple[str, str, str]] = {
-    TENCENT_MAP_MCP_HOST: ("map", "tencent_map", "腾讯地图"),
-}
-
-
 def endpoint_data_source(endpoint_url: str) -> tuple[str, str, str] | None:
-    return _ENDPOINT_DATA_SOURCES.get(_endpoint_hostname(endpoint_url))
+    """按端点认定数据服务商署名 (category, provider, label)；不采信管理员填写的 provider 文本。"""
+
+    if endpoint_url.strip().rstrip("/") == tencent_map_gateway_endpoint():
+        return TENCENT_MAP_DATA_SOURCE
+    return None
 
 
 def is_official_amap_endpoint(endpoint_url: str) -> bool:
@@ -166,7 +161,7 @@ def endpoint_auth_binding_is_allowed(
 ) -> bool:
     """将官方凭证绑定到固定主机和传输位置，阻止跨提供商误投。"""
 
-    # 产品服务密钥只能以 Bearer 发给 agent-tools 网关；网关上的任何服务（amap / context7 / image 等）也只接受这一种鉴权。
+    # 产品服务密钥只能以 Bearer 发给 agent-tools 网关；网关上的任何服务（amap / context7 / tmap / image 等）也只接受这一种鉴权。
     if credential_ref == AGENT_TOOLS_CREDENTIAL_REF or _is_agent_tools_endpoint(endpoint_url):
         return (
             _is_agent_tools_endpoint(endpoint_url)

@@ -94,7 +94,6 @@ class DeployAuthConfigTests(unittest.TestCase):
         )
 
     def test_deploy_passes_mcp_policy_and_configured_credentials_without_erasing_server_env(self):
-        self.assertIn("DEPLOY_DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}", self.workflow)
         # 高德密钥由 agent-tools 的 amap 代理持有，Fusion 的部署链路不再接触它。
         for text in (self.workflow, self.compose, self.env_example, self.app_config):
             self.assertNotIn("AMAP_MCP_API_KEY", text)
@@ -103,17 +102,21 @@ class DeployAuthConfigTests(unittest.TestCase):
         for text in (self.workflow, self.compose, self.env_example, self.app_config):
             self.assertNotIn("CONTEXT7_API_KEY", text)
             self.assertNotIn("mcp.context7.com", text)
-        self.assertIn(
-            'export DASHSCOPE_API_KEY="${DEPLOY_DASHSCOPE_API_KEY:-${DASHSCOPE_API_KEY:-}}"',
-            self.workflow,
-        )
+        # 腾讯地图同样由 agent-tools 的 tmap 代理持有密钥；DashScope 与 Microsoft Learn 的 MCP 已下线。
+        for text in (self.workflow, self.compose, self.env_example, self.app_config):
+            self.assertNotIn("TENCENT_MAP_MCP_API_KEY", text)
+            self.assertNotIn("mcp.map.qq.com", text)
+            self.assertNotIn("learn.microsoft.com", text)
+            self.assertNotIn("dashscope.aliyuncs.com", text)
+        for text in (self.workflow, self.env_example):
+            self.assertNotIn("DASHSCOPE_API_KEY", text)
         self.assertIn("append_csv_value()", self.workflow)
         self.assertIn(
             'export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "AGENT_TOOLS_API_KEY")"',
             self.workflow,
         )
         self.assertIn(
-            'export MCP_ALLOWED_HOSTS="${DEPLOY_MCP_ALLOWED_HOSTS:-${MCP_ALLOWED_HOSTS:-learn.microsoft.com,dashscope.aliyuncs.com}}"',
+            'export MCP_ALLOWED_HOSTS="${DEPLOY_MCP_ALLOWED_HOSTS:-${MCP_ALLOWED_HOSTS:-}}"',
             self.workflow,
         )
         for variable in (
@@ -132,25 +135,9 @@ class DeployAuthConfigTests(unittest.TestCase):
             "MCP_MAX_TOOL_CALLS_PER_SERVER_PER_RUN",
             "MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD",
             "MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS",
-            "DASHSCOPE_API_KEY",
-            "TENCENT_MAP_MCP_API_KEY",
             "AGENT_TOOLS_API_KEY",
         ):
             self.assertIn(f"- {variable}=${{{variable}", self.workflow)
-        self.assertIn("DEPLOY_TENCENT_MAP_MCP_API_KEY: ${{ secrets.TENCENT_MAP_MCP_API_KEY }}", self.workflow)
-        self.assertIn(
-            'export TENCENT_MAP_MCP_API_KEY="${DEPLOY_TENCENT_MAP_MCP_API_KEY:-${TENCENT_MAP_MCP_API_KEY:-}}"',
-            self.workflow,
-        )
-        self.assertIn(
-            'export MCP_ALLOWED_HOSTS="$(append_csv_value "${MCP_ALLOWED_HOSTS}" "mcp.map.qq.com")"',
-            self.workflow,
-        )
-        self.assertIn(
-            'export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "TENCENT_MAP_MCP_API_KEY")"',
-            self.workflow,
-        )
-        self.assertNotIn("echo ${TENCENT_MAP_MCP_API_KEY}", self.workflow)
         self.assertIn("DEPLOY_AGENT_TOOLS_API_KEY: ${{ secrets.AGENT_TOOLS_API_KEY }}", self.workflow)
         self.assertIn(
             'export AGENT_TOOLS_API_KEY="${DEPLOY_AGENT_TOOLS_API_KEY:-${AGENT_TOOLS_API_KEY:-}}"',
@@ -169,7 +156,6 @@ class DeployAuthConfigTests(unittest.TestCase):
             'export MCP_ALLOWED_INTERNAL_ENDPOINTS="${DEPLOY_MCP_ALLOWED_INTERNAL_ENDPOINTS:-${MCP_ALLOWED_INTERNAL_ENDPOINTS:-}}"',
             self.workflow,
         )
-        self.assertNotIn("echo ${DASHSCOPE_API_KEY}", self.workflow)
         self.assertIn("agent-tools MCP policy configuration ok", self.workflow)
         self.assertIn(
             '"AGENT_TOOLS_API_KEY" not in settings.RESOLVED_MCP_ALLOWED_CREDENTIAL_REFS',
@@ -195,18 +181,13 @@ class DeployAuthConfigTests(unittest.TestCase):
         self.assertIn("MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD:-3", self.workflow)
         self.assertIn("MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS:-30", self.workflow)
 
-    def test_mcp_default_hosts_include_public_no_auth_acceptance_server(self):
-        default_hosts = "learn.microsoft.com,dashscope.aliyuncs.com"
-        default_credential_refs = "DASHSCOPE_API_KEY"
-        self.assertIn(f'"{default_hosts}"', self.app_config)
-        self.assertIn(f"MCP_ALLOWED_HOSTS={default_hosts}", self.env_example)
-        self.assertIn(f"MCP_ALLOWED_HOSTS:-{default_hosts}", self.workflow)
-        self.assertIn(f'"{default_credential_refs}"', self.app_config)
+    def test_mcp_defaults_allow_no_public_hosts_and_only_the_agent_tools_credential(self):
+        # 现有 MCP 都经 agent-tools 网关：默认不放行公网主机，凭证引用只有部署时追加的产品服务密钥。
+        self.assertIn('MCP_ALLOWED_HOSTS: str = os.getenv("MCP_ALLOWED_HOSTS", "")', self.app_config)
         self.assertIn(
-            f"MCP_ALLOWED_CREDENTIAL_REFS={default_credential_refs}",
-            self.env_example,
+            'MCP_ALLOWED_CREDENTIAL_REFS: str = os.getenv("MCP_ALLOWED_CREDENTIAL_REFS", "")', self.app_config
         )
-        self.assertIn(
-            f"MCP_ALLOWED_CREDENTIAL_REFS:-{default_credential_refs}",
-            self.workflow,
-        )
+        self.assertIn("MCP_ALLOWED_HOSTS=\n", self.env_example)
+        self.assertIn("MCP_ALLOWED_CREDENTIAL_REFS=AGENT_TOOLS_API_KEY\n", self.env_example)
+        self.assertIn("MCP_ALLOWED_HOSTS:-}}", self.workflow)
+        self.assertIn("MCP_ALLOWED_CREDENTIAL_REFS:-}}", self.workflow)
