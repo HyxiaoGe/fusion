@@ -1,6 +1,4 @@
 import asyncio
-import hashlib
-import hmac
 import json
 import unittest
 from types import SimpleNamespace
@@ -8,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
+from app.core.config import settings
 from app.schemas.chat import FlightResultsBlock, TrainResultsBlock
 from app.schemas.content_block_registry import deserialize_content_blocks
 from app.services.agent.events import ContentBlockUpserted
@@ -21,7 +20,6 @@ from app.services.mcp.flyai_travel_tools import (
     FlyAiTravelRunControls,
     FlyAiTravelToolHandler,
     build_flyai_travel_binding,
-    build_flyai_user_scope,
 )
 from app.services.stream.agent_loop_wiring import _load_dynamic_tools
 from app.services.stream.tool_executor import ToolExecutionBatchRequest, execute_tool_handler
@@ -79,21 +77,22 @@ def _handler(
     controls: FlyAiTravelRunControls | None = None,
     timeout_seconds: float = 1,
 ) -> FlyAiTravelToolHandler:
-    client = FlyAiTravelAdapterClient(
-        base_url="http://flyai-adapter:8080",
-        token="adapter-secret",
-        timeout_seconds=timeout_seconds,
-        transport=transport,
-    )
+    client = FlyAiTravelAdapterClient(timeout_seconds=timeout_seconds, transport=transport)
     return FlyAiTravelToolHandler(
         binding=build_flyai_travel_binding(tool_name),
         client=client,
         controls=controls or FlyAiTravelRunControls(max_calls=4, concurrency=2),
-        user_scope="scope-digest",
     )
 
 
 class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        super().setUp()
+        # 适配器经 agent-tools 网关访问，请求只带 Fusion 的产品服务密钥。
+        patcher = patch.object(settings, "AGENT_TOOLS_API_KEY", "fusion-service-key")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     async def test_tool_definitions_are_closed_bounded_and_use_confirmed_names(self):
         by_name = {item["function"]["name"]: item["function"]["parameters"] for item in FLYAI_TRAVEL_DEFINITIONS}
         descriptions = [item["function"]["description"] for item in FLYAI_TRAVEL_DEFINITIONS]
@@ -227,11 +226,12 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.status, "success")
-        self.assertEqual(captured["request"].url.path, "/v1/search/flights")
-        self.assertEqual(captured["request"].headers["authorization"], "Bearer adapter-secret")
-        self.assertEqual(captured["request"].headers["x-fusion-user-scope"], "scope-digest")
+        self.assertEqual(str(captured["request"].url), "http://agent-tools-gateway:8100/flyai/v1/search/flights")
+        self.assertEqual(captured["request"].headers["authorization"], "Bearer fusion-service-key")
+        self.assertEqual(captured["request"].headers["x-caller-scene"], FLYAI_SEARCH_FLIGHTS)
+        self.assertNotIn("x-fusion-user-scope", captured["request"].headers)
         serialized_result = json.dumps(result.data, ensure_ascii=False)
-        self.assertNotIn("adapter-secret", serialized_result)
+        self.assertNotIn("fusion-service-key", serialized_result)
         self.assertNotIn("raw", serialized_result)
 
         block = handler.build_content_block(result, "blk-flight", "log-flight")
@@ -420,7 +420,7 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(safe_event, {"argument_count": 3})
         self.assertEqual(safe_log["argument_count"], 3)
         serialized = json.dumps({"event": safe_event, "log": safe_log}, ensure_ascii=False)
-        for forbidden in ("深圳", "上海", "2026-08-01", "adapter-secret"):
+        for forbidden in ("深圳", "上海", "2026-08-01", "fusion-service-key"):
             self.assertNotIn(forbidden, serialized)
 
     async def test_started_and_completed_events_only_emit_safe_summaries(self):
@@ -451,7 +451,7 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(started_arguments, {"argument_count": 3})
         self.assertEqual(completed_summary["result_count"], 1)
         serialized = json.dumps({"started": started_arguments, "completed": completed_summary}, ensure_ascii=False)
-        for forbidden in ("深圳", "上海", "2026-08-01", "adapter-secret"):
+        for forbidden in ("深圳", "上海", "2026-08-01", "fusion-service-key"):
             self.assertNotIn(forbidden, serialized)
 
     async def test_strict_json_content_type_and_full_echo_request_are_enforced(self):
@@ -493,10 +493,8 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
                 result = await handler.execute(args)
                 self.assertEqual(result.data["error_code"], "invalid_response")
 
-    async def test_registration_is_explicit_and_user_scope_is_irreversible(self):
+    async def test_registration_is_explicit_and_needs_user_and_gateway_key(self):
         client = FlyAiTravelAdapterClient(
-            base_url="http://flyai-adapter:8080",
-            token="adapter-secret",
             timeout_seconds=1,
             transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
         )
@@ -506,14 +504,21 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.mcp.agent_tools.settings.ENABLE_FLYAI_TRAVEL_TOOLS", True),
-            patch("app.services.mcp.agent_tools.settings.FLYAI_ADAPTER_BASE_URL", "http://flyai-adapter:8080"),
-            patch("app.services.mcp.agent_tools.settings.FLYAI_ADAPTER_TOKEN", "adapter-secret"),
+            # 天气工具也只看网关密钥，这里屏蔽掉，只看出行工具的注册条件。
+            patch("app.services.mcp.agent_tools._build_qweather_client", return_value=None),
         ):
             disabled_without_user = load_mcp_agent_tools(
                 object(),
                 repository_factory=empty_repository,
                 flyai_client=client,
             )
+            with patch.object(settings, "AGENT_TOOLS_API_KEY", " "):
+                disabled_without_gateway_key = load_mcp_agent_tools(
+                    object(),
+                    user_id="user-123",
+                    repository_factory=empty_repository,
+                    flyai_client=client,
+                )
             enabled = load_mcp_agent_tools(
                 object(),
                 user_id="user-123",
@@ -522,6 +527,7 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(disabled_without_user.definitions, [])
+        self.assertEqual(disabled_without_gateway_key.definitions, [])
         self.assertEqual(
             [definition["function"]["name"] for definition in enabled.definitions],
             [FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS, PRESENT_ITINERARY_TOOL_NAME],
@@ -538,10 +544,7 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
         train_controls = enabled.handlers[FLYAI_SEARCH_TRAINS].controls
         self.assertIs(flight_controls, train_controls)
         self.assertEqual(flight_controls.concurrency_limit, 1)
-        expected_scope = hmac.new(b"adapter-secret", b"user-123", hashlib.sha256).hexdigest()
-        self.assertEqual(build_flyai_user_scope("user-123", "adapter-secret"), expected_scope)
-        self.assertNotIn("user-123", expected_scope)
-        self.assertNotIn("adapter-secret", json.dumps(enabled.audit_bindings))
+        self.assertNotIn("fusion-service-key", json.dumps(enabled.audit_bindings))
 
     async def test_content_block_registry_and_answer_sanitizer_cover_travel(self):
         async def respond(request: httpx.Request) -> httpx.Response:

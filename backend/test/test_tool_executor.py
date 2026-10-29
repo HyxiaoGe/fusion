@@ -617,7 +617,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
             client=MagicMock(),
             controls=MagicMock(),
-            user_scope="scope",
         )
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result_count": 1}))
         handler.log = AsyncMock()
@@ -679,7 +678,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
             client=MagicMock(),
             controls=MagicMock(),
-            user_scope="scope",
         )
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result_count": 1}))
         handler.log = AsyncMock()
@@ -722,7 +720,6 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
             client=MagicMock(),
             controls=MagicMock(),
-            user_scope="scope",
         )
         handler.execute = AsyncMock(
             side_effect=[
