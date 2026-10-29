@@ -3,20 +3,24 @@ import unittest
 from app.services.mcp.provider_profiles import (
     AMAP_READ_ONLY_TOOL_ALLOWLIST,
     CONTEXT7_READ_ONLY_TOOL_ALLOWLIST,
+    TENCENT_MAP_DATA_SOURCE,
     amap_gateway_endpoint,
     context7_gateway_endpoint,
     endpoint_auth_binding_is_allowed,
+    endpoint_data_source,
     endpoint_timeout_floors,
     endpoint_tool_allowlist,
     endpoint_tool_guidance,
     endpoint_tool_schema_override,
     is_official_amap_endpoint,
     is_official_context7_endpoint,
+    tencent_map_gateway_endpoint,
     tool_is_allowed_for_endpoint,
 )
 
 AMAP_GATEWAY = "http://agent-tools-gateway:8100/amap/mcp"
 CONTEXT7_GATEWAY = "http://agent-tools-gateway:8100/context7/mcp"
+TENCENT_MAP_GATEWAY = "http://agent-tools-gateway:8100/tmap/mcp"
 
 
 class McpProviderProfileTests(unittest.TestCase):
@@ -36,6 +40,17 @@ class McpProviderProfileTests(unittest.TestCase):
         # 直连高德的行不再享有产品化处理，也不再带可信约束。
         self.assertIsNone(endpoint_tool_allowlist("https://mcp.amap.com/mcp"))
         self.assertEqual(endpoint_tool_guidance("https://mcp.amap.com/mcp", "maps_geo"), "")
+
+    def test_tencent_map_attribution_is_recognized_only_at_the_agent_tools_gateway_endpoint(self):
+        self.assertEqual(tencent_map_gateway_endpoint(), TENCENT_MAP_GATEWAY)
+        self.assertEqual(endpoint_data_source(TENCENT_MAP_GATEWAY), TENCENT_MAP_DATA_SOURCE)
+        self.assertEqual(endpoint_data_source(TENCENT_MAP_GATEWAY + "/"), TENCENT_MAP_DATA_SOURCE)
+        # 直连腾讯的行与网关上的其他服务都不带腾讯地图署名。
+        self.assertIsNone(endpoint_data_source("https://mcp.map.qq.com/mcp"))
+        self.assertIsNone(endpoint_data_source(AMAP_GATEWAY))
+        self.assertIsNone(endpoint_data_source(TENCENT_MAP_GATEWAY + "/extra"))
+        # 腾讯地图是通用接入：不加硬白名单，按管理员授权放行。
+        self.assertIsNone(endpoint_tool_allowlist(TENCENT_MAP_GATEWAY))
 
     def test_agent_tools_credential_only_goes_to_the_gateway_as_bearer(self):
         self.assertTrue(

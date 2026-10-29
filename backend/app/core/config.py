@@ -416,17 +416,12 @@ class Settings(BaseSettings):
     READER_SERVICE_TIMEOUT: float = float(os.getenv("READER_SERVICE_TIMEOUT", "20"))
 
     # 远程 MCP Client：仅允许精确配置的 HTTPS 主机和凭证环境变量引用。
-    MCP_ALLOWED_HOSTS: str = os.getenv(
-        "MCP_ALLOWED_HOSTS",
-        "learn.microsoft.com,dashscope.aliyuncs.com",
-    )
+    # 现有 MCP 都经 agent-tools 网关（写在 MCP_ALLOWED_INTERNAL_ENDPOINTS），默认不放行任何公网主机。
+    MCP_ALLOWED_HOSTS: str = os.getenv("MCP_ALLOWED_HOSTS", "")
     # 部署在内网的自建 MCP（如 image-service）按完整地址逐个放行，可用 HTTP 与内网 IP；
     # 只认精确匹配，不放开整个网段。
     MCP_ALLOWED_INTERNAL_ENDPOINTS: str = os.getenv("MCP_ALLOWED_INTERNAL_ENDPOINTS", "")
-    MCP_ALLOWED_CREDENTIAL_REFS: str = os.getenv(
-        "MCP_ALLOWED_CREDENTIAL_REFS",
-        "DASHSCOPE_API_KEY",
-    )
+    MCP_ALLOWED_CREDENTIAL_REFS: str = os.getenv("MCP_ALLOWED_CREDENTIAL_REFS", "")
     MCP_CONNECT_TIMEOUT_SECONDS: float = float(os.getenv("MCP_CONNECT_TIMEOUT_SECONDS", "5"))
     MCP_CALL_TIMEOUT_SECONDS: float = float(os.getenv("MCP_CALL_TIMEOUT_SECONDS", "15"))
     MCP_IDEMPOTENT_TOTAL_TIMEOUT_SECONDS: float = float(os.getenv("MCP_IDEMPOTENT_TOTAL_TIMEOUT_SECONDS", "12"))

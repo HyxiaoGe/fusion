@@ -47,7 +47,6 @@ DEFAULT_TOOL_PRICES: dict[str, float] = {
     "mcp:amap": 2,
     "mcp:tencent_map": 2,
     "mcp:context7": 1,
-    "mcp:microsoft": 1,
     "mcp:trendradar": 1,
 }
 

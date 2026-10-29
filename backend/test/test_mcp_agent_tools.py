@@ -409,7 +409,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         generic = build_row(
             id="a-generic",
             provider="tencent_map",
-            endpoint_url="https://mcp.map.qq.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/tmap/mcp",
             allowed_tools=generic_names,
             discovered_tools=[
                 {"name": name, "description": name, "input_schema": {"type": "object"}} for name in generic_names
@@ -440,7 +440,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         tencent = build_row(
             id="a-tencent",
             provider="tencent_map",
-            endpoint_url="https://mcp.map.qq.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/tmap/mcp",
             allowed_tools=["placeSuggestion"],
             discovered_tools=[{"name": "placeSuggestion", "description": "s", "input_schema": {"type": "object"}}],
         )
@@ -479,7 +479,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         tencent = build_row(
             id="a-tencent",
             provider="tencent_map",
-            endpoint_url="https://mcp.map.qq.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/tmap/mcp",
             allowed_tools=["placeSuggestion"],
             discovered_tools=[{"name": "placeSuggestion", "description": "s", "input_schema": {"type": "object"}}],
         )
@@ -1542,7 +1542,7 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_known_data_provider_endpoint_records_only_source_attribution(self):
         client = FakeClientManager(result={"content": [{"type": "text", "text": "找到约10条结果"}]})
         handler = self.build_handler(
-            build_row(name="腾讯地图", provider="admin-typed", endpoint_url="https://mcp.map.qq.com/mcp"),
+            build_row(name="腾讯地图", provider="admin-typed", endpoint_url="http://agent-tools-gateway:8100/tmap/mcp"),
             client,
         )
 
@@ -1575,7 +1575,7 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_known_data_provider_failure_records_no_source_attribution(self):
         client = FakeClientManager(error=McpClientError("upstream_unavailable", "MCP 服务暂不可用"))
-        handler = self.build_handler(build_row(endpoint_url="https://mcp.map.qq.com/mcp"), client)
+        handler = self.build_handler(build_row(endpoint_url="http://agent-tools-gateway:8100/tmap/mcp"), client)
 
         result = await handler.execute({"query": "断桥 咖啡"})
 
