@@ -79,6 +79,7 @@ def build_handler(
         "maps_direction_transit_integrated": "hash-transit",
         "maps_direction_walking": "hash-walking",
         "maps_direction_bicycling": "hash-bicycling",
+        "maps_coordinate_convert": "hash-convert",
     }
     binding = build_amap_product_binding(
         row=SimpleNamespace(id="amap-1", provider="amap", config_version=3),
@@ -299,11 +300,12 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(local_result.status, "success")
         self.assertEqual(route_result.status, "success")
         converter.assert_awaited_once()
-        self.assertEqual(executor.coordinate_budget_attempts, 1)
+        # 转换由远端工具自身计预算，这里注入的 mock 不触网也不扣预算。
+        self.assertEqual(executor.coordinate_budget_attempts, 0)
         self.assertEqual(local_result.data["subcall_attempt_count"], 2)
         self.assertIn("amap_coordinate_convert", local_result.data["remote_tools_attempted"])
         self.assertNotIn("amap_coordinate_convert", route_result.data["remote_tools_attempted"])
-        self.assertEqual(executor.remaining_budget, 3)
+        self.assertEqual(executor.remaining_budget, 4)
 
     async def test_same_run_caches_coordinate_conversion_failure_without_retrying_or_reconsuming_budget(self):
         from app.services.mcp.amap_coordinate_converter import AmapCoordinateConversionError
@@ -357,11 +359,55 @@ class AmapLocalPlaceSearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first.data["error_code"], "location_conversion_failed")
         self.assertEqual(second.data["error_code"], "location_conversion_failed")
         converter.assert_awaited_once()
-        self.assertEqual(executor.coordinate_budget_attempts, 1)
+        self.assertEqual(executor.coordinate_budget_attempts, 0)
         self.assertEqual(first.data["subcall_attempt_count"], 1)
         self.assertEqual(second.data["subcall_attempt_count"], 0)
         self.assertEqual(executor.calls, [])
+        self.assertEqual(executor.remaining_budget, 4)
+
+    async def test_default_converter_calls_proxy_tool_through_the_same_remote_executor(self):
+        converted = "114.128765,22.762345"
+        handler, executor = build_handler(
+            "local_place_search",
+            {
+                "maps_coordinate_convert": [{"content": [{"type": "text", "text": converted}], "isError": False}],
+                "maps_around_search": [mcp_payload({"pois": [{"name": "测试烤肉店", "location": "114.128,22.762"}]})],
+            },
+            remaining_budget=5,
+        )
+        location = Geolocation(latitude=22.7654321, longitude=114.1234567, accuracy_m=18, acquired_at=1_700_000_000)
+
+        result = await handler.execute(
+            local_search_args({"query": "烤肉", "anchor_source": "current_location", "radius_m": 1500}),
+            ToolRuntimeContext(geolocation=location),
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(
+            executor.calls[0],
+            ("maps_coordinate_convert", "hash-convert", {"locations": "114.123457,22.765432", "coordsys": "gps"}),
+        )
+        self.assertEqual(executor.calls[1][0], "maps_around_search")
+        self.assertEqual(executor.calls[1][2]["location"], converted)
+        # 转换作为一次真实远端调用消费预算，不重复扣。
         self.assertEqual(executor.remaining_budget, 3)
+        self.assertEqual(executor.coordinate_budget_attempts, 0)
+        self.assertNotIn(converted, json.dumps(result.data["result"], ensure_ascii=False))
+
+    async def test_default_converter_failure_is_reported_as_location_conversion_failed(self):
+        handler, executor = build_handler(
+            "local_place_search",
+            {"maps_coordinate_convert": [McpClientError("tool_error", "USER_DAILY_QUERY_OVER_LIMIT")]},
+        )
+        location = Geolocation(latitude=22.5, longitude=114.0, accuracy_m=10, acquired_at=1_700_000_000)
+
+        result = await handler.execute(
+            local_search_args({"query": "咖啡", "anchor_source": "current_location"}),
+            ToolRuntimeContext(geolocation=location),
+        )
+
+        self.assertEqual(result.data["error_code"], "location_conversion_failed")
+        self.assertEqual([call[0] for call in executor.calls], ["maps_coordinate_convert"])
 
     async def test_current_location_converts_then_searches_around_without_geocode_or_coordinate_leak(self):
         converted = "114.123457,22.765432"

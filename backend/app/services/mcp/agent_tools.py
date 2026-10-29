@@ -450,10 +450,6 @@ class McpAgentRemoteExecutor:
     async def remaining_run_budget(self) -> int:
         return await self.run_budget.remaining(self.server_id)
 
-    async def try_consume_run_budget(self) -> bool:
-        """为同一高德服务的非 MCP 外呼消费一次 run 级真实调用预算。"""
-        return await self.run_budget.try_consume(self.server_id)
-
     async def call(
         self,
         remote_tool_name: str,

@@ -382,9 +382,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         handler = build_handler(fake)
         context = SimpleNamespace(geolocation=SimpleNamespace(latitude=30.2741, longitude=120.1551))
 
-        result = await handler.execute(
-            {"location": "current_location", "location_source": "current_location"}, context
-        )
+        result = await handler.execute({"location": "current_location", "location_source": "current_location"}, context)
 
         self.assertEqual(result.status, "success")
         self.assertEqual(fake.requests[0].url.params["location"], "120.16,30.27")
@@ -437,15 +435,15 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
 def build_amap_row():
     tools = ["maps_text_search", "maps_search_detail", "maps_geo", "maps_regeocode"]
     tools += ["maps_direction_walking", "maps_direction_driving", "maps_direction_transit_integrated"]
-    tools += ["maps_direction_bicycling", "maps_around_search", "maps_distance"]
+    tools += ["maps_direction_bicycling", "maps_around_search", "maps_distance", "maps_coordinate_convert"]
     return build_row(
         id="amap",
         name="高德地图",
         provider="amap",
-        endpoint_url="https://mcp.amap.com/mcp",
-        auth_type="query",
-        auth_name="key",
-        credential_ref="AMAP_MCP_API_KEY",
+        endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
+        auth_type="bearer",
+        auth_name=None,
+        credential_ref="AGENT_TOOLS_API_KEY",
         allowed_tools=tools,
         discovered_tools=[{"name": name, "description": name, "input_schema": {"type": "object"}} for name in tools],
     )

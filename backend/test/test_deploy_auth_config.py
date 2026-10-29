@@ -95,15 +95,14 @@ class DeployAuthConfigTests(unittest.TestCase):
 
     def test_deploy_passes_mcp_policy_and_configured_credentials_without_erasing_server_env(self):
         self.assertIn("DEPLOY_DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}", self.workflow)
-        self.assertIn("DEPLOY_AMAP_MCP_API_KEY: ${{ secrets.AMAP_MCP_API_KEY }}", self.workflow)
+        # 高德密钥由 agent-tools 的 amap 代理持有，Fusion 的部署链路不再接触它。
+        for text in (self.workflow, self.compose, self.env_example, self.app_config):
+            self.assertNotIn("AMAP_MCP_API_KEY", text)
+            self.assertNotIn("mcp.amap.com", text)
         self.assertNotIn("${{ secrets.CONTEXT7_API_KEY }}", self.workflow)
         self.assertNotIn("DEPLOY_CONTEXT7_API_KEY", self.workflow)
         self.assertIn(
             'export DASHSCOPE_API_KEY="${DEPLOY_DASHSCOPE_API_KEY:-${DASHSCOPE_API_KEY:-}}"',
-            self.workflow,
-        )
-        self.assertIn(
-            'export AMAP_MCP_API_KEY="${DEPLOY_AMAP_MCP_API_KEY:-${AMAP_MCP_API_KEY:-}}"',
             self.workflow,
         )
         self.assertIn('export CONTEXT7_API_KEY=""', self.workflow)
@@ -117,7 +116,7 @@ class DeployAuthConfigTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
-            'export MCP_ALLOWED_HOSTS="${DEPLOY_MCP_ALLOWED_HOSTS:-${MCP_ALLOWED_HOSTS:-learn.microsoft.com,dashscope.aliyuncs.com,mcp.amap.com,mcp.context7.com}}"',
+            'export MCP_ALLOWED_HOSTS="${DEPLOY_MCP_ALLOWED_HOSTS:-${MCP_ALLOWED_HOSTS:-learn.microsoft.com,dashscope.aliyuncs.com,mcp.context7.com}}"',
             self.workflow,
         )
         for variable in (
@@ -137,7 +136,6 @@ class DeployAuthConfigTests(unittest.TestCase):
             "MCP_SERVER_CIRCUIT_FAILURE_THRESHOLD",
             "MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS",
             "DASHSCOPE_API_KEY",
-            "AMAP_MCP_API_KEY",
             "TENCENT_MAP_MCP_API_KEY",
             "AGENT_TOOLS_API_KEY",
             "CONTEXT7_API_KEY",
@@ -181,7 +179,6 @@ class DeployAuthConfigTests(unittest.TestCase):
             self.workflow,
         )
         self.assertNotIn("echo ${DASHSCOPE_API_KEY}", self.workflow)
-        self.assertNotIn("echo ${AMAP_MCP_API_KEY}", self.workflow)
         self.assertNotIn("echo ${CONTEXT7_API_KEY}", self.workflow)
         self.assertNotIn('if [ -z "${CONTEXT7_API_KEY}" ]', self.workflow)
         self.assertIn("- CONTEXT7_API_KEY=${CONTEXT7_API_KEY:-}", self.compose)
@@ -215,8 +212,8 @@ class DeployAuthConfigTests(unittest.TestCase):
         self.assertIn("MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS:-30", self.workflow)
 
     def test_mcp_default_hosts_include_public_no_auth_acceptance_server(self):
-        default_hosts = "learn.microsoft.com,dashscope.aliyuncs.com,mcp.amap.com,mcp.context7.com"
-        default_credential_refs = "DASHSCOPE_API_KEY,AMAP_MCP_API_KEY,CONTEXT7_API_KEY"
+        default_hosts = "learn.microsoft.com,dashscope.aliyuncs.com,mcp.context7.com"
+        default_credential_refs = "DASHSCOPE_API_KEY,CONTEXT7_API_KEY"
         self.assertIn(f'"{default_hosts}"', self.app_config)
         self.assertIn(f"MCP_ALLOWED_HOSTS={default_hosts}", self.env_example)
         self.assertIn(f"MCP_ALLOWED_HOSTS:-{default_hosts}", self.workflow)

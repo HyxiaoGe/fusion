@@ -5,11 +5,14 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
+from app.services.external.agent_tools import agent_tools_url
+from app.services.mcp.amap_coordinate_converter import COORDINATE_CONVERT_TOOL
 
-AMAP_MCP_HOST = "mcp.amap.com"
+# 高德不再直连：经 agent-tools 网关的 amap 代理访问，密钥由代理持有，Fusion 只带产品服务密钥。
+AMAP_GATEWAY_SERVICE = "amap"
+AGENT_TOOLS_CREDENTIAL_REF = "AGENT_TOOLS_API_KEY"
 CONTEXT7_MCP_HOST = "mcp.context7.com"
 TENCENT_MAP_MCP_HOST = "mcp.map.qq.com"
-AMAP_CREDENTIAL_REF = "AMAP_MCP_API_KEY"
 CONTEXT7_CREDENTIAL_REF = "CONTEXT7_API_KEY"
 CONTEXT7_CONNECT_TIMEOUT_FLOOR_SECONDS = 20.0
 CONTEXT7_CALL_TIMEOUT_FLOOR_SECONDS = 30.0
@@ -26,6 +29,7 @@ AMAP_READ_ONLY_TOOL_ALLOWLIST = frozenset(
         "maps_text_search",
         "maps_around_search",
         "maps_search_detail",
+        COORDINATE_CONVERT_TOOL,
     }
 )
 CONTEXT7_READ_ONLY_TOOL_ALLOWLIST = frozenset(
@@ -96,11 +100,21 @@ def _endpoint_hostname(endpoint_url: str) -> str:
         return ""
 
 
+def amap_gateway_endpoint() -> str:
+    return agent_tools_url(AMAP_GATEWAY_SERVICE, "/mcp")
+
+
+def _is_agent_tools_endpoint(endpoint_url: str) -> bool:
+    base = agent_tools_url("", "").rstrip("/")
+    normalized = endpoint_url.strip()
+    return normalized == base or normalized.startswith(base + "/")
+
+
 def endpoint_tool_allowlist(endpoint_url: str) -> frozenset[str] | None:
     """返回指定官方端点的硬白名单；其他 MCP 服务继续使用管理员授权。"""
 
     hostname = _endpoint_hostname(endpoint_url)
-    if hostname == AMAP_MCP_HOST:
+    if is_official_amap_endpoint(endpoint_url):
         return AMAP_READ_ONLY_TOOL_ALLOWLIST
     if hostname == CONTEXT7_MCP_HOST:
         return CONTEXT7_READ_ONLY_TOOL_ALLOWLIST
@@ -118,7 +132,9 @@ def endpoint_data_source(endpoint_url: str) -> tuple[str, str, str] | None:
 
 
 def is_official_amap_endpoint(endpoint_url: str) -> bool:
-    return _endpoint_hostname(endpoint_url) == AMAP_MCP_HOST
+    """高德只认网关上的 amap 代理端点；直连 mcp.amap.com 的行不再享有产品化处理。"""
+
+    return endpoint_url.strip().rstrip("/") == amap_gateway_endpoint()
 
 
 def is_official_context7_endpoint(endpoint_url: str) -> bool:
@@ -147,6 +163,14 @@ def endpoint_auth_binding_is_allowed(
     """将官方凭证绑定到固定主机和传输位置，阻止跨提供商误投。"""
 
     hostname = _endpoint_hostname(endpoint_url)
+    # 产品服务密钥只能以 Bearer 发给 agent-tools 网关；网关上的 amap 代理也只接受这一种鉴权。
+    if credential_ref == AGENT_TOOLS_CREDENTIAL_REF or is_official_amap_endpoint(endpoint_url):
+        return (
+            _is_agent_tools_endpoint(endpoint_url)
+            and auth_type == "bearer"
+            and auth_name is None
+            and credential_ref == AGENT_TOOLS_CREDENTIAL_REF
+        )
     if credential_ref == CONTEXT7_CREDENTIAL_REF or hostname == CONTEXT7_MCP_HOST:
         if auth_type == "none":
             return hostname == CONTEXT7_MCP_HOST and auth_name is None and credential_ref is None
@@ -155,13 +179,6 @@ def endpoint_auth_binding_is_allowed(
             and auth_type == "header"
             and auth_name == CONTEXT7_CREDENTIAL_REF
             and credential_ref == CONTEXT7_CREDENTIAL_REF
-        )
-    if credential_ref == AMAP_CREDENTIAL_REF or hostname == AMAP_MCP_HOST:
-        return (
-            hostname == AMAP_MCP_HOST
-            and auth_type == "query"
-            and auth_name == "key"
-            and credential_ref == AMAP_CREDENTIAL_REF
         )
     return True
 
@@ -174,10 +191,9 @@ def tool_is_allowed_for_endpoint(endpoint_url: str, tool_name: str) -> bool:
 def endpoint_tool_guidance(endpoint_url: str, tool_name: str) -> str:
     """返回可信的产品级工具使用约束，不采信远端描述作为策略。"""
 
-    hostname = _endpoint_hostname(endpoint_url)
-    if hostname == AMAP_MCP_HOST:
+    if is_official_amap_endpoint(endpoint_url):
         return _AMAP_TOOL_GUIDANCE.get(tool_name, "")
-    if hostname == CONTEXT7_MCP_HOST:
+    if _endpoint_hostname(endpoint_url) == CONTEXT7_MCP_HOST:
         return _CONTEXT7_TOOL_GUIDANCE.get(tool_name, "")
     return ""
 

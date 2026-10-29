@@ -30,8 +30,9 @@ from app.schemas.chat import (
 )
 from app.services.agent.context_broker import Geolocation
 from app.services.mcp.amap_coordinate_converter import (
+    COORDINATE_CONVERT_TOOL,
     AmapCoordinateConversionError,
-    convert_wgs84_to_gcj02,
+    build_remote_coordinate_converter,
 )
 from app.services.mcp.client import McpClientError
 from app.services.mcp.provider_quota import (
@@ -52,10 +53,14 @@ AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS = {
     AMAP_LOCAL_PLACE_SEARCH: frozenset({AMAP_SEARCH_QUOTA_GROUP}),
     AMAP_ROUTE_COMPARE: frozenset({"maps_geo"}),
 }
+# 坐标转换也是代理暴露的远端工具：当前位置锚点要先转成 GCJ02 才能搜周边、算路线。
 AMAP_PRODUCT_REMOTE_DEPENDENCIES = {
-    AMAP_LOCAL_PLACE_SEARCH: frozenset({"maps_geo", "maps_text_search", "maps_around_search", "maps_search_detail"}),
+    AMAP_LOCAL_PLACE_SEARCH: frozenset(
+        {"maps_geo", "maps_text_search", "maps_around_search", "maps_search_detail", COORDINATE_CONVERT_TOOL}
+    ),
     AMAP_ROUTE_COMPARE: frozenset(
         {
+            COORDINATE_CONVERT_TOOL,
             "maps_geo",
             "maps_regeocode",
             "maps_text_search",
@@ -222,11 +227,12 @@ class AmapRemoteExecutor(Protocol):
 
     async def remaining_run_budget(self) -> int: ...
 
-    async def try_consume_run_budget(self) -> bool: ...
-
 
 class AmapRunCoordinateConversion:
-    """一次 Agent run 共享一次坐标转换结果，失败同样熔断后续重试。"""
+    """一次 Agent run 共享一次坐标转换结果，失败同样熔断后续重试。
+
+    转换本身是一次远端工具调用，预算由 remote_executor 在调用时消费，这里不再单独扣。
+    """
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -242,7 +248,6 @@ class AmapRunCoordinateConversion:
         location: Geolocation,
         *,
         converter: Callable[[Geolocation], Awaitable[str]],
-        consume_budget: Callable[[], Awaitable[bool]],
         stats: "_RemoteCallStats",
     ) -> str:
         async with self._lock:
@@ -250,8 +255,6 @@ class AmapRunCoordinateConversion:
                 return self._coordinate
             if self._attempted:
                 raise AmapCoordinateConversionError
-            if not await consume_budget():
-                raise McpClientError("server_run_budget_exhausted", MCP_TOOL_UNAVAILABLE_MESSAGE)
 
             self._attempted = True
             stats.record(_AMAP_COORDINATE_CONVERT_ATTEMPT)
@@ -323,7 +326,7 @@ class AmapProductToolHandler(BaseToolHandler):
         orchestration_lock: asyncio.Lock | None = None,
         max_llm_context_bytes: int = _MAX_CONTEXT_BYTES,
         timeout_seconds: float = _PRODUCT_TIMEOUT_SECONDS,
-        coordinate_converter: Callable[[Geolocation], Awaitable[str]] = convert_wgs84_to_gcj02,
+        coordinate_converter: Callable[[Geolocation], Awaitable[str]] | None = None,
         coordinate_conversion: AmapRunCoordinateConversion | None = None,
     ) -> None:
         self.binding = binding
@@ -332,7 +335,10 @@ class AmapProductToolHandler(BaseToolHandler):
         self.orchestration_lock = orchestration_lock or asyncio.Lock()
         self.max_llm_context_bytes = max_llm_context_bytes
         self.timeout_seconds = timeout_seconds
-        self.coordinate_converter = coordinate_converter
+        # 默认经同一个远端执行器调代理的 maps_coordinate_convert，与其他高德调用共用预算与熔断。
+        self.coordinate_converter = coordinate_converter or build_remote_coordinate_converter(
+            remote_executor, self.dependency_hashes
+        )
         self.coordinate_conversion = coordinate_conversion or AmapRunCoordinateConversion()
 
     @property
@@ -923,7 +929,6 @@ class AmapProductToolHandler(BaseToolHandler):
         return await self.coordinate_conversion.resolve(
             _runtime_geolocation(runtime_context),
             converter=self.coordinate_converter,
-            consume_budget=self.remote_executor.try_consume_run_budget,
             stats=stats,
         )
 

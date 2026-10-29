@@ -13,7 +13,7 @@ def amap_row():
         id="z-amap",
         name="高德地图",
         provider="amap",
-        endpoint_url="https://mcp.amap.com/mcp",
+        endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
         allowed_tools=AMAP_NAMES,
         discovered_tools=[
             {"name": name, "description": name, "input_schema": {"type": "object"}} for name in AMAP_NAMES

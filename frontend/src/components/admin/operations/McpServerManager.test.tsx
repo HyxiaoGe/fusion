@@ -332,12 +332,13 @@ describe('McpServerManager', () => {
     expect(apiMocks.create).not.toHaveBeenCalled();
   });
 
-  it('高德安全预设只填写凭证引用，不把 key 放进 endpoint 或表单', async () => {
+  it('高德安全预设指向 agent-tools 网关代理，只带产品服务密钥的凭证引用', async () => {
     apiMocks.create.mockResolvedValue({
       ...server,
-      endpoint_url: 'https://mcp.amap.com/mcp',
-      auth_type: 'query',
-      auth_name: 'key',
+      endpoint_url: 'http://agent-tools-gateway:8100/amap/mcp',
+      auth_type: 'bearer',
+      auth_name: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: [],
     });
 
@@ -348,11 +349,10 @@ describe('McpServerManager', () => {
 
     expect(screen.getByLabelText('服务名称')).toHaveValue('高德地图');
     expect(screen.getByLabelText('提供商')).toHaveValue('amap');
-    expect(screen.getByLabelText('Endpoint URL')).toHaveValue('https://mcp.amap.com/mcp');
+    expect(screen.getByLabelText('Endpoint URL')).toHaveValue('http://agent-tools-gateway:8100/amap/mcp');
     expect(screen.getByLabelText('Endpoint URL')).not.toHaveValue(expect.stringContaining('?'));
-    expect(screen.getByRole('combobox', { name: '鉴权方式' })).toHaveTextContent('Query 参数');
-    expect(screen.getByLabelText('Header / Query 参数名')).toHaveValue('key');
-    expect(screen.getByLabelText('凭证引用')).toHaveValue('AMAP_MCP_API_KEY');
+    expect(screen.getByRole('combobox', { name: '鉴权方式' })).toHaveTextContent('Bearer');
+    expect(screen.getByLabelText('凭证引用')).toHaveValue('AGENT_TOOLS_API_KEY');
     expect(screen.queryByLabelText(/API Key|明文密钥|secret|token/i)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '保存服务' }));
@@ -360,11 +360,11 @@ describe('McpServerManager', () => {
     await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith({
       name: '高德地图',
       provider: 'amap',
-      endpoint_url: 'https://mcp.amap.com/mcp',
+      endpoint_url: 'http://agent-tools-gateway:8100/amap/mcp',
       transport: 'streamable_http',
-      auth_type: 'query',
-      auth_name: 'key',
-      credential_ref: 'AMAP_MCP_API_KEY',
+      auth_type: 'bearer',
+      auth_name: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: [],
     }));
   });

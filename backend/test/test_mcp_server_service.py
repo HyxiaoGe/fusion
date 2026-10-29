@@ -205,10 +205,10 @@ class McpServerServiceTests(unittest.TestCase):
         ]
         row = build_row(
             provider="amap",
-            endpoint_url="https://MCP.AMAP.COM./mcp",
-            auth_type="query",
-            auth_name="key",
-            credential_ref="AMAP_MCP_API_KEY",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp/",
+            auth_type="bearer",
+            auth_name=None,
+            credential_ref="AGENT_TOOLS_API_KEY",
             allowed_tools=[],
             discovered_tools=discovered_tools,
         )
@@ -308,10 +308,10 @@ class McpServerServiceTests(unittest.TestCase):
         ]
         row = build_row(
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
-            auth_type="query",
-            auth_name="key",
-            credential_ref="AMAP_MCP_API_KEY",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
+            auth_type="bearer",
+            auth_name=None,
+            credential_ref="AGENT_TOOLS_API_KEY",
             allowed_tools=["maps_text_search", "maps_ip_location"],
             discovered_tools=tools,
         )
@@ -334,10 +334,10 @@ class McpServerServiceTests(unittest.TestCase):
         ]
         row = build_row(
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
-            auth_type="query",
-            auth_name="key",
-            credential_ref="AMAP_MCP_API_KEY",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
+            auth_type="bearer",
+            auth_name=None,
+            credential_ref="AGENT_TOOLS_API_KEY",
             is_enabled=True,
             allowed_tools=blocked_tools,
             discovered_tools=discovered_tools,
@@ -354,10 +354,10 @@ class McpServerServiceTests(unittest.TestCase):
         tool = {"name": "maps_text_search", "description": "搜索", "input_schema": {"type": "object"}}
         row = build_row(
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
-            auth_type="query",
-            auth_name="key",
-            credential_ref="AMAP_MCP_API_KEY",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
+            auth_type="bearer",
+            auth_name=None,
+            credential_ref="AGENT_TOOLS_API_KEY",
             is_enabled=True,
             allowed_tools=["maps_text_search"],
             discovered_tools=[tool],
