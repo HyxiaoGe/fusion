@@ -312,7 +312,9 @@ const actionDocuments = [
 
     const setupNodeStep = prSteps.find((step) => step.name === 'Setup Node.js');
     const installStep = prSteps.find((step) => step.name === 'Install dependencies');
-    const dockerStep = prSteps.find((step) => step.name === 'Test and build UI Docker targets');
+    const lintStep = prSteps.find((step) => step.name === 'Lint');
+    const testStep = prSteps.find((step) => step.name === 'Run unit tests');
+    const dockerStep = prSteps.find((step) => step.name === 'Build UI production image');
     expect(setupNodeStep?.uses).toBe('actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38');
     expect(setupNodeStep?.with).toEqual({
       'node-version': '20',
@@ -326,10 +328,20 @@ const actionDocuments = [
     expect(installStep?.id).toBeUndefined();
     expect(installStep?.if).toBeUndefined();
     expect(installStep?.['continue-on-error']).toBeUndefined();
+    // lint 与 Vitest 在 runner 上用已装好的依赖直接跑，不进 Docker。
+    expect(lintStep?.['working-directory']).toBe('frontend');
+    expect(lintStep?.run?.trim()).toBe('npm run lint');
+    expect(testStep?.['working-directory']).toBe('frontend');
+    expect(testStep?.run).toContain('npx vitest related --run --passWithNoTests $UI_TEST_RELATED');
+    expect(testStep?.run).toContain('npm test');
+    expect(testStep?.if).toBeUndefined();
+    expect(testStep?.['continue-on-error']).toBeUndefined();
     expect(dockerStep?.id).toBeUndefined();
     expect(prSteps.indexOf(setupNodeStep!)).toBeLessThan(prSteps.indexOf(installStep!));
     expect(prSteps.indexOf(installStep!)).toBeLessThan(prSteps.indexOf(contractSteps[0]));
-    expect(prSteps.indexOf(contractSteps[0])).toBeLessThan(prSteps.indexOf(dockerStep!));
+    expect(prSteps.indexOf(contractSteps[0])).toBeLessThan(prSteps.indexOf(lintStep!));
+    expect(prSteps.indexOf(lintStep!)).toBeLessThan(prSteps.indexOf(testStep!));
+    expect(prSteps.indexOf(testStep!)).toBeLessThan(prSteps.indexOf(dockerStep!));
 
     const deploySteps = releaseWorkflowDocument.jobs?.['deploy-dev']?.steps ?? [];
     const expectedRoleIds = [
@@ -864,11 +876,12 @@ docker() {
     expect(windowsDockerBuildAction).not.toContain('fusion-ui-buildx-cache-next');
   });
 
-  it('PR 在临时 Linux Runner 完成同等 Docker targets 构建', () => {
+  it('PR 在临时 Linux Runner 上直接跑 lint 与 Vitest，只构建 production target', () => {
     expect(pullRequestWorkflow).not.toContain('uses: ./frontend/.github/actions/windows-docker-build');
     expect(pullRequestWorkflow).toContain('docker buildx create');
-    expect(pullRequestWorkflow).toContain('--target test');
-    expect(pullRequestWorkflow).toContain('--no-cache-filter test');
+    expect(pullRequestWorkflow).not.toContain('--target test');
+    expect(pullRequestWorkflow).not.toContain('--no-cache-filter test');
+    expect(pullRequestWorkflow).not.toContain('UI_TEST_RELATED=');
     expect(pullRequestWorkflow).toContain('--target production');
     expect(pullRequestWorkflow).toContain('--load');
     expect(pullRequestWorkflow).not.toContain('buildx prune');

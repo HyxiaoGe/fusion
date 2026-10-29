@@ -20,6 +20,8 @@ GitHub Actions 的 Windows Job 先构建 `test` target。测试通过后再构�
 
 2026-10-09 起部署流程（`_deploy-ui.yml`）的 Windows Job 只构建 `production` target：同一提交的 lint 与 Vitest 已由 Fusion CI 在 PR 和 push master 时执行，部署不再重复。下面的 `test` target 命令仍可用于本地验证。
 
+2026-10-29 起 PR CI（`pr-ci.yml`）也不再构建 `test` target：lint 与 Vitest 直接在 runner 上用 `npm ci` 装好的依赖跑，省掉容器里重装依赖和冷跑的 5 分钟；Docker 只构建 `production` target。`test` target 仅供本地验证。
+
 ## 本地验证
 
 在仓库根目录执行：

@@ -142,11 +142,6 @@ jobs:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"
-      NEXT_PUBLIC_AUTH_SERVICE_BASE_URL: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_BASE_URL }}
-      NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID }}
-      NEXT_PUBLIC_AUTH_CALLBACK_URL: ${{ vars.NEXT_PUBLIC_AUTH_CALLBACK_URL }}
-      NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
-      NEXT_PUBLIC_POSTHOG_HOST: ${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -180,10 +175,36 @@ jobs:
           related="$(.github/scripts/ui_test_scope.sh "${EVENT_NAME}")"
           echo "related=${related}" >> "$GITHUB_OUTPUT"
 
-      - name: Test and build UI Docker targets
+      # lint 与 Vitest 直接用上面装好的依赖在 runner 上跑，不再进 Docker 的 test 阶段：
+      # 容器里要重装一遍依赖且每次冷跑，之前这一段要 5 分钟左右。
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: frontend
         shell: bash
         env:
+          NODE_ENV: test
           UI_TEST_RELATED: ${{ steps.ui_test_scope.outputs.related }}
+        run: |
+          set -euo pipefail
+          if [ -n "$UI_TEST_RELATED" ]; then
+            # shellcheck disable=SC2086
+            npx vitest related --run --passWithNoTests $UI_TEST_RELATED
+          else
+            npm test
+          fi
+
+      - name: Build UI production image
+        shell: bash
+        # 部署用的 NEXT_PUBLIC_* 只给镜像构建；lint 与 Vitest 要在干净环境里跑，config.test.ts 会读这些变量。
+        env:
+          NEXT_PUBLIC_AUTH_SERVICE_BASE_URL: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_BASE_URL }}
+          NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_AUTH_SERVICE_CLIENT_ID }}
+          NEXT_PUBLIC_AUTH_CALLBACK_URL: ${{ vars.NEXT_PUBLIC_AUTH_CALLBACK_URL }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}
         run: |
           set -euo pipefail
           builder="fusion-ui-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -191,15 +212,6 @@ jobs:
 
           docker buildx create --name "$builder" --driver docker-container --use
           docker buildx inspect --builder "$builder" --bootstrap
-
-          docker buildx build \
-            --builder "$builder" \
-            --target test \
-            --no-cache-filter test \
-            --progress plain \
-            --provenance=false \
-            --build-arg "UI_TEST_RELATED=${UI_TEST_RELATED}" \
-            frontend
 
           docker buildx build \
             --builder "$builder" \
