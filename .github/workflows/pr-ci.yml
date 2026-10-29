@@ -180,10 +180,29 @@ jobs:
           related="$(.github/scripts/ui_test_scope.sh "${EVENT_NAME}")"
           echo "related=${related}" >> "$GITHUB_OUTPUT"
 
-      - name: Test and build UI Docker targets
+      # lint 与 Vitest 直接用上面装好的依赖在 runner 上跑，不再进 Docker 的 test 阶段：
+      # 容器里要重装一遍依赖且每次冷跑，之前这一段要 5 分钟左右。
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: frontend
         shell: bash
         env:
+          NODE_ENV: test
           UI_TEST_RELATED: ${{ steps.ui_test_scope.outputs.related }}
+        run: |
+          set -euo pipefail
+          if [ -n "$UI_TEST_RELATED" ]; then
+            # shellcheck disable=SC2086
+            npx vitest related --run --passWithNoTests $UI_TEST_RELATED
+          else
+            npm test
+          fi
+
+      - name: Build UI production image
+        shell: bash
         run: |
           set -euo pipefail
           builder="fusion-ui-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -191,15 +210,6 @@ jobs:
 
           docker buildx create --name "$builder" --driver docker-container --use
           docker buildx inspect --builder "$builder" --bootstrap
-
-          docker buildx build \
-            --builder "$builder" \
-            --target test \
-            --no-cache-filter test \
-            --progress plain \
-            --provenance=false \
-            --build-arg "UI_TEST_RELATED=${UI_TEST_RELATED}" \
-            frontend
 
           docker buildx build \
             --builder "$builder" \

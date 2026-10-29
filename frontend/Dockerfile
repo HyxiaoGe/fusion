@@ -25,7 +25,8 @@ FROM source AS test
 
 ENV NODE_ENV=test
 
-# PR 只改了源码时传入改动文件，只跑受影响的测试；空值跑全量（master 与改配置/依赖的 PR）。
+# 本阶段只供本地验证：CI 的 lint 与 Vitest 直接在 runner 上跑（见 .github/workflows/pr-ci.yml），不再构建它。
+# 传入改动文件列表时只跑受影响的测试，空值跑全量。
 ARG UI_TEST_RELATED=""
 
 RUN npm run lint
