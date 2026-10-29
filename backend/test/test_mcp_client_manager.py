@@ -64,6 +64,9 @@ class FakeConnector:
         self.closed = True
 
 
+CONTEXT7_GATEWAY = "http://agent-tools-gateway:8100/context7/mcp"
+
+
 def build_policy(**overrides):
     values = {
         "allowed_hosts": frozenset({"dashscope.aliyuncs.com"}),
@@ -399,18 +402,18 @@ class McpClientManagerTests(unittest.TestCase):
         connector = FakeConnector(session)
         manager = McpClientManager(
             policy=build_policy(
-                allowed_hosts=frozenset({"mcp.context7.com"}),
-                allowed_credential_refs=frozenset({"CONTEXT7_API_KEY"}),
+                allowed_internal_endpoints=frozenset({CONTEXT7_GATEWAY}),
+                allowed_credential_refs=frozenset({"AGENT_TOOLS_API_KEY"}),
             ),
             connector=connector,
-            environ={},
+            environ={"AGENT_TOOLS_API_KEY": "fusion-service-key"},
         )
         config = build_config(
             provider="context7",
-            endpoint_url="https://mcp.context7.com/mcp",
-            auth_type="none",
+            endpoint_url=CONTEXT7_GATEWAY,
+            auth_type="bearer",
             auth_name=None,
-            credential_ref=None,
+            credential_ref="AGENT_TOOLS_API_KEY",
             allowed_tools=["resolve-library-id"],
         )
 
@@ -443,21 +446,22 @@ class McpClientManagerTests(unittest.TestCase):
         )
         manager = McpClientManager(
             policy=build_policy(
-                allowed_hosts=frozenset({"mcp.context7.com"}),
+                allowed_internal_endpoints=frozenset({CONTEXT7_GATEWAY}),
+                allowed_credential_refs=frozenset({"AGENT_TOOLS_API_KEY"}),
                 idempotent_total_timeout_seconds=0.001,
             ),
             connector=FakeConnector(session),
-            environ={},
+            environ={"AGENT_TOOLS_API_KEY": "fusion-service-key"},
         )
 
         tools = asyncio.run(
             manager.list_tools(
                 build_config(
                     provider="context7",
-                    endpoint_url="https://mcp.context7.com/mcp",
-                    auth_type="none",
+                    endpoint_url=CONTEXT7_GATEWAY,
+                    auth_type="bearer",
                     auth_name=None,
-                    credential_ref=None,
+                    credential_ref="AGENT_TOOLS_API_KEY",
                 )
             )
         )
@@ -510,27 +514,36 @@ class McpClientManagerTests(unittest.TestCase):
         self.assertNotIn("CONTEXT7_API_KEY", str(raised.exception))
         self.assertEqual(connector.connections, [])
 
-    def test_context7_credential_is_bound_to_official_host_and_exact_header(self):
+    def test_product_credential_is_bound_to_the_gateway_and_bearer_transport(self):
         invalid_configs = (
+            # 产品服务密钥不能发往外部主机。
             build_config(
                 provider="context7",
                 endpoint_url="https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp",
-                auth_type="header",
-                auth_name="CONTEXT7_API_KEY",
-                credential_ref="CONTEXT7_API_KEY",
+                auth_type="bearer",
+                auth_name=None,
+                credential_ref="AGENT_TOOLS_API_KEY",
             ),
+            # 网关端点不接受 header / 免密，也不接受其他凭证。
             build_config(
                 provider="context7",
-                endpoint_url="https://mcp.context7.com/mcp",
+                endpoint_url=CONTEXT7_GATEWAY,
                 auth_type="header",
                 auth_name="X-API-Key",
-                credential_ref="CONTEXT7_API_KEY",
+                credential_ref="AGENT_TOOLS_API_KEY",
             ),
             build_config(
                 provider="context7",
-                endpoint_url="https://mcp.context7.com/mcp",
-                auth_type="header",
-                auth_name="CONTEXT7_API_KEY",
+                endpoint_url=CONTEXT7_GATEWAY,
+                auth_type="none",
+                auth_name=None,
+                credential_ref=None,
+            ),
+            build_config(
+                provider="context7",
+                endpoint_url=CONTEXT7_GATEWAY,
+                auth_type="bearer",
+                auth_name=None,
                 credential_ref="DASHSCOPE_API_KEY",
             ),
         )
@@ -538,23 +551,19 @@ class McpClientManagerTests(unittest.TestCase):
             connector = FakeConnector(FakeSession())
             manager = McpClientManager(
                 policy=build_policy(
-                    allowed_hosts=frozenset(
-                        {
-                            "dashscope.aliyuncs.com",
-                            "mcp.context7.com",
-                        }
-                    ),
+                    allowed_hosts=frozenset({"dashscope.aliyuncs.com"}),
+                    allowed_internal_endpoints=frozenset({CONTEXT7_GATEWAY}),
                     allowed_credential_refs=frozenset(
                         {
                             "DASHSCOPE_API_KEY",
-                            "CONTEXT7_API_KEY",
+                            "AGENT_TOOLS_API_KEY",
                         }
                     ),
                 ),
                 connector=connector,
                 environ={
                     "DASHSCOPE_API_KEY": "dashscope-secret",
-                    "CONTEXT7_API_KEY": "context7-secret",
+                    "AGENT_TOOLS_API_KEY": "fusion-service-key",
                 },
             )
             with self.subTest(config=config):
@@ -563,40 +572,32 @@ class McpClientManagerTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, "invalid_auth")
                 self.assertEqual(connector.connections, [])
 
-    def test_provider_credentials_cannot_be_sent_to_each_others_official_hosts(self):
+    def test_product_credential_cannot_be_sent_to_third_party_official_hosts(self):
         cases = (
             build_config(
                 provider="context7",
                 endpoint_url="https://mcp.context7.com/mcp",
-                auth_type="query",
-                auth_name="key",
-                credential_ref="AMAP_MCP_API_KEY",
+                auth_type="bearer",
+                auth_name=None,
+                credential_ref="AGENT_TOOLS_API_KEY",
             ),
             build_config(
-                provider="amap",
-                endpoint_url="https://mcp.amap.com/mcp",
-                auth_type="header",
-                auth_name="CONTEXT7_API_KEY",
-                credential_ref="CONTEXT7_API_KEY",
+                provider="tencent_map",
+                endpoint_url="https://mcp.map.qq.com/mcp",
+                auth_type="query",
+                auth_name="key",
+                credential_ref="AGENT_TOOLS_API_KEY",
             ),
         )
         for config in cases:
             connector = FakeConnector(FakeSession())
             manager = McpClientManager(
                 policy=build_policy(
-                    allowed_hosts=frozenset({"mcp.amap.com", "mcp.context7.com"}),
-                    allowed_credential_refs=frozenset(
-                        {
-                            "AMAP_MCP_API_KEY",
-                            "CONTEXT7_API_KEY",
-                        }
-                    ),
+                    allowed_hosts=frozenset({"mcp.map.qq.com", "mcp.context7.com"}),
+                    allowed_credential_refs=frozenset({"AGENT_TOOLS_API_KEY"}),
                 ),
                 connector=connector,
-                environ={
-                    "AMAP_MCP_API_KEY": "amap-secret",
-                    "CONTEXT7_API_KEY": "context7-secret",
-                },
+                environ={"AGENT_TOOLS_API_KEY": "fusion-service-key"},
             )
             with self.subTest(config=config):
                 with self.assertRaises(McpClientError) as raised:
@@ -795,9 +796,16 @@ class McpClientManagerTests(unittest.TestCase):
         for endpoint_url, code in rejected:
             with self.subTest(endpoint_url=endpoint_url):
                 with self.assertRaises(McpClientError) as raised:
-                    asyncio.run(manager.test_connection(build_config(
-                        provider="image-service", endpoint_url=endpoint_url, auth_type="none", credential_ref=None
-                    )))
+                    asyncio.run(
+                        manager.test_connection(
+                            build_config(
+                                provider="image-service",
+                                endpoint_url=endpoint_url,
+                                auth_type="none",
+                                credential_ref=None,
+                            )
+                        )
+                    )
                 self.assertIn(raised.exception.code, {code, "invalid_endpoint"})
 
     def test_internal_endpoint_allowlist_ignores_entries_with_query_or_userinfo(self):
@@ -809,9 +817,13 @@ class McpClientManagerTests(unittest.TestCase):
                     environ={},
                 )
                 with self.assertRaises(McpClientError):
-                    asyncio.run(manager.test_connection(build_config(
-                        provider="image-service", endpoint_url=internal, auth_type="none", credential_ref=None
-                    )))
+                    asyncio.run(
+                        manager.test_connection(
+                            build_config(
+                                provider="image-service", endpoint_url=internal, auth_type="none", credential_ref=None
+                            )
+                        )
+                    )
 
     def test_call_tool_minimum_timeout_raises_call_timeout_only_upward(self):
         session = FakeSession()

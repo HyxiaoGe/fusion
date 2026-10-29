@@ -99,24 +99,21 @@ class DeployAuthConfigTests(unittest.TestCase):
         for text in (self.workflow, self.compose, self.env_example, self.app_config):
             self.assertNotIn("AMAP_MCP_API_KEY", text)
             self.assertNotIn("mcp.amap.com", text)
-        self.assertNotIn("${{ secrets.CONTEXT7_API_KEY }}", self.workflow)
-        self.assertNotIn("DEPLOY_CONTEXT7_API_KEY", self.workflow)
+        # Context7 同样由 agent-tools 的代理持有密钥，Fusion 的部署链路与配置不再出现它。
+        for text in (self.workflow, self.compose, self.env_example, self.app_config):
+            self.assertNotIn("CONTEXT7_API_KEY", text)
+            self.assertNotIn("mcp.context7.com", text)
         self.assertIn(
             'export DASHSCOPE_API_KEY="${DEPLOY_DASHSCOPE_API_KEY:-${DASHSCOPE_API_KEY:-}}"',
             self.workflow,
         )
-        self.assertIn('export CONTEXT7_API_KEY=""', self.workflow)
         self.assertIn("append_csv_value()", self.workflow)
         self.assertIn(
-            'export MCP_ALLOWED_HOSTS="$(append_csv_value "${MCP_ALLOWED_HOSTS}" "mcp.context7.com")"',
+            'export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "AGENT_TOOLS_API_KEY")"',
             self.workflow,
         )
         self.assertIn(
-            'export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "CONTEXT7_API_KEY")"',
-            self.workflow,
-        )
-        self.assertIn(
-            'export MCP_ALLOWED_HOSTS="${DEPLOY_MCP_ALLOWED_HOSTS:-${MCP_ALLOWED_HOSTS:-learn.microsoft.com,dashscope.aliyuncs.com,mcp.context7.com}}"',
+            'export MCP_ALLOWED_HOSTS="${DEPLOY_MCP_ALLOWED_HOSTS:-${MCP_ALLOWED_HOSTS:-learn.microsoft.com,dashscope.aliyuncs.com}}"',
             self.workflow,
         )
         for variable in (
@@ -138,7 +135,6 @@ class DeployAuthConfigTests(unittest.TestCase):
             "DASHSCOPE_API_KEY",
             "TENCENT_MAP_MCP_API_KEY",
             "AGENT_TOOLS_API_KEY",
-            "CONTEXT7_API_KEY",
             "QWEATHER_API_HOST",
             "QWEATHER_KEY_ID",
             "QWEATHER_PROJECT_ID",
@@ -179,16 +175,9 @@ class DeployAuthConfigTests(unittest.TestCase):
             self.workflow,
         )
         self.assertNotIn("echo ${DASHSCOPE_API_KEY}", self.workflow)
-        self.assertNotIn("echo ${CONTEXT7_API_KEY}", self.workflow)
-        self.assertNotIn('if [ -z "${CONTEXT7_API_KEY}" ]', self.workflow)
-        self.assertIn("- CONTEXT7_API_KEY=${CONTEXT7_API_KEY:-}", self.compose)
-        self.assertIn("Context7 MCP policy configuration ok", self.workflow)
+        self.assertIn("agent-tools MCP policy configuration ok", self.workflow)
         self.assertIn(
-            '"mcp.context7.com" not in settings.RESOLVED_MCP_ALLOWED_HOSTS',
-            self.workflow,
-        )
-        self.assertIn(
-            '"CONTEXT7_API_KEY" not in settings.RESOLVED_MCP_ALLOWED_CREDENTIAL_REFS',
+            '"AGENT_TOOLS_API_KEY" not in settings.RESOLVED_MCP_ALLOWED_CREDENTIAL_REFS',
             self.workflow,
         )
 
@@ -212,8 +201,8 @@ class DeployAuthConfigTests(unittest.TestCase):
         self.assertIn("MCP_SERVER_CIRCUIT_COOLDOWN_SECONDS:-30", self.workflow)
 
     def test_mcp_default_hosts_include_public_no_auth_acceptance_server(self):
-        default_hosts = "learn.microsoft.com,dashscope.aliyuncs.com,mcp.context7.com"
-        default_credential_refs = "DASHSCOPE_API_KEY,CONTEXT7_API_KEY"
+        default_hosts = "learn.microsoft.com,dashscope.aliyuncs.com"
+        default_credential_refs = "DASHSCOPE_API_KEY"
         self.assertIn(f'"{default_hosts}"', self.app_config)
         self.assertIn(f"MCP_ALLOWED_HOSTS={default_hosts}", self.env_example)
         self.assertIn(f"MCP_ALLOWED_HOSTS:-{default_hosts}", self.workflow)

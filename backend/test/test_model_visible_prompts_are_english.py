@@ -77,7 +77,9 @@ def test_tool_definitions_are_english():
 
     mcp_definition = build_agent_tool_definition(
         # 服务名是管理员配置的数据，会进入描述；这里只校验模板文本为英文。
-        SimpleNamespace(id="server-1", name="Docs service", endpoint_url="https://mcp.context7.com/mcp"),
+        SimpleNamespace(
+            id="server-1", name="Docs service", endpoint_url="http://agent-tools-gateway:8100/context7/mcp"
+        ),
         {
             "name": "resolve-library-id",
             "input_schema": {"type": "object", "properties": {}},

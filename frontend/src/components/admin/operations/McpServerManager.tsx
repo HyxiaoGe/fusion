@@ -78,10 +78,11 @@ const amapSafePreset: ServerFormState = {
 const context7SafePreset: ServerFormState = {
   name: "Context7 技术文档",
   provider: "context7",
-  endpointUrl: "https://mcp.context7.com/mcp",
-  authType: "none",
+  // Context7 经 agent-tools 网关的 context7 代理访问，密钥在代理侧，这里只带产品服务密钥。
+  endpointUrl: "http://agent-tools-gateway:8100/context7/mcp",
+  authType: "bearer",
   authName: "",
-  credentialRef: "",
+  credentialRef: "AGENT_TOOLS_API_KEY",
   allowedTools: "",
 };
 
@@ -119,24 +120,20 @@ const getRecommendedToolProfile = (
   const provider = server.provider.trim().toLowerCase();
   if (provider !== "context7") return recommendedToolProfiles[provider];
 
-  let hostname = "";
+  // 官方配置 = agent-tools 网关上的 context7 代理 + 产品服务密钥的 Bearer 凭证引用。
+  let pathname = "";
   try {
-    hostname = new URL(server.endpoint_url).hostname.toLowerCase().replace(/\.$/, "");
+    pathname = new URL(server.endpoint_url).pathname.replace(/\/+$/, "");
   } catch {
     return undefined;
   }
 
-  const hasOfficialNoAuth =
-    server.auth_type === "none"
+  const hasGatewayBearerAuth =
+    server.auth_type === "bearer"
     && !server.auth_name
-    && !server.credential_ref;
-  const hasOfficialApiKey =
-    server.auth_type === "header"
-    && server.auth_name?.trim() === "CONTEXT7_API_KEY"
-    && server.credential_ref?.trim() === "CONTEXT7_API_KEY";
+    && server.credential_ref?.trim() === "AGENT_TOOLS_API_KEY";
   const isOfficialContext7Configuration =
-    hostname === "mcp.context7.com"
-    && (hasOfficialNoAuth || hasOfficialApiKey);
+    pathname === "/context7/mcp" && hasGatewayBearerAuth;
 
   return isOfficialContext7Configuration
     ? recommendedToolProfiles.context7
@@ -152,7 +149,7 @@ const safePresets = [
   },
   {
     title: "Context7 技术文档",
-    description: "公开技术文档 · 默认免密接入",
+    description: "agent-tools 网关代理 · Bearer 凭证引用",
     actionLabel: "使用 Context7 技术文档预设",
     form: context7SafePreset,
   },

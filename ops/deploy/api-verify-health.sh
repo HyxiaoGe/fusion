@@ -71,11 +71,10 @@ PY
 docker exec -i fusion-api python - <<'PY'
 from app.core.config import settings
 
-if "mcp.context7.com" not in settings.RESOLVED_MCP_ALLOWED_HOSTS:
-    raise SystemExit("Context7 MCP host policy is missing")
-if "CONTEXT7_API_KEY" not in settings.RESOLVED_MCP_ALLOWED_CREDENTIAL_REFS:
-    raise SystemExit("Context7 MCP credential policy is missing")
-print("Context7 MCP policy configuration ok")
+# 高德 / Context7 等第三方 MCP 经 agent-tools 网关访问，Fusion 只需产品服务密钥的凭证引用。
+if "AGENT_TOOLS_API_KEY" not in settings.RESOLVED_MCP_ALLOWED_CREDENTIAL_REFS:
+    raise SystemExit("agent-tools MCP credential policy is missing")
+print("agent-tools MCP policy configuration ok")
 PY
 
 docker exec -i fusion-api python - <<'PY'

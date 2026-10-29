@@ -8,12 +8,11 @@ from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.services.external.agent_tools import agent_tools_url
 from app.services.mcp.amap_coordinate_converter import COORDINATE_CONVERT_TOOL
 
-# 高德不再直连：经 agent-tools 网关的 amap 代理访问，密钥由代理持有，Fusion 只带产品服务密钥。
+# 高德与 Context7 不再直连：经 agent-tools 网关上的代理访问，第三方密钥由代理持有，Fusion 只带产品服务密钥。
 AMAP_GATEWAY_SERVICE = "amap"
+CONTEXT7_GATEWAY_SERVICE = "context7"
 AGENT_TOOLS_CREDENTIAL_REF = "AGENT_TOOLS_API_KEY"
-CONTEXT7_MCP_HOST = "mcp.context7.com"
 TENCENT_MAP_MCP_HOST = "mcp.map.qq.com"
-CONTEXT7_CREDENTIAL_REF = "CONTEXT7_API_KEY"
 CONTEXT7_CONNECT_TIMEOUT_FLOOR_SECONDS = 20.0
 CONTEXT7_CALL_TIMEOUT_FLOOR_SECONDS = 30.0
 CONTEXT7_IDEMPOTENT_TOTAL_TIMEOUT_FLOOR_SECONDS = 45.0
@@ -104,6 +103,10 @@ def amap_gateway_endpoint() -> str:
     return agent_tools_url(AMAP_GATEWAY_SERVICE, "/mcp")
 
 
+def context7_gateway_endpoint() -> str:
+    return agent_tools_url(CONTEXT7_GATEWAY_SERVICE, "/mcp")
+
+
 def _is_agent_tools_endpoint(endpoint_url: str) -> bool:
     base = agent_tools_url("", "").rstrip("/")
     normalized = endpoint_url.strip()
@@ -113,10 +116,9 @@ def _is_agent_tools_endpoint(endpoint_url: str) -> bool:
 def endpoint_tool_allowlist(endpoint_url: str) -> frozenset[str] | None:
     """返回指定官方端点的硬白名单；其他 MCP 服务继续使用管理员授权。"""
 
-    hostname = _endpoint_hostname(endpoint_url)
     if is_official_amap_endpoint(endpoint_url):
         return AMAP_READ_ONLY_TOOL_ALLOWLIST
-    if hostname == CONTEXT7_MCP_HOST:
+    if is_official_context7_endpoint(endpoint_url):
         return CONTEXT7_READ_ONLY_TOOL_ALLOWLIST
     return None
 
@@ -138,13 +140,15 @@ def is_official_amap_endpoint(endpoint_url: str) -> bool:
 
 
 def is_official_context7_endpoint(endpoint_url: str) -> bool:
-    return _endpoint_hostname(endpoint_url) == CONTEXT7_MCP_HOST
+    """Context7 只认网关上的 context7 代理端点；直连 mcp.context7.com 的行不再享有产品化处理。"""
+
+    return endpoint_url.strip().rstrip("/") == context7_gateway_endpoint()
 
 
 def endpoint_timeout_floors(endpoint_url: str) -> tuple[float, float, float] | None:
     """为已知高延迟官方端点提供最小超时，不放大全部 MCP 的失败等待。"""
 
-    if _endpoint_hostname(endpoint_url) != CONTEXT7_MCP_HOST:
+    if not is_official_context7_endpoint(endpoint_url):
         return None
     return (
         CONTEXT7_CONNECT_TIMEOUT_FLOOR_SECONDS,
@@ -162,23 +166,13 @@ def endpoint_auth_binding_is_allowed(
 ) -> bool:
     """将官方凭证绑定到固定主机和传输位置，阻止跨提供商误投。"""
 
-    hostname = _endpoint_hostname(endpoint_url)
-    # 产品服务密钥只能以 Bearer 发给 agent-tools 网关；网关上的 amap 代理也只接受这一种鉴权。
-    if credential_ref == AGENT_TOOLS_CREDENTIAL_REF or is_official_amap_endpoint(endpoint_url):
+    # 产品服务密钥只能以 Bearer 发给 agent-tools 网关；网关上的任何服务（amap / context7 / image 等）也只接受这一种鉴权。
+    if credential_ref == AGENT_TOOLS_CREDENTIAL_REF or _is_agent_tools_endpoint(endpoint_url):
         return (
             _is_agent_tools_endpoint(endpoint_url)
             and auth_type == "bearer"
             and auth_name is None
             and credential_ref == AGENT_TOOLS_CREDENTIAL_REF
-        )
-    if credential_ref == CONTEXT7_CREDENTIAL_REF or hostname == CONTEXT7_MCP_HOST:
-        if auth_type == "none":
-            return hostname == CONTEXT7_MCP_HOST and auth_name is None and credential_ref is None
-        return (
-            hostname == CONTEXT7_MCP_HOST
-            and auth_type == "header"
-            and auth_name == CONTEXT7_CREDENTIAL_REF
-            and credential_ref == CONTEXT7_CREDENTIAL_REF
         )
     return True
 
@@ -193,7 +187,7 @@ def endpoint_tool_guidance(endpoint_url: str, tool_name: str) -> str:
 
     if is_official_amap_endpoint(endpoint_url):
         return _AMAP_TOOL_GUIDANCE.get(tool_name, "")
-    if _endpoint_hostname(endpoint_url) == CONTEXT7_MCP_HOST:
+    if is_official_context7_endpoint(endpoint_url):
         return _CONTEXT7_TOOL_GUIDANCE.get(tool_name, "")
     return ""
 
@@ -201,7 +195,7 @@ def endpoint_tool_guidance(endpoint_url: str, tool_name: str) -> str:
 def endpoint_tool_schema_override(endpoint_url: str, tool_name: str) -> dict[str, Any] | None:
     """返回 Fusion 维护的可信参数契约，避免官方工具依赖远端可变 schema。"""
 
-    if _endpoint_hostname(endpoint_url) != CONTEXT7_MCP_HOST:
+    if not is_official_context7_endpoint(endpoint_url):
         return None
     schema = _CONTEXT7_TOOL_SCHEMA_OVERRIDES.get(tool_name)
     return deepcopy(schema) if schema is not None else None
