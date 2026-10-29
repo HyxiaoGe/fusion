@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import re
 import time
@@ -75,7 +74,7 @@ from app.services.tool_handlers.itinerary import (
     PresentItineraryHandler,
     build_present_itinerary_tool,
 )
-from app.services.weather.qweather_client import QWeatherClient, QWeatherCredentials
+from app.services.weather.qweather_client import QWeatherClient
 from app.services.weather.qweather_forecast_tool import (
     WEATHER_FORECAST_DEFINITION,
     QWeatherForecastToolHandler,
@@ -996,7 +995,7 @@ def load_mcp_agent_tools(
             )
         except ValueError:
             logger.warning("FlyAI 出行工具配置无效，本次 Agent run 不注册相关工具")
-    # weather_forecast 只由和风天气提供；配置不全时不注册天气工具。
+    # weather_forecast 只由和风天气（经 agent-tools 网关的 weather 代理）提供；未配置产品服务密钥时不注册天气工具。
     resolved_qweather_client = qweather_client or _build_qweather_client()
     if resolved_qweather_client is not None:
         _append_qweather_forecast_tool(
@@ -1195,39 +1194,12 @@ def _append_amap_product_tools(
         audit_bindings.append(binding.to_audit_dict())
 
 
-_QWEATHER_CLIENT_CACHE: dict[tuple[str, ...], QWeatherClient] = {}
-
-
 def _build_qweather_client() -> QWeatherClient | None:
-    """按当前配置构建（并在进程内复用）和风客户端，复用以共享 JWT 缓存。"""
+    """和风凭证在 agent-tools 的 weather 代理侧；Fusion 配置了产品服务密钥就能经网关调用。"""
 
-    config_key = (
-        settings.QWEATHER_API_HOST,
-        settings.QWEATHER_KEY_ID,
-        settings.QWEATHER_PROJECT_ID,
-        settings.QWEATHER_DEVELOPER_ID,
-        hashlib.sha256(settings.QWEATHER_PRIVATE_KEY.encode()).hexdigest(),
-    )
-    cached = _QWEATHER_CLIENT_CACHE.get(config_key)
-    if cached is not None:
-        return cached
-    try:
-        credentials = QWeatherCredentials.from_settings(
-            api_host=settings.QWEATHER_API_HOST,
-            key_id=settings.QWEATHER_KEY_ID,
-            project_id=settings.QWEATHER_PROJECT_ID,
-            developer_id=settings.QWEATHER_DEVELOPER_ID,
-            private_key=settings.QWEATHER_PRIVATE_KEY,
-        )
-    except ValueError:
-        logger.warning("和风天气配置无效，本次 Agent run 不注册天气工具")
+    if not settings.AGENT_TOOLS_API_KEY.strip():
         return None
-    if credentials is None:
-        return None
-    client = QWeatherClient(credentials, timeout_seconds=max(1.0, settings.QWEATHER_TIMEOUT_SECONDS))
-    _QWEATHER_CLIENT_CACHE.clear()
-    _QWEATHER_CLIENT_CACHE[config_key] = client
-    return client
+    return QWeatherClient(timeout_seconds=max(1.0, settings.QWEATHER_TIMEOUT_SECONDS))
 
 
 def _append_qweather_forecast_tool(

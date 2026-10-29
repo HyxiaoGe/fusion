@@ -1,24 +1,20 @@
-import base64
-import json
 import os
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import httpx
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 os.environ["DATABASE_URL"] = "sqlite:///./fusion-test.db"
 
-from app.services.mcp.agent_tools import load_mcp_agent_tools  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.services.mcp.agent_tools import _build_qweather_client, load_mcp_agent_tools  # noqa: E402
 from app.services.weather.qweather_client import (  # noqa: E402
     QWeatherCity,
     QWeatherClient,
-    QWeatherCredentials,
     QWeatherError,
-    sign_qweather_jwt,
 )
 from app.services.weather.qweather_forecast_tool import (  # noqa: E402
     WEATHER_FORECAST_DEFINITION,
@@ -31,22 +27,8 @@ from app.services.weather.qweather_forecast_tool import (  # noqa: E402
 )
 from test.test_mcp_agent_tools import FakeClientManager, FakeDb, FakeRepository, build_row  # noqa: E402
 
-PRIVATE_KEY = Ed25519PrivateKey.generate()
-PEM = PRIVATE_KEY.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode()
-SINGLE_LINE = "".join(line for line in PEM.splitlines() if not line.startswith("-----"))
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-
-
-def credentials(**overrides):
-    values = dict(
-        api_host="abc.re.qweatherapi.com",
-        key_id="KID",
-        project_id="PROJ",
-        developer_id="DEV",
-        private_key=SINGLE_LINE,
-    )
-    values.update(overrides)
-    return QWeatherCredentials.from_settings(**values)
+GATEWAY_WEATHER = "http://agent-tools-gateway:8100/weather"
 
 
 def city(name, adm2, adm1, country="中国", location_id=None, rank=15):
@@ -60,21 +42,18 @@ def city(name, adm2, adm1, country="中国", location_id=None, rank=15):
     )
 
 
-def b64decode(segment):
-    return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
-
-
+# agent-tools weather 代理返回的已归一字段。
 DAILY = [
     {
-        "fxDate": f"2026-10-{day:02d}",
-        "textDay": "晴",
-        "textNight": "多云",
-        "tempMax": "26",
-        "tempMin": "17",
-        "windDirDay": "东风",
-        "windDirNight": "北风",
-        "windScaleDay": "1-3",
-        "windScaleNight": "1-3",
+        "date": f"2026-10-{day:02d}",
+        "text_day": "晴",
+        "text_night": "多云",
+        "temp_max": "26",
+        "temp_min": "17",
+        "wind_dir_day": "东风",
+        "wind_dir_night": "北风",
+        "wind_scale_day": "1-3",
+        "wind_scale_night": "1-3",
     }
     for day in range(8, 15)
 ]
@@ -82,7 +61,7 @@ DAILY = [
 
 HOURLY = [
     {
-        "fxTime": f"2026-10-{8 + (16 + hour) // 24:02d}T{(16 + hour) % 24:02d}:00+08:00",
+        "time": f"2026-10-{8 + (16 + hour) // 24:02d}T{(16 + hour) % 24:02d}:00+08:00",
         "temp": str(20 - hour // 4),
         "text": "小雨" if 3 <= hour <= 5 else "多云",
         "pop": str(70 if 3 <= hour <= 5 else 10),
@@ -93,10 +72,13 @@ HOURLY = [
 
 
 class FakeQWeather:
-    def __init__(self, *, cities=None, daily=None, status=200, hourly_status=200):
+    """模拟网关后的 weather 代理：按路径回归一后的数据，可指定整体或逐小时接口的失败。"""
+
+    def __init__(self, *, cities=None, daily=None, status=200, error_code=None, hourly_status=200):
         self.cities = cities if cities is not None else [city("杭州", "杭州", "浙江省", location_id="101210101")]
         self.daily = daily if daily is not None else DAILY
         self.status = status
+        self.error_code = error_code
         self.hourly_status = hourly_status
         self.requests = []
 
@@ -104,36 +86,36 @@ class FakeQWeather:
         def handle(request):
             self.requests.append(request)
             if self.status != 200:
-                return httpx.Response(self.status, json={"code": str(self.status)})
-            if request.url.path == "/geo/v2/city/lookup":
+                body = {"error": {"code": self.error_code}} if self.error_code else {"error": "unauthorized"}
+                return httpx.Response(self.status, json=body)
+            if request.url.path == "/weather/v1/cities":
                 return httpx.Response(
                     200,
                     json={
-                        "code": "200",
-                        "location": [
+                        "cities": [
                             {
-                                "id": c.location_id,
+                                "location_id": c.location_id,
                                 "name": c.name,
                                 "adm1": c.adm1,
                                 "adm2": c.adm2,
                                 "country": c.country,
-                                "rank": str(c.rank),
+                                "rank": c.rank,
                             }
                             for c in self.cities
-                        ],
+                        ]
                     },
                 )
-            if request.url.path == "/v7/weather/24h":
+            if request.url.path == "/weather/v1/forecast/hourly":
                 if self.hourly_status != 200:
-                    return httpx.Response(self.hourly_status, json={"code": str(self.hourly_status)})
-                return httpx.Response(200, json={"code": "200", "hourly": HOURLY})
-            return httpx.Response(200, json={"code": "200", "daily": self.daily})
+                    return httpx.Response(self.hourly_status, json={"error": {"code": "upstream_unavailable"}})
+                return httpx.Response(200, json={"hourly": HOURLY})
+            return httpx.Response(200, json={"daily": self.daily})
 
         return httpx.MockTransport(handle)
 
 
 def build_handler(fake, **kwargs):
-    client = QWeatherClient(credentials(), transport=fake.transport())
+    client = QWeatherClient(transport=fake.transport())
     return QWeatherForecastToolHandler(
         binding=build_qweather_binding(),
         client=client,
@@ -143,54 +125,73 @@ def build_handler(fake, **kwargs):
     )
 
 
-class QWeatherCredentialTests(unittest.TestCase):
-    def test_incomplete_settings_disable_and_invalid_key_raises(self):
-        self.assertIsNone(credentials(private_key=""))
-        self.assertIsNone(credentials(key_id=" "))
-        with self.assertRaises(ValueError):
-            credentials(private_key="not-a-key")
-        with self.assertRaises(ValueError):
-            credentials(api_host="evil.example.com")
-        self.assertIsNotNone(credentials(private_key=PEM))
-
-    def test_jwt_has_only_documented_fields_and_valid_signature(self):
-        token = sign_qweather_jwt(credentials(), issued_at=1_000)
-        header, payload, signature = token.split(".")
-        self.assertEqual(json.loads(b64decode(header)), {"alg": "EdDSA", "kid": "KID"})
-        self.assertEqual(
-            json.loads(b64decode(payload)),
-            {"iss": "DEV", "sub": "PROJ", "iat": 1_000, "exp": 1_900},
-        )
-        PRIVATE_KEY.public_key().verify(b64decode(signature), f"{header}.{payload}".encode())
-
-
 class QWeatherClientTests(unittest.IsolatedAsyncioTestCase):
-    async def test_token_is_reused_until_refresh_margin(self):
+    async def test_requests_go_to_the_gateway_with_the_product_key(self):
         fake = FakeQWeather()
-        clock = SimpleNamespace(value=10_000.0)
-        client = QWeatherClient(credentials(), transport=fake.transport(), clock=lambda: clock.value)
+        client = QWeatherClient(transport=fake.transport())
+        with patch.object(settings, "AGENT_TOOLS_API_KEY", "fusion-service-key"):
+            cities = await client.lookup_city("杭州", number=3, lang="en")
+            await client.daily_forecast("101210101")
+            await client.hourly_forecast("101210101")
 
-        await client.lookup_city("杭州")
-        await client.lookup_city("杭州")
-        clock.value += 800
-        await client.lookup_city("杭州")
+        self.assertEqual([c.location_id for c in cities], ["101210101"])
+        self.assertEqual(
+            [str(r.url).split("?")[0] for r in fake.requests],
+            [
+                f"{GATEWAY_WEATHER}/v1/cities",
+                f"{GATEWAY_WEATHER}/v1/forecast/daily",
+                f"{GATEWAY_WEATHER}/v1/forecast/hourly",
+            ],
+        )
+        self.assertEqual(dict(fake.requests[0].url.params), {"location": "杭州", "number": "3", "lang": "en"})
+        self.assertEqual(dict(fake.requests[1].url.params), {"location_id": "101210101"})
+        for request in fake.requests:
+            self.assertEqual(request.headers["authorization"], "Bearer fusion-service-key")
+            self.assertEqual(request.headers["x-caller-scene"], "weather_forecast")
 
-        tokens = [request.headers["authorization"] for request in fake.requests]
-        self.assertEqual(tokens[0], tokens[1])
-        self.assertNotEqual(tokens[1], tokens[2])
-        self.assertEqual(fake.requests[0].url.host, "abc.re.qweatherapi.com")
-
-    async def test_http_errors_map_to_codes(self):
-        for status, code in (
-            (401, "upstream_auth_failed"),
-            (429, "upstream_rate_limited"),
-            (500, "upstream_unavailable"),
-        ):
-            with self.subTest(status=status):
-                client = QWeatherClient(credentials(), transport=FakeQWeather(status=status).transport())
+    async def test_proxy_errors_map_to_codes(self):
+        cases = (
+            # 代理的结构化错误码原样保留。
+            (503, "weather_not_configured", "weather_not_configured"),
+            (502, "upstream_auth_failed", "upstream_auth_failed"),
+            (429, "upstream_rate_limited", "upstream_rate_limited"),
+            (504, "upstream_timeout", "upstream_timeout"),
+            # 未知错误码按状态归类：网关拒绝（产品密钥 / 服务未放行）视为鉴权失败，其余视为不可用。
+            (401, None, "upstream_auth_failed"),
+            (403, None, "upstream_auth_failed"),
+            (500, None, "upstream_unavailable"),
+            (502, "something_new", "upstream_unavailable"),
+        )
+        for status, body_code, expected in cases:
+            with self.subTest(status=status, body_code=body_code):
+                client = QWeatherClient(transport=FakeQWeather(status=status, error_code=body_code).transport())
                 with self.assertRaises(QWeatherError) as raised:
                     await client.daily_forecast("101210101")
-                self.assertEqual(raised.exception.code, code)
+                self.assertEqual(raised.exception.code, expected)
+
+    async def test_transport_failures_and_malformed_bodies_are_reported(self):
+        def timeout(request):
+            raise httpx.ReadTimeout("slow", request=request)
+
+        client = QWeatherClient(transport=httpx.MockTransport(timeout))
+        with self.assertRaises(QWeatherError) as raised:
+            await client.lookup_city("杭州")
+        self.assertEqual(raised.exception.code, "upstream_timeout")
+
+        client = QWeatherClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b"[]")))
+        with self.assertRaises(QWeatherError) as raised:
+            await client.lookup_city("杭州")
+        self.assertEqual(raised.exception.code, "invalid_response")
+
+        # 字段不全或类型不对的条目丢弃，不让坏数据进入产品结果。
+        broken = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={"cities": [{"location_id": "1", "name": "杭州", "rank": "15"}, {"name": "缺 id"}, "x"]},
+            )
+        )
+        cities = await QWeatherClient(transport=broken).lookup_city("杭州")
+        self.assertEqual([(c.location_id, c.rank, c.adm1) for c in cities], [("1", None, "")])
 
 
 class SelectCityTests(unittest.TestCase):
@@ -292,7 +293,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(block.forecast_days[0].weekday, 4)
         self.assertIsNone(block.requested_date)
         self.assertIn("forecast_days", handler.format_llm_context(result))
-        self.assertEqual(fake.requests[-1].url.params["location"], "101210101")
+        self.assertEqual(fake.requests[-1].url.params["location_id"], "101210101")
 
     async def test_requested_date_in_window_returns_only_that_day(self):
         handler = build_handler(FakeQWeather())
@@ -344,7 +345,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
                     {"location": "杭州", "location_source": "named", "requested_date": requested_date}
                 )
                 self.assertEqual("hourly" in result.data["result"], expected)
-                self.assertEqual(any(r.url.path == "/v7/weather/24h" for r in fake.requests), expected)
+                self.assertEqual(any(r.url.path == "/weather/v1/forecast/hourly" for r in fake.requests), expected)
 
     async def test_hourly_keeps_only_requested_day_hours(self):
         # 逐小时从 2026-10-08 16:00 起 24 点：今天 16–23 时 8 点，明天 0–15 时 16 点
@@ -374,7 +375,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         handler = build_handler(fake)
         await handler.execute({"location": "杭州", "location_source": "named"})
         await handler.execute({"location": "杭州", "location_source": "named"})
-        forecast_calls = [r for r in fake.requests if r.url.path == "/v7/weather/7d"]
+        forecast_calls = [r for r in fake.requests if r.url.path == "/weather/v1/forecast/daily"]
         self.assertEqual(len(forecast_calls), 1)
 
     async def test_current_location_uses_coordinates(self):
@@ -400,7 +401,7 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(handler.build_content_block(result, "blk", "log"))
         context = handler.format_llm_context(result)
         self.assertIn("北京市·北京·朝阳", context)
-        self.assertEqual([r.url.path for r in fake.requests], ["/geo/v2/city/lookup"])
+        self.assertEqual([r.url.path for r in fake.requests], ["/weather/v1/cities"])
 
         fake.cities = []
         not_found = await handler.execute({"location": "鼓浪屿", "location_source": "named"})
@@ -420,13 +421,14 @@ class QWeatherHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.data["result"]["resolved_location"], "江西省·南昌·西湖")
         self.assertEqual(fake.requests[0].url.params["location"], "西湖")
 
-    async def test_lookup_bad_request_means_not_found(self):
-        handler = build_handler(FakeQWeather(status=400))
-        result = await handler.execute({"location": "鼓浪屿", "location_source": "named"})
-        self.assertEqual(result.data["error_code"], "location_not_found")
+    async def test_proxy_not_configured_is_reported_as_unavailable_weather(self):
+        handler = build_handler(FakeQWeather(status=503, error_code="weather_not_configured"))
+        result = await handler.execute({"location": "杭州", "location_source": "named"})
+        self.assertEqual(result.data["error_code"], "weather_not_configured")
+        self.assertIn("weather tool returned no usable result", handler.format_llm_context(result))
 
     async def test_upstream_failure_is_reported(self):
-        handler = build_handler(FakeQWeather(status=401))
+        handler = build_handler(FakeQWeather(status=502, error_code="upstream_auth_failed"))
         result = await handler.execute({"location": "杭州", "location_source": "named"})
         self.assertEqual(result.data["error_code"], "upstream_auth_failed")
         self.assertIsNone(handler.build_content_block(result, "blk", "log"))
@@ -461,7 +463,7 @@ class QWeatherRegistrationTests(unittest.TestCase):
         )
 
     def test_qweather_provides_the_only_weather_tool(self):
-        with_qweather = self.load(QWeatherClient(credentials()))
+        with_qweather = self.load(QWeatherClient())
         self.assertIsInstance(with_qweather.handlers["weather_forecast"], QWeatherForecastToolHandler)
         self.assertIn("local_place_search", with_qweather.handlers)
         self.assertEqual(
@@ -471,9 +473,18 @@ class QWeatherRegistrationTests(unittest.TestCase):
         self.assertEqual(providers["weather_forecast"], "qweather")
 
     def test_without_qweather_no_weather_tool_is_registered(self):
-        without = self.load(None)
+        with patch.object(settings, "AGENT_TOOLS_API_KEY", ""):
+            without = self.load(None)
         self.assertNotIn("weather_forecast", without.handlers)
         self.assertIn("local_place_search", without.handlers)
+
+    def test_weather_client_is_built_only_with_the_product_key(self):
+        with patch.object(settings, "AGENT_TOOLS_API_KEY", "  "):
+            self.assertIsNone(_build_qweather_client())
+        with patch.object(settings, "AGENT_TOOLS_API_KEY", "fusion-service-key"):
+            client = _build_qweather_client()
+        self.assertIsInstance(client, QWeatherClient)
+        self.assertEqual(client.timeout_seconds, max(1.0, settings.QWEATHER_TIMEOUT_SECONDS))
 
 
 if __name__ == "__main__":
