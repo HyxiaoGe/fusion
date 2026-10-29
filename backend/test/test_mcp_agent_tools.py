@@ -329,7 +329,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
     def test_amap_catalog_hides_products_when_dependencies_are_incomplete(self):
         row = build_row(
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
             allowed_tools=["maps_around_search", "maps_ip_location"],
             discovered_tools=[
                 {
@@ -362,11 +362,12 @@ class McpAgentToolCatalogTests(unittest.TestCase):
             "maps_direction_transit_integrated",
             "maps_direction_walking",
             "maps_direction_bicycling",
+            "maps_coordinate_convert",
             "maps_weather",
         ]
         row = build_row(
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
             allowed_tools=remote_names,
             discovered_tools=[
                 {"name": name, "description": name, "input_schema": {"type": "object"}} for name in remote_names
@@ -398,7 +399,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         amap = build_row(
             id="z-amap",
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
             allowed_tools=amap_names,
             discovered_tools=[
                 {"name": name, "description": name, "input_schema": {"type": "object"}} for name in amap_names
@@ -430,7 +431,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         amap = build_row(
             id="z-amap",
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
             allowed_tools=amap_names,
             discovered_tools=[
                 {"name": name, "description": name, "input_schema": {"type": "object"}} for name in amap_names
@@ -469,7 +470,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
         amap = build_row(
             id="z-amap",
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
             allowed_tools=amap_names,
             discovered_tools=[
                 {"name": name, "description": name, "input_schema": {"type": "object"}} for name in amap_names
@@ -494,7 +495,7 @@ class McpAgentToolCatalogTests(unittest.TestCase):
             build_row(
                 id=f"amap-{index}",
                 provider="amap",
-                endpoint_url="https://mcp.amap.com/mcp",
+                endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
             )
             for index in range(2)
         ]
@@ -1935,10 +1936,11 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
             "maps_direction_transit_integrated",
             "maps_direction_walking",
             "maps_direction_bicycling",
+            "maps_coordinate_convert",
         ]
         row = build_row(
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
             allowed_tools=remote_names,
             discovered_tools=[
                 {"name": name, "description": name, "input_schema": {"type": "object"}} for name in remote_names
@@ -2023,10 +2025,11 @@ class McpAgentToolHandlerTests(unittest.IsolatedAsyncioTestCase):
             "maps_direction_transit_integrated",
             "maps_direction_walking",
             "maps_direction_bicycling",
+            "maps_coordinate_convert",
         ]
         row = build_row(
             provider="amap",
-            endpoint_url="https://mcp.amap.com/mcp",
+            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
             allowed_tools=remote_names,
             discovered_tools=[
                 {"name": name, "description": name, "input_schema": {"type": "object"}} for name in remote_names

@@ -67,10 +67,11 @@ const emptyForm: ServerFormState = {
 const amapSafePreset: ServerFormState = {
   name: "高德地图",
   provider: "amap",
-  endpointUrl: "https://mcp.amap.com/mcp",
-  authType: "query",
-  authName: "key",
-  credentialRef: "AMAP_MCP_API_KEY",
+  // 高德经 agent-tools 网关的 amap 代理访问，高德密钥在代理侧，这里只带产品服务密钥。
+  endpointUrl: "http://agent-tools-gateway:8100/amap/mcp",
+  authType: "bearer",
+  authName: "",
+  credentialRef: "AGENT_TOOLS_API_KEY",
   allowedTools: "",
 };
 
@@ -95,6 +96,7 @@ const recommendedAmapReadOnlyTools = [
   "maps_text_search",
   "maps_around_search",
   "maps_search_detail",
+  "maps_coordinate_convert",
 ] as const;
 
 const recommendedToolProfiles: Record<
@@ -144,7 +146,7 @@ const getRecommendedToolProfile = (
 const safePresets = [
   {
     title: "高德地图",
-    description: "官方 Endpoint · Query 凭证引用",
+    description: "agent-tools 网关代理 · Bearer 凭证引用",
     actionLabel: "使用高德安全预设",
     form: amapSafePreset,
   },
@@ -330,7 +332,7 @@ function validateForm(form: ServerFormState): FormErrors {
     if (!form.credentialRef.trim()) {
       errors.credentialRef = "凭证引用不能为空";
     } else if (!/^[A-Z_][A-Z0-9_]*$/.test(form.credentialRef.trim())) {
-      errors.credentialRef = "凭证引用需使用环境变量名称，例如 AMAP_MCP_API_KEY";
+      errors.credentialRef = "凭证引用需使用环境变量名称，例如 AGENT_TOOLS_API_KEY";
     }
   }
   return errors;
@@ -809,7 +811,7 @@ export default function McpServerManager() {
             {form.authType !== "none" && (
               <div className="space-y-2">
                 <Label htmlFor="mcp-credential-ref">凭证引用</Label>
-                <Input id="mcp-credential-ref" placeholder="例如 AMAP_MCP_API_KEY" value={form.credentialRef} onChange={(event) => changeForm("credentialRef", event.target.value)} aria-invalid={Boolean(formErrors.credentialRef)} aria-describedby={formErrors.credentialRef ? "mcp-credential-ref-error" : undefined} autoComplete="off" />
+                <Input id="mcp-credential-ref" placeholder="例如 AGENT_TOOLS_API_KEY" value={form.credentialRef} onChange={(event) => changeForm("credentialRef", event.target.value)} aria-invalid={Boolean(formErrors.credentialRef)} aria-describedby={formErrors.credentialRef ? "mcp-credential-ref-error" : undefined} autoComplete="off" />
                 {formErrors.credentialRef && <SettingsFieldError id="mcp-credential-ref-error">{formErrors.credentialRef}</SettingsFieldError>}
                 <p className="text-xs text-muted-foreground">部署环境需要预先配置对应变量。</p>
               </div>
