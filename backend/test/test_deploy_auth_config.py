@@ -135,11 +135,6 @@ class DeployAuthConfigTests(unittest.TestCase):
             "DASHSCOPE_API_KEY",
             "TENCENT_MAP_MCP_API_KEY",
             "AGENT_TOOLS_API_KEY",
-            "QWEATHER_API_HOST",
-            "QWEATHER_KEY_ID",
-            "QWEATHER_PROJECT_ID",
-            "QWEATHER_DEVELOPER_ID",
-            "QWEATHER_PRIVATE_KEY",
         ):
             self.assertIn(f"- {variable}=${{{variable}", self.workflow)
         self.assertIn("DEPLOY_TENCENT_MAP_MCP_API_KEY: ${{ secrets.TENCENT_MAP_MCP_API_KEY }}", self.workflow)
@@ -165,11 +160,11 @@ class DeployAuthConfigTests(unittest.TestCase):
             'export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "AGENT_TOOLS_API_KEY")"',
             self.workflow,
         )
-        self.assertIn("DEPLOY_QWEATHER_PRIVATE_KEY: ${{ secrets.QWEATHER_PRIVATE_KEY }}", self.workflow)
-        self.assertIn(
-            'export QWEATHER_PRIVATE_KEY="${DEPLOY_QWEATHER_PRIVATE_KEY:-${QWEATHER_PRIVATE_KEY:-}}"',
-            self.workflow,
-        )
+        # 和风凭证由 agent-tools 的 weather 代理持有，Fusion 的部署链路与配置不再出现它。
+        for text in (self.workflow, self.compose, self.env_example, self.app_config):
+            self.assertNotIn("QWEATHER_PRIVATE_KEY", text)
+            self.assertNotIn("QWEATHER_KEY_ID", text)
+            self.assertNotIn("qweatherapi.com", text)
         self.assertIn(
             'export MCP_ALLOWED_INTERNAL_ENDPOINTS="${DEPLOY_MCP_ALLOWED_INTERNAL_ENDPOINTS:-${MCP_ALLOWED_INTERNAL_ENDPOINTS:-}}"',
             self.workflow,

@@ -93,7 +93,7 @@ class ToolRecoveryIntegrationTests(unittest.TestCase):
         for search_success in [True, False]:
             with self.subTest(search_success=search_success):
                 result, answer, remote = asyncio.run(_run_recovery(search_success=search_success))
-                assert [request.url.path for request in remote.requests] == ["/geo/v2/city/lookup"]
+                assert [request.url.path for request in remote.requests] == ["/weather/v1/cities"]
                 assert [call["args"][0][0]["name"] for call in result.tool_execute_calls] == [
                     "weather_forecast",
                     "web_search",
