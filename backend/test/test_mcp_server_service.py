@@ -249,10 +249,10 @@ class McpServerServiceTests(unittest.TestCase):
         ]
         row = build_row(
             provider="context7",
-            endpoint_url="https://mcp.context7.com/mcp",
-            auth_type="header",
-            auth_name="CONTEXT7_API_KEY",
-            credential_ref="CONTEXT7_API_KEY",
+            endpoint_url="http://agent-tools-gateway:8100/context7/mcp",
+            auth_type="bearer",
+            auth_name=None,
+            credential_ref="AGENT_TOOLS_API_KEY",
             allowed_tools=[],
             discovered_tools=discovered_tools,
         )
@@ -284,10 +284,10 @@ class McpServerServiceTests(unittest.TestCase):
         ]
         row = build_row(
             provider="context7",
-            endpoint_url="https://mcp.context7.com/mcp",
-            auth_type="header",
-            auth_name="CONTEXT7_API_KEY",
-            credential_ref="CONTEXT7_API_KEY",
+            endpoint_url="http://agent-tools-gateway:8100/context7/mcp",
+            auth_type="bearer",
+            auth_name=None,
+            credential_ref="AGENT_TOOLS_API_KEY",
             allowed_tools=[*CONTEXT7_READ_ONLY_TOOLS, "future-write-tool"],
             discovered_tools=tools,
         )

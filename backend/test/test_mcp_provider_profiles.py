@@ -4,15 +4,19 @@ from app.services.mcp.provider_profiles import (
     AMAP_READ_ONLY_TOOL_ALLOWLIST,
     CONTEXT7_READ_ONLY_TOOL_ALLOWLIST,
     amap_gateway_endpoint,
+    context7_gateway_endpoint,
     endpoint_auth_binding_is_allowed,
+    endpoint_timeout_floors,
     endpoint_tool_allowlist,
     endpoint_tool_guidance,
     endpoint_tool_schema_override,
     is_official_amap_endpoint,
+    is_official_context7_endpoint,
     tool_is_allowed_for_endpoint,
 )
 
 AMAP_GATEWAY = "http://agent-tools-gateway:8100/amap/mcp"
+CONTEXT7_GATEWAY = "http://agent-tools-gateway:8100/context7/mcp"
 
 
 class McpProviderProfileTests(unittest.TestCase):
@@ -61,19 +65,27 @@ class McpProviderProfileTests(unittest.TestCase):
                     )
                 )
 
-    def test_context7_official_endpoint_has_fixed_tool_allowlist(self):
-        endpoint = "https://MCP.CONTEXT7.COM./mcp"
+    def test_context7_is_recognized_only_at_the_agent_tools_gateway_endpoint(self):
+        self.assertEqual(context7_gateway_endpoint(), CONTEXT7_GATEWAY)
+        self.assertTrue(is_official_context7_endpoint(CONTEXT7_GATEWAY))
+        self.assertTrue(is_official_context7_endpoint(CONTEXT7_GATEWAY + "/"))
+        self.assertFalse(is_official_context7_endpoint("https://mcp.context7.com/mcp"))
+        self.assertFalse(is_official_context7_endpoint(AMAP_GATEWAY))
 
-        self.assertEqual(
-            endpoint_tool_allowlist(endpoint),
-            CONTEXT7_READ_ONLY_TOOL_ALLOWLIST,
-        )
-        self.assertTrue(tool_is_allowed_for_endpoint(endpoint, "resolve-library-id"))
-        self.assertTrue(tool_is_allowed_for_endpoint(endpoint, "query-docs"))
-        self.assertFalse(tool_is_allowed_for_endpoint(endpoint, "future-write-tool"))
+        self.assertEqual(endpoint_tool_allowlist(CONTEXT7_GATEWAY + "/"), CONTEXT7_READ_ONLY_TOOL_ALLOWLIST)
+        self.assertTrue(tool_is_allowed_for_endpoint(CONTEXT7_GATEWAY, "resolve-library-id"))
+        self.assertTrue(tool_is_allowed_for_endpoint(CONTEXT7_GATEWAY, "query-docs"))
+        self.assertFalse(tool_is_allowed_for_endpoint(CONTEXT7_GATEWAY, "future-write-tool"))
+        self.assertEqual(endpoint_timeout_floors(CONTEXT7_GATEWAY), (20.0, 30.0, 45.0))
+        # 直连 Context7 的行不再享有产品化处理：无白名单、无可信约束、无 schema 覆盖、无超时下限。
+        direct = "https://mcp.context7.com/mcp"
+        self.assertIsNone(endpoint_tool_allowlist(direct))
+        self.assertEqual(endpoint_tool_guidance(direct, "query-docs"), "")
+        self.assertIsNone(endpoint_tool_schema_override(direct, "query-docs"))
+        self.assertIsNone(endpoint_timeout_floors(direct))
 
     def test_context7_tools_have_trusted_guidance_and_fixed_schemas(self):
-        endpoint = "https://mcp.context7.com/mcp"
+        endpoint = CONTEXT7_GATEWAY
 
         resolve_guidance = endpoint_tool_guidance(endpoint, "resolve-library-id")
         query_guidance = endpoint_tool_guidance(endpoint, "query-docs")
@@ -131,45 +143,30 @@ class McpProviderProfileTests(unittest.TestCase):
         self.assertEqual(endpoint_tool_guidance(endpoint, "query-docs"), "")
         self.assertIsNone(endpoint_tool_schema_override(endpoint, "query-docs"))
 
-    def test_official_credentials_are_bound_to_their_expected_endpoint_and_auth_shape(self):
+    def test_gateway_endpoints_only_accept_the_product_bearer_credential(self):
+        self.assertTrue(
+            endpoint_auth_binding_is_allowed(
+                CONTEXT7_GATEWAY, auth_type="bearer", auth_name=None, credential_ref="AGENT_TOOLS_API_KEY"
+            )
+        )
+        # 网关上的任何服务都不接受免密或其他凭证；非网关端点不受本规则约束。
+        for auth_type, auth_name, credential_ref in (
+            ("none", None, None),
+            ("header", "CONTEXT7_API_KEY", "CONTEXT7_API_KEY"),
+            ("bearer", None, "DASHSCOPE_API_KEY"),
+        ):
+            with self.subTest(auth_type=auth_type, credential_ref=credential_ref):
+                self.assertFalse(
+                    endpoint_auth_binding_is_allowed(
+                        CONTEXT7_GATEWAY, auth_type=auth_type, auth_name=auth_name, credential_ref=credential_ref
+                    )
+                )
         self.assertTrue(
             endpoint_auth_binding_is_allowed(
                 "https://mcp.context7.com/mcp",
                 auth_type="header",
                 auth_name="CONTEXT7_API_KEY",
                 credential_ref="CONTEXT7_API_KEY",
-            )
-        )
-        self.assertTrue(
-            endpoint_auth_binding_is_allowed(
-                "https://mcp.context7.com/mcp",
-                auth_type="none",
-                auth_name=None,
-                credential_ref=None,
-            )
-        )
-        self.assertFalse(
-            endpoint_auth_binding_is_allowed(
-                "https://mcp.amap.com/mcp",
-                auth_type="header",
-                auth_name="CONTEXT7_API_KEY",
-                credential_ref="CONTEXT7_API_KEY",
-            )
-        )
-        self.assertFalse(
-            endpoint_auth_binding_is_allowed(
-                "https://mcp.context7.com/mcp",
-                auth_type="header",
-                auth_name="X-API-Key",
-                credential_ref="CONTEXT7_API_KEY",
-            )
-        )
-        self.assertFalse(
-            endpoint_auth_binding_is_allowed(
-                "https://mcp.context7.com/mcp",
-                auth_type="query",
-                auth_name="key",
-                credential_ref="TENCENT_MAP_MCP_API_KEY",
             )
         )
 

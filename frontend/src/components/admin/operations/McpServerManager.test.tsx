@@ -369,16 +369,16 @@ describe('McpServerManager', () => {
     }));
   });
 
-  it('Context7 技术文档预设默认免密并提交空工具白名单', async () => {
+  it('Context7 技术文档预设指向 agent-tools 网关代理并提交空工具白名单', async () => {
     apiMocks.create.mockResolvedValue({
       ...server,
       id: 'mcp-context7',
       name: 'Context7 技术文档',
       provider: 'context7',
-      endpoint_url: 'https://mcp.context7.com/mcp',
-      auth_type: 'none',
+      endpoint_url: 'http://agent-tools-gateway:8100/context7/mcp',
+      auth_type: 'bearer',
       auth_name: null,
-      credential_ref: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: [],
       discovered_tools: [],
     });
@@ -390,10 +390,10 @@ describe('McpServerManager', () => {
 
     expect(screen.getByLabelText('服务名称')).toHaveValue('Context7 技术文档');
     expect(screen.getByLabelText('提供商')).toHaveValue('context7');
-    expect(screen.getByLabelText('Endpoint URL')).toHaveValue('https://mcp.context7.com/mcp');
-    expect(screen.getByRole('combobox', { name: '鉴权方式' })).toHaveTextContent('无鉴权');
+    expect(screen.getByLabelText('Endpoint URL')).toHaveValue('http://agent-tools-gateway:8100/context7/mcp');
+    expect(screen.getByRole('combobox', { name: '鉴权方式' })).toHaveTextContent('Bearer');
     expect(screen.queryByLabelText('Header / Query 参数名')).toBeNull();
-    expect(screen.queryByLabelText('凭证引用')).toBeNull();
+    expect(screen.getByLabelText('凭证引用')).toHaveValue('AGENT_TOOLS_API_KEY');
     expect(screen.queryByLabelText(/API Key|明文密钥|secret|token/i)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '保存服务' }));
@@ -401,25 +401,25 @@ describe('McpServerManager', () => {
     await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith({
       name: 'Context7 技术文档',
       provider: 'context7',
-      endpoint_url: 'https://mcp.context7.com/mcp',
+      endpoint_url: 'http://agent-tools-gateway:8100/context7/mcp',
       transport: 'streamable_http',
-      auth_type: 'none',
+      auth_type: 'bearer',
       auth_name: null,
-      credential_ref: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: [],
     }));
   });
 
-  it('免密 Context7 官方配置仍显示推荐文档工具', async () => {
+  it('网关上的 Context7 官方配置显示推荐文档工具', async () => {
     const context7Server = {
       ...server,
       id: 'mcp-context7-no-auth',
       name: 'Context7 技术文档',
       provider: 'context7',
-      endpoint_url: 'https://mcp.context7.com/mcp',
-      auth_type: 'none' as const,
+      endpoint_url: 'http://agent-tools-gateway:8100/context7/mcp',
+      auth_type: 'bearer' as const,
       auth_name: null,
-      credential_ref: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: [],
       discovered_tools: [
         { name: 'resolve-library-id', description: '解析技术文档库 ID' },
@@ -435,16 +435,16 @@ describe('McpServerManager', () => {
     expect(screen.getByRole('button', { name: '一键选择推荐文档工具' })).toBeInTheDocument();
   });
 
-  it('Context7 官方 hostname 尾点不会隐藏推荐文档工具', async () => {
+  it('Context7 网关端点带尾斜杠不会隐藏推荐文档工具', async () => {
     const context7Server = {
       ...server,
       id: 'mcp-context7-dot',
       name: 'Context7 技术文档',
       provider: 'context7',
-      endpoint_url: 'https://mcp.context7.com./mcp',
-      auth_type: 'none' as const,
+      endpoint_url: 'http://agent-tools-gateway:8100/context7/mcp/',
+      auth_type: 'bearer' as const,
       auth_name: null,
-      credential_ref: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: [],
       discovered_tools: [
         { name: 'resolve-library-id', description: '解析技术文档库 ID' },
@@ -501,10 +501,10 @@ describe('McpServerManager', () => {
       id: 'mcp-context7',
       name: 'Context7 技术文档',
       provider: 'context7',
-      endpoint_url: 'https://mcp.context7.com/mcp',
-      auth_type: 'header' as const,
-      auth_name: 'CONTEXT7_API_KEY',
-      credential_ref: 'CONTEXT7_API_KEY',
+      endpoint_url: 'http://agent-tools-gateway:8100/context7/mcp',
+      auth_type: 'bearer' as const,
+      auth_name: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: ['provider_future_tool'],
       discovered_tools: [
         { name: 'resolve-library-id', description: '解析技术文档库 ID' },
@@ -532,20 +532,20 @@ describe('McpServerManager', () => {
   });
 
   it.each([
-    ['非官方 endpoint', { endpoint_url: 'https://example.com/mcp' }],
-    ['非 header 鉴权', { auth_type: 'bearer' as const }],
-    ['非官方 Header 名', { auth_name: 'X-API-Key' }],
-    ['非官方凭证引用', { credential_ref: 'OTHER_CONTEXT7_KEY' }],
+    ['直连官方 endpoint', { endpoint_url: 'https://mcp.context7.com/mcp' }],
+    ['非 bearer 鉴权', { auth_type: 'header' as const, auth_name: 'CONTEXT7_API_KEY' }],
+    ['非产品服务密钥的凭证引用', { credential_ref: 'CONTEXT7_API_KEY' }],
+    ['网关上的其他服务', { endpoint_url: 'http://agent-tools-gateway:8100/amap/mcp' }],
   ])('Context7 的%s不显示官方推荐操作', async (_label, override) => {
     const disguisedContext7Server = {
       ...server,
       id: 'mcp-context7-disguised',
       name: 'Context7 技术文档',
       provider: 'context7',
-      endpoint_url: 'https://mcp.context7.com/mcp',
-      auth_type: 'header' as const,
-      auth_name: 'CONTEXT7_API_KEY',
-      credential_ref: 'CONTEXT7_API_KEY',
+      endpoint_url: 'http://agent-tools-gateway:8100/context7/mcp',
+      auth_type: 'bearer' as const,
+      auth_name: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: [],
       discovered_tools: [
         { name: 'resolve-library-id', description: '解析技术文档库 ID' },
@@ -568,10 +568,10 @@ describe('McpServerManager', () => {
       id: 'mcp-context7',
       name: 'Context7 技术文档',
       provider: 'context7',
-      endpoint_url: 'https://mcp.context7.com/mcp',
-      auth_type: 'header' as const,
-      auth_name: 'CONTEXT7_API_KEY',
-      credential_ref: 'CONTEXT7_API_KEY',
+      endpoint_url: 'http://agent-tools-gateway:8100/context7/mcp',
+      auth_type: 'bearer' as const,
+      auth_name: null,
+      credential_ref: 'AGENT_TOOLS_API_KEY',
       allowed_tools: [],
       discovered_tools: [
         { name: 'resolve-library-id', description: '解析技术文档库 ID' },

@@ -78,31 +78,17 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.release_safety_doc = RELEASE_SAFETY_DOC.read_text(encoding="utf-8")
         self.ci_requirements = CI_REQUIREMENTS.read_text(encoding="utf-8")
 
-    def assert_context7_has_no_secret_or_runner_fallback(self, workflow: str) -> None:
+    def assert_context7_secret_is_absent_from_deploy(self, workflow: str) -> None:
+        """Context7 密钥由 agent-tools 的代理持有：发布链路既不读 secret，也不把运行机环境里的同名变量带进容器。"""
         deploy_job = workflow[workflow.index("  deploy-dev:") :]
         restart_step_name = "      - name: Pull and restart fusion-api"
         identity_step_name = "      - name: Verify deployed image identity"
         restart_step = deploy_job[deploy_job.index(restart_step_name) : deploy_job.index(identity_step_name)]
-        compose_heredoc = "cat > docker-compose.fusion-api-ghcr.yml <<'EOF'"
-        executable_prefix = restart_step[: restart_step.index(compose_heredoc)]
-        active_shell = "\n".join(line for line in executable_prefix.splitlines() if not line.lstrip().startswith("#"))
 
         self.assertNotIn("${{ secrets.CONTEXT7_API_KEY }}", workflow)
-        self.assertNotIn("DEPLOY_CONTEXT7_API_KEY", restart_step)
-        self.assertRegex(active_shell, r'(?m)^\s*export CONTEXT7_API_KEY=""\s*$')
-        self.assertLess(
-            active_shell.index('source "${FUSION_RUNTIME_ENV}"'),
-            active_shell.index('export CONTEXT7_API_KEY=""'),
-        )
-        self.assertNotRegex(
-            active_shell,
-            r"(?m)^\s*export CONTEXT7_API_KEY=.*\$\{(?:DEPLOY_CONTEXT7_API_KEY|CONTEXT7_API_KEY)",
-        )
-        self.assertIn("- CONTEXT7_API_KEY=${CONTEXT7_API_KEY:-}", restart_step)
-        self.assertIn(
-            'export MCP_ALLOWED_CREDENTIAL_REFS="$(append_csv_value "${MCP_ALLOWED_CREDENTIAL_REFS}" "CONTEXT7_API_KEY")"',
-            restart_step,
-        )
+        self.assertNotIn("DEPLOY_CONTEXT7_API_KEY", workflow)
+        self.assertNotIn("CONTEXT7_API_KEY", restart_step)
+        self.assertNotIn("mcp.context7.com", restart_step)
 
     def assert_deploy_job_guard(self, condition: str) -> None:
         self.assertEqual(
@@ -201,8 +187,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
         self.assertIn("backend/scripts/deployment_smoke.py \\", commands)
         self.assertIn("scripts/deployment_smoke.py; do", commands)
         self.assertIn(
-            'git -C "${GITHUB_WORKSPACE}" show '
-            '"${rollback_api_sha}:${rollback_smoke_path}"',
+            'git -C "${GITHUB_WORKSPACE}" show "${rollback_api_sha}:${rollback_smoke_path}"',
             commands,
         )
         self.assertIn("--base-url http://127.0.0.1:8002", commands)
@@ -214,8 +199,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             "漂移审计应由 engineering-baseline 中央工作流统一执行",
         )
         active_workflows = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in (MONOREPO_ROOT / ".github" / "workflows").glob("*.yml")
+            path.read_text(encoding="utf-8") for path in (MONOREPO_ROOT / ".github" / "workflows").glob("*.yml")
         )
         self.assertNotIn("engineering-baseline/.github/actions/audit", active_workflows)
 
@@ -377,7 +361,10 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
                 )
         app_contract_step = workflow_step(jobs[manifest["jobs"]["prepare"]], "Validate application deployment contract")
         self.assertEqual(app_contract_step["id"], parameter_contract["validation_step"])
-        self.assertIn('expected_dependency_services="postgres,redis,litellm,flyai-adapter,knowledge-worker"', app_contract_step["run"])
+        self.assertIn(
+            'expected_dependency_services="postgres,redis,litellm,flyai-adapter,knowledge-worker"',
+            app_contract_step["run"],
+        )
         self.assertIn(
             "run: ops/deploy/validate-app-deployment-contract.sh",
             RELEASE_WORKFLOW.read_text(encoding="utf-8"),
@@ -426,7 +413,7 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
 
         self.assertEqual(
             verify_step["shell"],
-            'powershell -NoProfile -ExecutionPolicy Bypass -Command ". \'{0}\'"',
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command \". '{0}'\"",
         )
         self.assertEqual(script.count("docker version"), 1)
         self.assertEqual(script.count("docker ps"), 1)
@@ -603,19 +590,17 @@ class CICDPermissionBoundaryTests(unittest.TestCase):
             self.assertRegex(active_shell, rf"(?m)^\s*{re.escape(command)}\s*$")
         self.assertGreaterEqual(active_shell.count("exit 1"), 2)
 
-    def test_deploy_does_not_reference_or_inherit_unconfigured_context7_secret(self) -> None:
-        self.assert_context7_has_no_secret_or_runner_fallback(self.release_workflow)
+    def test_deploy_does_not_reference_or_inherit_context7_secret(self) -> None:
+        self.assert_context7_secret_is_absent_from_deploy(self.release_workflow)
 
         compose_heredoc = "          cat > docker-compose.fusion-api-ghcr.yml <<'EOF'"
-        forged_workflow = self.release_workflow.replace('          export CONTEXT7_API_KEY=""\n', "")
-        forged_workflow = forged_workflow.replace("          unset CONTEXT7_API_KEY\n", "")
-        forged_workflow = forged_workflow.replace(
+        forged_workflow = self.release_workflow.replace(
             compose_heredoc,
-            f"{compose_heredoc}\n          x-context7-contract-decoy: 'export CONTEXT7_API_KEY=\"\"'",
+            f"{compose_heredoc}\n          - CONTEXT7_API_KEY=${{CONTEXT7_API_KEY:-}}",
         )
 
         with self.assertRaises(AssertionError):
-            self.assert_context7_has_no_secret_or_runner_fallback(forged_workflow)
+            self.assert_context7_secret_is_absent_from_deploy(forged_workflow)
 
     def test_release_keeps_buildkit_cache_governance(self) -> None:
         shared_script = "backend/.github/scripts/windows-cleanup.ps1"
