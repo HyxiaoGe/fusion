@@ -111,7 +111,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
             client=Mock(),
             controls=Mock(),
-            user_scope="scope",
         )
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result_count": 1}))
         handler.log = AsyncMock()
@@ -197,7 +196,6 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
             binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
             client=Mock(),
             controls=Mock(),
-            user_scope="scope",
         )
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result_count": 1}))
         handler.log = AsyncMock()

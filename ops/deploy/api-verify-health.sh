@@ -59,13 +59,12 @@ fi
 docker exec -i fusion-api python - <<'PY'
 from app.core.config import settings
 
+# FlyAI 适配器经 agent-tools 网关访问，Fusion 只需产品服务密钥。
 if not settings.ENABLE_FLYAI_TRAVEL_TOOLS:
     raise SystemExit("FlyAI travel tools are disabled")
-if settings.FLYAI_ADAPTER_BASE_URL != "http://flyai-adapter:8080":
-    raise SystemExit("FlyAI adapter base URL mismatch")
-if not settings.FLYAI_ADAPTER_TOKEN:
-    raise SystemExit("FlyAI adapter token is missing")
-print("FlyAI adapter configuration ok")
+if not settings.AGENT_TOOLS_API_KEY:
+    raise SystemExit("agent-tools API key is missing")
+print("FlyAI travel tools configuration ok")
 PY
 
 docker exec -i fusion-api python - <<'PY'

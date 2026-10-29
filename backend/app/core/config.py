@@ -445,8 +445,6 @@ class Settings(BaseSettings):
 
     # FlyAI 出行产品工具通过私有 HTTP 适配器访问，不在 API 容器执行第三方 CLI。
     ENABLE_FLYAI_TRAVEL_TOOLS: bool = os.getenv("ENABLE_FLYAI_TRAVEL_TOOLS", "false").lower() == "true"
-    FLYAI_ADAPTER_BASE_URL: str = os.getenv("FLYAI_ADAPTER_BASE_URL", "")
-    FLYAI_ADAPTER_TOKEN: str = os.getenv("FLYAI_ADAPTER_TOKEN", "")
     FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS: float = float(os.getenv("FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS", "20"))
     FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN: int = int(os.getenv("FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN", "4"))
 

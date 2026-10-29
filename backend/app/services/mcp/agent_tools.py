@@ -41,7 +41,6 @@ from app.services.mcp.flyai_travel_tools import (
     FlyAiTravelRunControls,
     FlyAiTravelToolHandler,
     build_flyai_travel_binding,
-    build_flyai_user_scope,
 )
 from app.services.mcp.image_service_tools import (
     IMAGE_SERVICE_REMOTE_TOOL_NAME,
@@ -973,16 +972,10 @@ def load_mcp_agent_tools(
     handlers: dict[str, BaseToolHandler] = {}
     audit_bindings: list[dict[str, Any]] = []
     context7_registries: dict[str, Context7RunLibraryRegistry] = {}
-    if (
-        settings.ENABLE_FLYAI_TRAVEL_TOOLS
-        and user_id
-        and settings.FLYAI_ADAPTER_BASE_URL
-        and settings.FLYAI_ADAPTER_TOKEN
-    ):
+    # FlyAI 适配器在 agent-tools 侧，经网关调用；只对登录用户注册，网关按用户做并发隔离。
+    if settings.ENABLE_FLYAI_TRAVEL_TOOLS and user_id and settings.AGENT_TOOLS_API_KEY.strip():
         try:
             resolved_flyai_client = flyai_client or FlyAiTravelAdapterClient(
-                base_url=settings.FLYAI_ADAPTER_BASE_URL,
-                token=settings.FLYAI_ADAPTER_TOKEN,
                 timeout_seconds=min(25.0, max(0.1, settings.FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS)),
             )
             _append_flyai_travel_tools(
@@ -990,7 +983,6 @@ def load_mcp_agent_tools(
                 handlers=handlers,
                 audit_bindings=audit_bindings,
                 client=resolved_flyai_client,
-                user_scope=build_flyai_user_scope(user_id, settings.FLYAI_ADAPTER_TOKEN),
                 limits=resolved_limits,
             )
         except ValueError:
@@ -1097,12 +1089,11 @@ def _append_flyai_travel_tools(
     handlers: dict[str, BaseToolHandler],
     audit_bindings: list[dict[str, Any]],
     client: FlyAiTravelAdapterClient,
-    user_scope: str,
     limits: McpAgentToolLimits,
 ) -> None:
     controls = FlyAiTravelRunControls(
         max_calls=min(4, max(1, settings.FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN)),
-        # adapter 对同一 user_scope 只允许 1 个 CLI 进程；模型同轮并行调用时在 API 内排队，
+        # adapter 对同一用户只允许 1 个 CLI 进程；模型同轮并行调用时在 API 内排队，
         # 避免第二个航班/高铁请求撞 429 并被错误展示为“未使用”。
         concurrency=1,
     )
@@ -1121,7 +1112,6 @@ def _append_flyai_travel_tools(
             binding=binding,
             client=client,
             controls=controls,
-            user_scope=user_scope,
             max_llm_context_bytes=limits.max_llm_context_bytes,
         )
         audit_bindings.append(binding.to_audit_dict())

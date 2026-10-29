@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import hmac
 import json
 import re
 import time
@@ -38,6 +37,7 @@ from app.schemas.chat import (
     TravelEndpoint,
     TravelMoney,
 )
+from app.services.external.agent_tools import agent_tools_headers, agent_tools_url
 from app.services.mcp.server_service import MCP_TOOL_UNAVAILABLE_MESSAGE
 from app.services.mcp.tool_contract import canonical_json_bytes
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
@@ -56,6 +56,7 @@ _CABIN_CLASSES = ("经济舱", "超级经济舱", "公务舱", "商务舱", "头
 _SEAT_CLASSES = ("二等座", "一等座", "商务座", "特等座", "硬座", "软座", "硬卧", "软卧", "无座")
 _TRAIN_CATEGORIES = ("high_speed", "all")
 _SORT_VALUES = ("recommended", "price_asc", "duration_asc", "departure_asc")
+FLYAI_SERVICE = "flyai"
 _PATH_BY_TOOL = {
     FLYAI_SEARCH_FLIGHTS: "/v1/search/flights",
     FLYAI_SEARCH_TRAINS: "/v1/search/trains",
@@ -327,56 +328,34 @@ def build_flyai_travel_binding(tool_name: str) -> FlyAiTravelToolBinding:
     )
 
 
-def build_flyai_user_scope(user_id: str, token: str) -> str:
-    """生成不可逆、稳定且不包含用户标识的 adapter 限流 scope。"""
-
-    if not user_id or not token:
-        raise ValueError("FlyAI 用户 scope 缺少必要输入")
-    return hmac.new(token.encode("utf-8"), user_id.encode("utf-8"), hashlib.sha256).hexdigest()
-
-
 class FlyAiTravelAdapterClient:
-    """只调用固定私有路径、无重试、限制响应体的 HTTP 客户端。"""
+    """经 agent-tools 网关调用 FlyAI 适配器：固定路径、无重试、限制响应体。
+
+    适配器与 FlyAI 的 API Key 都在 agent-tools 侧，这里只带 Fusion 的产品服务密钥；
+    网关按 X-Caller-User 做同一用户的并发隔离，场景头记为工具名以便按工具统计用量。
+    """
 
     def __init__(
         self,
         *,
-        base_url: str,
-        token: str,
         timeout_seconds: float,
         max_response_bytes: int = _MAX_RESPONSE_BYTES,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        parsed = urlsplit(base_url)
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-            or not token
-            or timeout_seconds <= 0
-            or max_response_bytes < 1024
-        ):
+        if timeout_seconds <= 0 or max_response_bytes < 1024:
             raise ValueError("FlyAI adapter 配置无效")
-        self.base_url = base_url.rstrip("/")
-        self.token = token
         self.timeout_seconds = timeout_seconds
         self.max_response_bytes = max_response_bytes
         self.transport = transport
 
-    async def search(
-        self, *, tool_name: str, arguments: dict[str, Any], user_scope: str
-    ) -> tuple[_AdapterResponse, int]:
+    async def search(self, *, tool_name: str, arguments: dict[str, Any]) -> tuple[_AdapterResponse, int]:
         path = _PATH_BY_TOOL.get(tool_name)
         if path is None:
             raise FlyAiTravelError("invalid_arguments")
         transport = self.transport or httpx.AsyncHTTPTransport(retries=0)
         timeout = httpx.Timeout(self.timeout_seconds)
         headers = {
-            "Authorization": f"Bearer {self.token}",
-            "X-Fusion-User-Scope": user_scope,
+            **agent_tools_headers(tool_name),
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
@@ -390,7 +369,7 @@ class FlyAiTravelAdapterClient:
                 ) as client:
                     async with client.stream(
                         "POST",
-                        f"{self.base_url}{path}",
+                        agent_tools_url(FLYAI_SERVICE, path),
                         headers=headers,
                         json=arguments,
                     ) as response:
@@ -439,13 +418,11 @@ class FlyAiTravelToolHandler(BaseToolHandler):
         binding: FlyAiTravelToolBinding,
         client: FlyAiTravelAdapterClient,
         controls: FlyAiTravelRunControls,
-        user_scope: str,
         max_llm_context_bytes: int = _MAX_CONTEXT_BYTES,
     ) -> None:
         self.binding = binding
         self.client = client
         self.controls = controls
-        self.user_scope = user_scope
         self.max_llm_context_bytes = max_llm_context_bytes
 
     @property
@@ -486,7 +463,6 @@ class FlyAiTravelToolHandler(BaseToolHandler):
                 response, response_bytes = await self.client.search(
                     tool_name=self.tool_name,
                     arguments=adapter_arguments,
-                    user_scope=self.user_scope,
                 )
             _validate_response_request(response.request, adapter_arguments)
             projected = _project_result(self.tool_name, response, arguments=normalized)
