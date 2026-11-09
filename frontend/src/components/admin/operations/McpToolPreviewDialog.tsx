@@ -4,20 +4,17 @@ import { SettingsBadge as Badge, type SettingsStatusTone } from "@/components/se
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { McpServer, McpServerModelView } from "@/types/mcp";
 
-type PreviewStatus = "direct" | "component" | "authorized_unused" | "unauthorized";
+type PreviewStatus = "direct" | "authorized_unused" | "unauthorized";
 
 interface PreviewRow {
   key: string;
   title: string;
-  subtitle?: string;
   description: string;
   status: PreviewStatus;
-  note?: string;
 }
 
 const statusPresentation: Record<PreviewStatus, { label: string; tone: SettingsStatusTone }> = {
   direct: { label: "直接提供", tone: "success" },
-  component: { label: "供产品工具调用", tone: "info" },
   authorized_unused: { label: "已授权，本次未提供", tone: "neutral" },
   unauthorized: { label: "未授权", tone: "neutral" },
 };
@@ -29,27 +26,14 @@ function buildToolPreview(server: McpServer, view: McpServerModelView | undefine
   const descriptions = new Map(server.discovered_tools.map((tool) => [tool.name, tool.description ?? ""]));
   const modelTools: PreviewRow[] = [];
   const shownRemote = new Set<string>();
-  const productSources = new Set<string>();
   for (const tool of view?.tools ?? []) {
-    if (tool.kind === "product") {
-      tool.source_tools.forEach((name) => productSources.add(name));
-      modelTools.push({
-        key: tool.name,
-        title: tool.label,
-        subtitle: tool.name,
-        description: tool.description ?? "",
-        status: "direct",
-        note: `调用远端工具：${tool.source_tools.join("、")}`,
-      });
-    } else {
-      shownRemote.add(tool.name);
-      modelTools.push({
-        key: tool.name,
-        title: tool.name,
-        description: tool.description || descriptions.get(tool.name) || "",
-        status: "direct",
-      });
-    }
+    shownRemote.add(tool.name);
+    modelTools.push({
+      key: tool.name,
+      title: tool.name,
+      description: tool.description || descriptions.get(tool.name) || "",
+      status: "direct",
+    });
   }
   const allowed = new Set(server.allowed_tools);
   const remoteTools = server.discovered_tools
@@ -58,18 +42,14 @@ function buildToolPreview(server: McpServer, view: McpServerModelView | undefine
       key: tool.name,
       title: tool.name,
       description: tool.description ?? "",
-      status: productSources.has(tool.name)
-        ? "component"
-        : allowed.has(tool.name)
-          ? "authorized_unused"
-          : "unauthorized",
+      status: allowed.has(tool.name) ? "authorized_unused" : "unauthorized",
     }))
     .sort((left, right) => statusOrder(left.status) - statusOrder(right.status));
   return { modelTools, remoteTools };
 }
 
 function statusOrder(status: PreviewStatus): number {
-  return ["component", "authorized_unused", "unauthorized"].indexOf(status);
+  return ["authorized_unused", "unauthorized"].indexOf(status);
 }
 
 function PreviewList({ rows }: { rows: PreviewRow[] }) {
@@ -81,11 +61,9 @@ function PreviewList({ rows }: { rows: PreviewRow[] }) {
           <li key={row.key} className="space-y-1 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{row.title}</span>
-              {row.subtitle && <span className="font-mono text-xs text-muted-foreground">{row.subtitle}</span>}
               <Badge tone={status.tone}>{status.label}</Badge>
             </div>
             <p className="text-sm text-muted-foreground">{row.description || "服务没有提供说明"}</p>
-            {row.note && <p className="text-xs text-muted-foreground">{row.note}</p>}
           </li>
         );
       })}

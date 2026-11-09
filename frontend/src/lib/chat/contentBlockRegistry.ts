@@ -42,7 +42,7 @@ const CONTENT_BLOCK_CONTRACTS: readonly ContentBlockContract[] = [
   { type: 'url_read', schemaVersion: null, decode: decodeUrlBlock },
   { type: 'knowledge_evidence', schemaVersion: 1, decode: decodeKnowledgeEvidenceBlock },
   { type: 'document', schemaVersion: 1, decode: decodeDocumentBlock },
-  { type: 'generated_image', schemaVersion: 1, decode: decodeGeneratedImageBlock },
+  { type: 'generated_image', schemaVersion: 2, decode: decodeGeneratedImageBlock },
   { type: 'image_results', schemaVersion: 1, decode: decodeImageResultsBlock },
   { type: 'video_results', schemaVersion: 1, decode: decodeVideoResultsBlock },
   { type: 'data_source', schemaVersion: 1, decode: decodeDataSourceBlock },
@@ -421,16 +421,16 @@ function normalizeToolSourceReference(value: unknown): ToolSourceReference | nul
 function decodeGeneratedImageBlock(source: Record<string, unknown>): GeneratedImageBlock | null {
   const id = requiredString(source.id);
   const provider = boundedRequiredString(source.provider, 40);
-  const fileId = boundedRequiredString(source.file_id, 64);
+  const imageId = boundedRequiredString(source.image_id, 64);
   const mimeType = boundedRequiredString(source.mime_type, 40);
   const prompt = boundedRequiredString(source.prompt, 1000);
-  if (!id || !provider || !fileId || !mimeType || !mimeType.startsWith('image/') || !prompt) return null;
+  if (!id || !provider || !imageId || !mimeType || !mimeType.startsWith('image/') || !prompt) return null;
   return {
     type: 'generated_image',
     id,
-    schema_version: 1,
+    schema_version: 2,
     provider,
-    file_id: fileId,
+    image_id: imageId,
     mime_type: mimeType,
     width: positiveInteger(source.width) ?? null,
     height: positiveInteger(source.height) ?? null,

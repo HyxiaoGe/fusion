@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
+from app.db.generated_image_repository import GeneratedImageRepository, image_ids_in_blocks
 from app.schemas.chat import ClientPartialContentBlock, UrlBlock, Usage
 from app.services.security.url_policy import evaluate_url_policy
 from app.services.source_context import UntrustedSourceContext, format_untrusted_source_context
@@ -242,6 +243,11 @@ def persist_message(
                     existing.sequence = sequence
                 elif existing.sequence != sequence:
                     raise ValueError("assistant 消息顺序号与预留值不一致")
+            if not partial:
+                # 整条覆盖（含重新生成替换旧回答）：旧内容里、新内容不再指着的生成图，提交后从服务里删掉。
+                GeneratedImageRepository(db).remove(
+                    image_ids_in_blocks(existing.content) - image_ids_in_blocks(serialized_content)
+                )
             existing.content = (
                 merge_partial_content_blocks(existing.content or [], serialized_content, trusted_server_content=True)
                 if partial

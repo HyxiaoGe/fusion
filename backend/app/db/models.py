@@ -709,8 +709,23 @@ class HomeShowcaseImage(Base):
     width = Column(Integer, nullable=False)
     height = Column(Integer, nullable=False)
     created_by = Column(String, nullable=True)
-    # 从管理员生成过的图里挑来的，记下原文件，挑选列表据此标出已在图片池
-    source_file_id = Column(String, nullable=True)
+    # 从管理员生成过的图里挑来的，记下原图编号，挑选列表据此标出已在图片池
+    source_image_id = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
+
+
+class GeneratedImage(Base):
+    """generate_image 画好的图：图存在 image-service 里（按编号取、删），这里记它属于哪段会话。
+
+    页面取图、改图时的原图都按这张表认会话；删会话、重新回答、编辑问题时据此删掉服务里不要的图。
+    """
+
+    __tablename__ = "generated_images"
+
+    id = Column(String(64), primary_key=True)  # image-service 的图片编号
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    mime_type = Column(String(40), nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False)
 
 

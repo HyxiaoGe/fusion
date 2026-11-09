@@ -44,7 +44,7 @@ export default function HomeShowcaseManager() {
   const [loadingMoreCandidates, setLoadingMoreCandidates] = useState(false);
   const [hideInPool, setHideInPool] = useState(true);
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [label, setLabel] = useState('');
   const [prompt, setPrompt] = useState('');
   const [position, setPosition] = useState<'' | 'top' | 'bottom'>('');
@@ -113,11 +113,11 @@ export default function HomeShowcaseManager() {
     void loadCandidates();
   }, [loadCandidates]);
 
-  const markInPool = (fileId: string, inPool: boolean) => {
+  const markInPool = (imageId: string, inPool: boolean) => {
     setGroups((current) => current?.map((group) => ({
       ...group,
       versions: group.versions.map((candidate) => (
-        candidate.file_id === fileId ? { ...candidate, in_pool: inPool } : candidate
+        candidate.image_id === imageId ? { ...candidate, in_pool: inPool } : candidate
       )),
     })) ?? null);
   };
@@ -131,13 +131,13 @@ export default function HomeShowcaseManager() {
     .filter((group) => group.versions.length > 0);
 
   const selectCandidate = (candidate: GeneratedShowcaseCandidate) => {
-    setSelectedFileId(candidate.file_id);
-    setLabel((candidate.title ?? '').slice(0, LABEL_MAX));
+    setSelectedImageId(candidate.image_id);
+    setLabel('');
     setPrompt(candidate.prompt.slice(0, PROMPT_MAX));
   };
 
   const renderCandidate = (candidate: GeneratedShowcaseCandidate) => {
-    const selected = candidate.file_id === selectedFileId;
+    const selected = candidate.image_id === selectedImageId;
     return (
       <button
         type="button"
@@ -159,7 +159,7 @@ export default function HomeShowcaseManager() {
     );
   };
 
-  const canSubmit = Boolean(selectedFileId) && label.trim().length > 0 && prompt.trim().length > 0 && !submitting;
+  const canSubmit = Boolean(selectedImageId) && label.trim().length > 0 && prompt.trim().length > 0 && !submitting;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -168,10 +168,10 @@ export default function HomeShowcaseManager() {
     setFormError(null);
     const fields = { label: label.trim(), prompt: prompt.trim(), objectPosition: position || null };
     try {
-      const created = await addShowcaseFromGenerated({ fileId: selectedFileId ?? '', ...fields });
+      const created = await addShowcaseFromGenerated({ imageId: selectedImageId ?? '', ...fields });
       setImages((current) => [...(current ?? []), created]);
-      if (created.source_file_id) markInPool(created.source_file_id, true);
-      setSelectedFileId(null);
+      if (created.source_image_id) markInPool(created.source_image_id, true);
+      setSelectedImageId(null);
       setLabel('');
       setPrompt('');
       setPosition('');
@@ -248,7 +248,7 @@ export default function HomeShowcaseManager() {
                         <li className="col-span-full rounded-lg bg-muted/60 p-2">
                           <ul aria-label="同一张图的各个版本" className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-7">
                             {group.versions.map((candidate) => (
-                              <li key={candidate.file_id}>{renderCandidate(candidate)}</li>
+                              <li key={candidate.image_id}>{renderCandidate(candidate)}</li>
                             ))}
                           </ul>
                           <p className="mt-1.5 text-xs text-muted-foreground">这些图由同一张图多次编辑或重画得到，新的在前。</p>

@@ -53,7 +53,7 @@ const server = {
 const modelView = {
   servers: {
     'mcp-1': {
-      tools: [{ name: 'local_place_search', label: '高德地点搜索', kind: 'product', source_tools: ['maps_text_search'] }],
+      tools: [{ name: 'maps_text_search', label: '高德地图 · maps_text_search' }],
     },
   },
 };
@@ -83,10 +83,10 @@ describe('McpServerManager', () => {
     apiMocks.fetchModelView.mockResolvedValue({
       servers: {
         'mcp-1': {
-          tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', source_tools: ['maps_geo', 'maps_direction_driving'] }],
+          tools: [{ name: 'maps_text_search', label: '高德地图 · maps_text_search' }],
         },
         'mcp-2': {
-          tools: [{ name: 'placeSuggestion', label: '腾讯地图 · placeSuggestion', kind: 'generic', source_tools: ['placeSuggestion'] }],
+          tools: [{ name: 'placeSuggestion', label: '腾讯地图 · placeSuggestion' }],
         },
       },
     });
@@ -94,8 +94,8 @@ describe('McpServerManager', () => {
     render(<McpServerManager />);
 
     const amap = await screen.findByTestId('mcp-server-mcp-1');
-    expect(within(amap).getByText('高德路线比较')).toBeInTheDocument();
-    expect(within(amap).getByText('组合 maps_geo、maps_direction_driving')).toBeInTheDocument();
+    const amapModelTools = within(amap).getByRole('region', { name: '高德地图提供给模型的工具' });
+    expect(within(amapModelTools).getByText('maps_text_search')).toBeInTheDocument();
     const tencentCard = screen.getByTestId('mcp-server-mcp-2');
     const tencentModelTools = within(tencentCard).getByRole('region', { name: '腾讯地图提供给模型的工具' });
     expect(within(tencentModelTools).getByText('placeSuggestion')).toBeInTheDocument();
@@ -103,12 +103,12 @@ describe('McpServerManager', () => {
     expect(screen.queryByText(/按需加载/)).not.toBeInTheDocument();
   });
 
-  it('眼睛按钮打开工具说明预览，按模型可用、产品调用、未授权分组', async () => {
+  it('眼睛按钮打开工具说明预览，按模型可用、未授权分组', async () => {
     apiMocks.fetchModelView.mockResolvedValue({
       ...modelView,
       servers: {
         'mcp-1': {
-          tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', source_tools: ['maps_text_search'], description: '比较两地之间的耗时和距离' }],
+          tools: [{ name: 'maps_text_search', label: '高德地图 · maps_text_search', description: '关键词搜索' }],
         },
       },
     });
@@ -117,10 +117,8 @@ describe('McpServerManager', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '预览高德地图工具说明' }));
     const dialog = await screen.findByRole('dialog', { name: '高德地图 · 工具说明' });
-    expect(within(dialog).getByText('比较两地之间的耗时和距离')).toBeInTheDocument();
-    expect(within(dialog).getByText('调用远端工具：maps_text_search')).toBeInTheDocument();
     expect(within(dialog).getByText('关键词搜索')).toBeInTheDocument();
-    expect(within(dialog).getAllByText('供产品工具调用')).toHaveLength(1);
+    expect(within(dialog).getByText('直接提供')).toBeInTheDocument();
     expect(within(dialog).getByText('周边搜索')).toBeInTheDocument();
     expect(within(dialog).getByText('未授权')).toBeInTheDocument();
   });
@@ -188,9 +186,11 @@ describe('McpServerManager', () => {
     expect(within(card).getByText('连接健康')).toBeInTheDocument();
     expect(within(card).getByText('已启用')).toBeInTheDocument();
     expect(within(card).getByText(/远端工具：已授权 1 \/ 已发现 2/)).toBeInTheDocument();
-    expect(within(card).getByText('maps_text_search')).toBeInTheDocument();
+    // 已授权的远端工具一处，提供给模型的工具一处
+    expect(within(card).getAllByText('maps_text_search')).toHaveLength(2);
     expect(within(card).getByText('未授权：maps_around_search')).toBeInTheDocument();
-    expect(within(card).getByText('高德地点搜索')).toBeInTheDocument();
+    const modelTools = within(card).getByRole('region', { name: '高德地图提供给模型的工具' });
+    expect(within(modelTools).getByText('maps_text_search')).toBeInTheDocument();
     expect(within(card).getByText(/https:\/\/mcp\.amap\.com\/.*tenant/)).toBeInTheDocument();
     expect(within(card).queryByText(server.endpoint_url)).not.toBeInTheDocument();
     expect(within(card).getByText(/最近检测/)).toBeInTheDocument();

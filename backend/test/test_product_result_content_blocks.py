@@ -447,9 +447,9 @@ class ProductResultEventTests(unittest.IsolatedAsyncioTestCase):
         )
         block = GeneratedImageBlock(
             type="generated_image",
-            schema_version=1,
-            provider="image-service",
-            file_id="file-1",
+            schema_version=2,
+            provider="image",
+            image_id="7ca2c0c7-4477-456c-8a3c-76960859f1bf",
             mime_type="image/jpeg",
             width=1024,
             height=1024,

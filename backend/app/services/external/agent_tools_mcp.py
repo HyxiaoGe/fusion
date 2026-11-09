@@ -31,7 +31,9 @@ from app.services.mcp.provider_profiles import AGENT_TOOLS_CREDENTIAL_REF
 from app.services.mcp.tool_contract import sanitize_tool_schema_for_model
 
 # 经网关 MCP 调用的产品服务（工具说明和参数来自各服务的工具目录）。
-GATEWAY_MCP_SERVICES: tuple[str, ...] = ("weather", "search", "reader", "flyai", "maps")
+GATEWAY_MCP_SERVICES: tuple[str, ...] = ("weather", "search", "reader", "flyai", "maps", "image")
+# 生图给产品用的工具挂在 /v2/mcp（图存在服务里、按编号取删）；旧的 /mcp 返回公开图片地址，Fusion 不再用。
+_MCP_PATHS = {"image": "/v2/mcp"}
 # 和 agent-tools 约定的设备位置键：{longitude, latitude, accuracy_m?}，WGS84。
 GEOLOCATION_META_KEY = "agent-tools/geolocation"
 _CATALOG_TTL_SECONDS = 10 * 60
@@ -74,11 +76,15 @@ def build_gateway_tool_definition(spec: GatewayToolSpec, *, name: str, product_n
     }
 
 
+def gateway_mcp_url(service: str) -> str:
+    return agent_tools_url(service, _MCP_PATHS.get(service, "/mcp"))
+
+
 def gateway_connection_config(service: str, tool_names: list[str]) -> McpConnectionConfig:
     return McpConnectionConfig(
         server_id=f"agent-tools:{service}",
         provider=f"agent-tools/{service}",
-        endpoint_url=agent_tools_url(service, "/mcp"),
+        endpoint_url=gateway_mcp_url(service),
         auth_type="bearer",
         auth_name=None,
         credential_ref=AGENT_TOOLS_CREDENTIAL_REF,
@@ -91,7 +97,7 @@ def gateway_mcp_manager() -> McpClientManager:
     return McpClientManager(
         policy=McpClientPolicy(
             allowed_hosts=frozenset(),
-            allowed_internal_endpoints=frozenset(agent_tools_url(service, "/mcp") for service in GATEWAY_MCP_SERVICES),
+            allowed_internal_endpoints=frozenset(gateway_mcp_url(service) for service in GATEWAY_MCP_SERVICES),
             allowed_credential_refs=frozenset({AGENT_TOOLS_CREDENTIAL_REF}),
             connect_timeout_seconds=max(0.1, settings.MCP_CONNECT_TIMEOUT_SECONDS),
             call_timeout_seconds=max(0.1, settings.MCP_CALL_TIMEOUT_SECONDS),

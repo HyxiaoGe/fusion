@@ -37,7 +37,6 @@ DEFAULT_TOOL_PRICES: dict[str, float] = {
     "video_search": 5,
     # 生图按张计，Seedream 每张约 0.2 元
     "generate_image": 300,
-    "mcp:image-service": 300,
     # 地图、票务、天气等产品工具消耗服务商的月度/日额度
     "route_compare": 2,
     "local_place_search": 2,

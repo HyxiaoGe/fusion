@@ -1,11 +1,11 @@
-"""agent-tools 网关请求头与生图图片地址"""
+"""agent-tools 网关请求头与 MCP 地址"""
 
 import unittest
 from unittest.mock import patch
 
 from app.core.logger import log_context
 from app.services.external.agent_tools import agent_tools_headers, agent_tools_url
-from app.services.mcp.image_service_tools import internal_image_url
+from app.services.external.agent_tools_mcp import gateway_mcp_url
 
 
 class AgentToolsHeadersTests(unittest.TestCase):
@@ -34,15 +34,8 @@ class AgentToolsHeadersTests(unittest.TestCase):
             self.assertEqual(agent_tools_url("reader", "/read"), "http://gw:8100/reader/read")
 
 
-class InternalImageUrlTests(unittest.TestCase):
-    def test_gateway_endpoint_keeps_service_prefix(self):
-        self.assertEqual(
-            internal_image_url("http://agent-tools-gateway:8100/image/mcp", "/static/images/a.png"),
-            "http://agent-tools-gateway:8100/image/static/images/a.png",
-        )
-
-    def test_root_endpoint_downloads_from_origin(self):
-        self.assertEqual(
-            internal_image_url("http://192.168.1.11:8090/mcp", "/static/images/a.png"),
-            "http://192.168.1.11:8090/static/images/a.png",
-        )
+class GatewayMcpUrlTests(unittest.TestCase):
+    def test_image_uses_the_product_endpoint_others_use_mcp(self):
+        with patch("app.services.external.agent_tools.settings.AGENT_TOOLS_URL", "http://gw:8100"):
+            self.assertEqual(gateway_mcp_url("image"), "http://gw:8100/image/v2/mcp")
+            self.assertEqual(gateway_mcp_url("maps"), "http://gw:8100/maps/mcp")

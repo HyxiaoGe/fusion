@@ -25,6 +25,7 @@ from app.api import (
     credits,
     documents,
     files,
+    generated_images,
     knowledge_bases,
     memories,
     models,
@@ -413,6 +414,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 注册路由
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
+app.include_router(generated_images.router, prefix="/api/generated-images", tags=["generated-images"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(knowledge_bases.router, prefix="/api/knowledge-bases", tags=["knowledge-bases"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])

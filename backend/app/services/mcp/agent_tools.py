@@ -35,12 +35,12 @@ from app.services.mcp.flyai_travel_tools import (
     build_flyai_travel_binding,
     build_flyai_travel_definition,
 )
-from app.services.mcp.image_service_tools import (
-    IMAGE_SERVICE_REMOTE_TOOL_NAME,
-    ImageGenerationToolHandler,
+from app.services.mcp.image_tools import (
+    GENERATE_IMAGE_TOOL_NAME,
+    IMAGE_SERVICE,
+    ImageToolHandler,
     build_generate_image_definition,
-    build_image_service_binding,
-    is_image_service_row,
+    build_image_binding,
 )
 from app.services.mcp.maps_quota import maps_tools_hidden
 from app.services.mcp.maps_tools import (
@@ -926,8 +926,6 @@ def load_mcp_agent_tools(
     repository_factory: Callable[[Any], McpServerRepository] = McpServerRepository,
     concurrency_limiter: McpAgentToolConcurrencyLimiter = _DEFAULT_CONCURRENCY_LIMITER,
     circuit_breaker: McpAgentServerCircuitBreaker | None = None,
-    store_generated_image: Callable[..., Any] | None = None,
-    load_generated_image: Callable[..., Any] | None = None,
     gateway_catalog: GatewayToolCatalog | None = None,
     maps_hidden: Callable[[], bool] = maps_tools_hidden,
 ) -> McpAgentToolSet:
@@ -941,16 +939,25 @@ def load_mcp_agent_tools(
     run_budget = McpAgentToolRunBudget(
         max_calls_per_server=resolved_limits.max_tool_calls_per_server_per_run,
     )
-    # 生图先占位，通用 MCP 工具再多也不能把它挤出本次 run。
-    rows = sorted(
-        repository_factory(db).list_enabled(),
-        key=lambda row: (not is_image_service_row(row), str(row.id)),
-    )
+    rows = sorted(repository_factory(db).list_enabled(), key=lambda row: str(row.id))
     definitions: list[dict[str, Any]] = []
     handlers: dict[str, BaseToolHandler] = {}
     audit_bindings: list[dict[str, Any]] = []
     context7_registries: dict[str, Context7RunLibraryRegistry] = {}
     resolved_catalog = gateway_catalog or gateway_tool_catalog()
+    # generate_image 由 agent-tools 生图服务提供，说明和参数来自服务目录，目录里没有就不公告；排在最前，
+    # 通用 MCP 工具再多也挤不掉它。图要记在本会话名下：缺用户或会话时不注册。
+    image_spec = resolved_catalog.spec(IMAGE_SERVICE, GENERATE_IMAGE_TOOL_NAME)
+    if image_spec is not None and user_id and conversation_id:
+        _append_image_tool(
+            definitions=definitions,
+            handlers=handlers,
+            audit_bindings=audit_bindings,
+            spec=image_spec,
+            limits=resolved_limits,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
     # 航班 / 高铁由 agent-tools 出行服务（flyai）的同名工具提供，说明和参数来自服务目录，目录里没有就不公告；
     # 只对登录用户注册，服务按网关转来的用户做并发隔离。
     if settings.ENABLE_FLYAI_TRAVEL_TOOLS and user_id:
@@ -993,22 +1000,6 @@ def load_mcp_agent_tools(
             circuit_breaker=resolved_circuit_breaker,
             run_budget=run_budget,
         )
-        if is_image_service_row(row):
-            # 生图要把图片写进本会话归属：缺用户或会话时不注册，也不退化为通用 MCP 工具。
-            if user_id and conversation_id:
-                _append_image_service_tool(
-                    row=row,
-                    definitions=definitions,
-                    handlers=handlers,
-                    audit_bindings=audit_bindings,
-                    remote_executor=remote_executor,
-                    limits=resolved_limits,
-                    user_id=user_id,
-                    conversation_id=conversation_id,
-                    store_generated_image=store_generated_image or _store_generated_image,
-                    load_generated_image=load_generated_image or _load_generated_image,
-                )
-            continue
         for snapshot in _iter_authorized_snapshots(row):
             if len(definitions) >= resolved_limits.max_tools:
                 logger.warning("MCP 工具数量达到上限，服务 %s 的其余工具本次 run 不注册", row.id)
@@ -1160,68 +1151,31 @@ def _append_weather_forecast_tool(
     audit_bindings.append(binding.to_audit_dict())
 
 
-def _append_image_service_tool(
+def _append_image_tool(
     *,
-    row: Any,
     definitions: list[dict[str, Any]],
     handlers: dict[str, BaseToolHandler],
     audit_bindings: list[dict[str, Any]],
-    remote_executor: McpAgentRemoteExecutor,
+    spec: GatewayToolSpec,
     limits: McpAgentToolLimits,
     user_id: str,
     conversation_id: str,
-    store_generated_image: Callable[..., Any],
-    load_generated_image: Callable[..., Any],
 ) -> None:
-    snapshots = {snapshot["name"]: snapshot for snapshot in _iter_authorized_snapshots(row)}
-    snapshot = snapshots.get(IMAGE_SERVICE_REMOTE_TOOL_NAME)
-    if snapshot is None or len(definitions) >= limits.max_tools:
+    if len(definitions) >= limits.max_tools:
         return
-    definition = build_generate_image_definition()
+    definition = build_generate_image_definition(spec)
     if len(canonical_json_bytes([*definitions, definition])) > limits.max_definition_bytes:
         return
-    alias = definition["function"]["name"]
-    if alias in handlers:
+    binding = build_image_binding(definition, conversation_id=conversation_id, user_id=user_id)
+    if binding.alias in handlers:
         raise RuntimeError("MCP 工具别名冲突")
-    remote_definition_sha256 = agent_tool_definition_sha256(row, snapshot)
-    binding = build_image_service_binding(
-        row=row,
-        remote_definition_sha256=remote_definition_sha256,
-        conversation_id=conversation_id,
-        user_id=user_id,
-    )
     definitions.append(definition)
-    handlers[alias] = ImageGenerationToolHandler(
+    handlers[binding.alias] = ImageToolHandler(
         binding=binding,
-        remote_executor=remote_executor,
-        remote_definition_sha256=remote_definition_sha256,
-        store_image=store_generated_image,
-        load_source_image=load_generated_image,
+        parameters=definition["function"]["parameters"],
+        max_llm_context_bytes=limits.max_llm_context_bytes,
     )
     audit_bindings.append(binding.to_audit_dict())
-
-
-async def _store_generated_image(**kwargs: Any) -> dict[str, Any]:
-    from app.services.file_service import FileService
-
-    db = SessionLocal()
-    try:
-        return await FileService(db, session_factory=SessionLocal).store_generated_image(**kwargs)
-    finally:
-        db.close()
-
-
-async def _load_generated_image(**kwargs: Any) -> dict[str, Any] | None:
-    from app.services.file_service import FileService
-
-    def lookup() -> dict[str, Any] | None:
-        db = SessionLocal()
-        try:
-            return FileService(db, session_factory=SessionLocal).generated_image_source(**kwargs)
-        finally:
-            db.close()
-
-    return await asyncio.to_thread(lookup)
 
 
 def _iter_authorized_snapshots(row) -> list[dict[str, Any]]:

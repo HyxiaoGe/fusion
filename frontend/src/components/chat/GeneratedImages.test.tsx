@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import GeneratedImages from './GeneratedImages';
 import { collectPendingImageGenerations, imageDisplayWidth, type PendingImageGeneration } from './generatedImageModel';
 import i18n from '@/lib/i18n';
-import { getFileUrl } from '@/lib/api/files';
+import { getGeneratedImageUrl } from '@/lib/api/files';
 import type { AgentRunState, ToolCallState } from '@/types/agentRun';
 import type { GeneratedImageBlock } from '@/types/conversation';
 
@@ -12,17 +12,17 @@ const trackMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/analytics/analytics', () => ({ track: trackMock }));
 
 vi.mock('@/lib/api/files', () => ({
-  getFileUrl: vi.fn(),
+  getGeneratedImageUrl: vi.fn(),
 }));
 
-const getFileUrlMock = vi.mocked(getFileUrl);
+const getImageUrlMock = vi.mocked(getGeneratedImageUrl);
 
 const block: GeneratedImageBlock = {
   type: 'generated_image',
   id: 'blk-img',
-  schema_version: 1,
-  provider: 'image-service',
-  file_id: 'file-1',
+  schema_version: 2,
+  provider: 'image',
+  image_id: '7ca2c0c7-4477-456c-8a3c-76960859f1bf',
   mime_type: 'image/jpeg',
   width: 848,
   height: 1264,
@@ -58,7 +58,7 @@ function runWith(toolCalls: ToolCallState[]): AgentRunState {
 describe('GeneratedImages', () => {
   beforeEach(async () => {
     await i18n.changeLanguage('zh-CN');
-    getFileUrlMock.mockReset();
+    getImageUrlMock.mockReset();
   });
 
   afterEach(() => {
@@ -71,14 +71,14 @@ describe('GeneratedImages', () => {
   });
 
   it('shows the providing model, keeps the prompt collapsed and opens the viewer on click', async () => {
-    getFileUrlMock.mockResolvedValue('/api/files/file-1/content?variant=processed&token=t');
+    getImageUrlMock.mockResolvedValue('/api/generated-images/7ca2c0c7-4477-456c-8a3c-76960859f1bf/content?token=t');
 
     trackMock.mockReset();
     render(<GeneratedImages blocks={[block]} runId="run-1" />);
 
     const image = await screen.findByAltText('一只红狐狸');
-    expect(getFileUrlMock).toHaveBeenCalledWith('file-1', 'processed');
-    expect(image).toHaveAttribute('src', '/api/files/file-1/content?variant=processed&token=t');
+    expect(getImageUrlMock).toHaveBeenCalledWith('7ca2c0c7-4477-456c-8a3c-76960859f1bf');
+    expect(image).toHaveAttribute('src', '/api/generated-images/7ca2c0c7-4477-456c-8a3c-76960859f1bf/content?token=t');
     expect(screen.getByText('本次生图由 豆包 Seedream 5.0 Flash 提供')).toBeInTheDocument();
     expect(screen.queryByText('一只红狐狸')).not.toBeInTheDocument();
 
@@ -88,14 +88,17 @@ describe('GeneratedImages', () => {
     fireEvent.load(image);
     expect(image).toHaveAttribute('data-loaded', 'true');
     fireEvent.click(image);
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    const viewer = await screen.findByRole('dialog');
+    // 查看大图直接用卡片已签好的地址，不再另取
+    expect(viewer.querySelector('img')).toHaveAttribute('src', '/api/generated-images/7ca2c0c7-4477-456c-8a3c-76960859f1bf/content?token=t');
+    expect(getImageUrlMock).toHaveBeenCalledTimes(1);
     expect(trackMock).toHaveBeenCalledTimes(1);
     expect(trackMock).toHaveBeenCalledWith('generated_image_opened', { run_id: 'run-1' });
   });
 
   it('reuses the loaded image when the card remounts after streaming ends', async () => {
-    getFileUrlMock.mockResolvedValue('/img-remount');
-    const remountBlock = { ...block, id: 'blk-remount', file_id: 'file-remount' };
+    getImageUrlMock.mockResolvedValue('/img-remount');
+    const remountBlock = { ...block, id: 'blk-remount', image_id: '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d' };
 
     const first = render(<GeneratedImages blocks={[remountBlock]} />);
     fireEvent.load(await screen.findByAltText('一只红狐狸'));
@@ -105,11 +108,11 @@ describe('GeneratedImages', () => {
     const image = screen.getByAltText('一只红狐狸');
     expect(image).toHaveAttribute('src', '/img-remount');
     expect(image).toHaveAttribute('data-instant', 'true');
-    expect(getFileUrlMock).toHaveBeenCalledTimes(1);
+    expect(getImageUrlMock).toHaveBeenCalledTimes(1);
   });
 
   it('asks for another image with the same description when regenerating', async () => {
-    getFileUrlMock.mockResolvedValue('/img');
+    getImageUrlMock.mockResolvedValue('/img');
     const onRegenerate = vi.fn();
 
     trackMock.mockReset();
@@ -121,7 +124,7 @@ describe('GeneratedImages', () => {
   });
 
   it('hides regenerate when the conversation cannot continue from this message', async () => {
-    getFileUrlMock.mockResolvedValue('/img');
+    getImageUrlMock.mockResolvedValue('/img');
     render(<GeneratedImages blocks={[block]} />);
     await screen.findByAltText('一只红狐狸');
     expect(screen.queryByRole('button', { name: '重新生成' })).not.toBeInTheDocument();
@@ -172,7 +175,7 @@ describe('collectPendingImageGenerations', () => {
 
     const succeeded = runWith([call({
       status: 'success',
-      resultSummary: { kind: 'generated_image', truncated: false, file_id: 'file-1' } as never,
+      resultSummary: { kind: 'generated_image', truncated: false, image_id: '7ca2c0c7-4477-456c-8a3c-76960859f1bf' } as never,
     })]);
     expect(collectPendingImageGenerations(succeeded, [])).toHaveLength(1);
     expect(collectPendingImageGenerations(succeeded, [block])).toEqual([]);
@@ -197,7 +200,7 @@ describe('collectPendingImageGenerations', () => {
     const retried = runWith([call(failed), call({
       toolCallId: 'call-2',
       status: 'success',
-      resultSummary: { kind: 'generated_image', truncated: false, file_id: 'file-1' } as never,
+      resultSummary: { kind: 'generated_image', truncated: false, image_id: '7ca2c0c7-4477-456c-8a3c-76960859f1bf' } as never,
     })]);
     expect(collectPendingImageGenerations(retried, [block])).toEqual([]);
   });

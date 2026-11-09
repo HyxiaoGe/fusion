@@ -115,7 +115,7 @@ describe('contentBlockRegistry', () => {
       { type: 'url_read', schemaVersion: null },
       { type: 'knowledge_evidence', schemaVersion: 1 },
       { type: 'document', schemaVersion: 1 },
-      { type: 'generated_image', schemaVersion: 1 },
+      { type: 'generated_image', schemaVersion: 2 },
       { type: 'image_results', schemaVersion: 1 },
       { type: 'video_results', schemaVersion: 1 },
       { type: 'data_source', schemaVersion: 1 },
@@ -922,9 +922,9 @@ describe('contentBlockRegistry', () => {
     const payload = {
       type: 'generated_image',
       id: 'blk-img',
-      schema_version: 1,
-      provider: 'image-service',
-      file_id: 'file-1',
+      schema_version: 2,
+      provider: 'image',
+      image_id: '7ca2c0c7-4477-456c-8a3c-76960859f1bf',
       mime_type: 'image/jpeg',
       width: 1024,
       height: 768,
@@ -938,9 +938,10 @@ describe('contentBlockRegistry', () => {
       width: null,
       model: null,
     });
-    expect(normalizeContentBlock({ ...payload, file_id: '' })).toMatchObject({ type: 'unsupported_result' });
+    expect(normalizeContentBlock({ ...payload, image_id: '' })).toMatchObject({ type: 'unsupported_result' });
     expect(normalizeContentBlock({ ...payload, mime_type: 'text/html' })).toMatchObject({ type: 'unsupported_result' });
-    expect(normalizeContentBlock({ ...payload, schema_version: 2 })).toMatchObject({ type: 'unsupported_result' });
+    // 转存到 Fusion 文件存储的旧版图片块已随迁移删除，不再认
+    expect(normalizeContentBlock({ ...payload, schema_version: 1, file_id: 'file-1' })).toMatchObject({ type: 'unsupported_result' });
   });
 
   it('decodes image search results and drops images without a usable https address', () => {

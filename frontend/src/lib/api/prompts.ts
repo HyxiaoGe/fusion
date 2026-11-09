@@ -29,8 +29,8 @@ export interface ShowcaseImage {
   prompt: string;
   /** 卡片按 4:5 裁切；主体不在中间的图指定保留区域 */
   object_position: 'top' | 'bottom' | null;
-  /** 从管理员生成图挑来时的原文件 */
-  source_file_id: string | null;
+  /** 从管理员生成图挑来时的原图编号 */
+  source_image_id: string | null;
   image_url: string;
   /** 点开卡片查看细节的大图（长边 1600px） */
   full_image_url: string;
@@ -53,11 +53,9 @@ export async function fetchAdminShowcaseImages(): Promise<ShowcaseImagesResponse
 
 /** 当前管理员自己生成过的图，供挑进图片池 */
 export interface GeneratedShowcaseCandidate {
-  file_id: string;
+  image_id: string;
   /** 生成这张图时的提示词 */
   prompt: string;
-  /** 模型生成时起的简短名称，旧图没有 */
-  title: string | null;
   width: number | null;
   height: number | null;
   thumbnail_url: string;
@@ -66,7 +64,7 @@ export interface GeneratedShowcaseCandidate {
 
 /** 一张图和由它编辑、重画出来的各个版本，新的在前 */
 export interface GeneratedShowcaseGroup {
-  /** 链上最早那张图的 file_id，不随新版本或筛选变化 */
+  /** 链上最早那张图的 image_id，不随新版本或筛选变化 */
   key: string;
   versions: GeneratedShowcaseCandidate[];
 }
@@ -85,11 +83,26 @@ export async function fetchGeneratedShowcaseCandidates(options: {
   if (options.offset) params.set('offset', String(options.offset));
   if (options.hideInPool) params.set('hide_in_pool', 'true');
   const query = params.toString() ? `?${params.toString()}` : '';
-  return apiRequest<GeneratedShowcaseCandidatesPage>(`${API_BASE_URL}/api/admin/home-showcase/generated${query}`);
+  const page = await apiRequest<GeneratedShowcaseCandidatesPage>(
+    `${API_BASE_URL}/api/admin/home-showcase/generated${query}`
+  );
+  // 缩略图是后端签名的相对地址（/api/generated-images/…），按 API 地址补全
+  return {
+    ...page,
+    groups: page.groups.map((group) => ({
+      ...group,
+      versions: group.versions.map((candidate) => ({
+        ...candidate,
+        thumbnail_url: candidate.thumbnail_url.startsWith('/')
+          ? `${API_BASE_URL}${candidate.thumbnail_url}`
+          : candidate.thumbnail_url,
+      })),
+    })),
+  };
 }
 
 export async function addShowcaseFromGenerated(input: {
-  fileId: string;
+  imageId: string;
   label: string;
   prompt: string;
   objectPosition: 'top' | 'bottom' | null;
@@ -98,7 +111,7 @@ export async function addShowcaseFromGenerated(input: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      file_id: input.fileId,
+      image_id: input.imageId,
       label: input.label,
       prompt: input.prompt,
       object_position: input.objectPosition,

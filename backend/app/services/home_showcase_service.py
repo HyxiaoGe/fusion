@@ -49,7 +49,7 @@ def serialize_showcase_image(row: HomeShowcaseImage) -> dict:
         "label": row.label,
         "prompt": row.prompt,
         "object_position": row.object_position,
-        "source_file_id": row.source_file_id,
+        "source_image_id": row.source_image_id,
         "image_url": f"/api/prompts/showcase/{row.id}/image",
         "full_image_url": f"/api/prompts/showcase/{row.id}/image/full",
         "width": row.width,
@@ -99,7 +99,7 @@ async def add_showcase_image(
     prompt: str,
     object_position: str | None,
     created_by: str,
-    source_file_id: str | None = None,
+    source_image_id: str | None = None,
 ) -> HomeShowcaseImage:
     label = _normalize_text(label, field="标签", limit=MAX_LABEL_CHARS)
     prompt = _normalize_text(prompt, field="提示词", limit=MAX_PROMPT_CHARS)
@@ -132,7 +132,7 @@ async def add_showcase_image(
         width=width,
         height=height,
         created_by=created_by,
-        source_file_id=source_file_id,
+        source_image_id=source_image_id,
     )
     try:
         db.add(row)
@@ -150,7 +150,7 @@ def list_generated_groups(
     db: Session,
     user_id: str,
     *,
-    exclude_file_ids: frozenset[str] = frozenset(),
+    exclude_image_ids: frozenset[str] = frozenset(),
     offset: int = 0,
     page_size: int = GENERATED_PAGE_GROUPS,
 ) -> tuple[list[dict], int | None]:
@@ -158,8 +158,8 @@ def list_generated_groups(
 
     同一组是一张图和由它编辑、重画出来的各个版本，依据生图时的工具调用记录（编辑带 source_image_id，
     重画带 regenerate，归到同会话里的上一张图）；不按画面相似度猜。每组版本新的在前，组按最新版本时间新的在前。
-    ``exclude_file_ids`` 里的版本不列出（如已在图片池），整组都被排除时这组不出现。按组分页，返回本页和下一页的偏移；
-    每组是 ``{"key": 链上最早那张图的 file_id, "versions": [...]}``，key 不随排除和新版本变化。
+    ``exclude_image_ids`` 里的版本不列出（如已在图片池），整组都被排除时这组不出现。按组分页，返回本页和下一页的偏移；
+    每组是 ``{"key": 链上最早那张图的 image_id, "versions": [...]}``，key 不随排除和新版本变化。
     """
     rows = (
         db.query(Message.conversation_id, Message.content)
@@ -179,17 +179,16 @@ def list_generated_groups(
         for block in content if isinstance(content, list) else []:
             if not isinstance(block, dict) or block.get("type") != "generated_image":
                 continue
-            file_id = block.get("file_id")
-            if not isinstance(file_id, str) or not file_id or file_id in conversation_of:
+            image_id = block.get("image_id")
+            if not isinstance(image_id, str) or not image_id or image_id in conversation_of:
                 continue
-            conversation_of[file_id] = conversation_id
+            conversation_of[image_id] = conversation_id
             if isinstance(block.get("tool_call_log_id"), str) and block["tool_call_log_id"]:
-                log_ids[file_id] = block["tool_call_log_id"]
+                log_ids[image_id] = block["tool_call_log_id"]
             images.append(
                 {
-                    "file_id": file_id,
+                    "image_id": image_id,
                     "prompt": str(block.get("prompt") or ""),
-                    "title": block.get("title") if isinstance(block.get("title"), str) else None,
                     "width": block.get("width"),
                     "height": block.get("height"),
                 }
@@ -204,39 +203,39 @@ def list_generated_groups(
         if log_ids
         else {}
     )
-    parent: dict[str, str] = {image["file_id"]: image["file_id"] for image in images}
+    parent: dict[str, str] = {image["image_id"]: image["image_id"] for image in images}
 
-    def root(file_id: str) -> str:
-        while parent[file_id] != file_id:
-            parent[file_id] = parent[parent[file_id]]
-            file_id = parent[file_id]
-        return file_id
+    def root(image_id: str) -> str:
+        while parent[image_id] != image_id:
+            parent[image_id] = parent[parent[image_id]]
+            image_id = parent[image_id]
+        return image_id
 
     last_in_conversation: dict[str, str] = {}
     for image in images:
-        file_id = image["file_id"]
-        params = params_by_log.get(log_ids.get(file_id, ""))
+        image_id = image["image_id"]
+        params = params_by_log.get(log_ids.get(image_id, ""))
         params = params if isinstance(params, dict) else {}
         source = params.get("source_image_id")
         if isinstance(source, str) and source in parent:
-            parent[root(file_id)] = root(source)
-        elif params.get("regenerate") is True and conversation_of[file_id] in last_in_conversation:
-            parent[root(file_id)] = root(last_in_conversation[conversation_of[file_id]])
-        last_in_conversation[conversation_of[file_id]] = file_id
+            parent[root(image_id)] = root(source)
+        elif params.get("regenerate") is True and conversation_of[image_id] in last_in_conversation:
+            parent[root(image_id)] = root(last_in_conversation[conversation_of[image_id]])
+        last_in_conversation[conversation_of[image_id]] = image_id
 
     groups: dict[str, list[dict]] = {}
     for image in images:
-        groups.setdefault(root(image["file_id"]), []).append(image)
+        groups.setdefault(root(image["image_id"]), []).append(image)
     # images 按时间正序：组内倒过来新的在前，组按最新版本在时间线上的位置倒序
-    timeline = {image["file_id"]: index for index, image in enumerate(images)}
+    timeline = {image["image_id"]: index for index, image in enumerate(images)}
     ordered = sorted(
         ({"key": key, "versions": list(reversed(versions))} for key, versions in groups.items()),
-        key=lambda group: timeline[group["versions"][0]["file_id"]],
+        key=lambda group: timeline[group["versions"][0]["image_id"]],
         reverse=True,
     )
     visible = []
     for group in ordered:
-        kept = [image for image in group["versions"] if image["file_id"] not in exclude_file_ids]
+        kept = [image for image in group["versions"] if image["image_id"] not in exclude_image_ids]
         if kept:
             visible.append({"key": group["key"], "versions": kept})
     page = visible[offset : offset + page_size]

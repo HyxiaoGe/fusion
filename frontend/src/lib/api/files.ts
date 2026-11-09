@@ -293,6 +293,14 @@ export async function getFileStatus(fileId: string): Promise<FileStatusResponse>
 }
 
 // 获取文件访问 URL
+/** 会话里画的图（存在 image-service 里）：取带短期签名的地址，供 <img> 直接加载。 */
+export async function getGeneratedImageUrl(imageId: string): Promise<string> {
+  const data = await apiRequest<{ url: string }>(
+    `${API_BASE_URL}/api/generated-images/${encodeURIComponent(imageId)}/url`
+  );
+  return data.url.startsWith('/') ? `${API_BASE_URL}${data.url}` : data.url;
+}
+
 export async function getFileUrl(
   fileId: string,
   variant: 'processed' | 'thumbnail' = 'thumbnail'

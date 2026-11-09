@@ -10,13 +10,8 @@ from collections.abc import Callable
 from typing import Any
 
 from app.services.mcp.agent_tools import load_mcp_agent_tools
-from app.services.mcp.image_service_tools import IMAGE_SERVICE_REMOTE_TOOL_NAME
 
 _PREVIEW_SCOPE = "admin-model-view"
-# 产品工具给模型的定义是英文，管理页预览用这份中文简介。
-_PRODUCT_DESCRIPTIONS = {
-    "generate_image": "根据文字描述生成图片，可指定画面比例和风格，生成的图片直接显示在回答里。",
-}
 
 
 def build_mcp_model_view(
@@ -43,16 +38,11 @@ def build_mcp_model_view(
         if server is None or alias not in definitions:
             continue
         remote = str(binding.get("remote_tool_name") or "")
-        is_product = remote.startswith("product:")
         server["tools"].append(
             {
-                "name": alias if is_product else remote,
+                "name": remote,
                 "label": binding.get("tool_label") or alias,
-                "kind": "product" if is_product else "generic",
-                "source_tools": [IMAGE_SERVICE_REMOTE_TOOL_NAME] if is_product else [remote],
-                "description": _PRODUCT_DESCRIPTIONS.get(alias, "")
-                if is_product
-                else remote_descriptions.get(str(binding.get("server_id")), {}).get(remote, ""),
+                "description": remote_descriptions.get(str(binding.get("server_id")), {}).get(remote, ""),
             }
         )
 

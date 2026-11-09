@@ -199,12 +199,7 @@ function ModelToolsSection({
         <ul className="space-y-1.5">
           {view.tools.map((tool) => (
             <li key={tool.name} className="flex flex-wrap items-center gap-1.5 text-sm">
-              <span className="font-medium">{tool.kind === "product" ? tool.label : tool.name}</span>
-              {tool.kind === "product" && (
-                <span className="text-xs text-muted-foreground">
-                  组合 {tool.source_tools.join("、")}
-                </span>
-              )}
+              <span className="font-medium">{tool.name}</span>
             </li>
           ))}
         </ul>

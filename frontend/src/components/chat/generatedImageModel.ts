@@ -59,24 +59,24 @@ export function imageDisplayWidth(width: number, height: number): number {
 
 /**
  * 还没出图的生图调用：运行中的显示生成占位；失败/中断的就地说明。
- * 成功但图片块尚未到达的调用继续占位，按 file_id 对上图片块后让位。
+ * 成功但图片块尚未到达的调用继续占位，按 image_id 对上图片块后让位。
  */
 export function collectPendingImageGenerations(
   run: AgentRunState | null | undefined,
   blocks: GeneratedImageBlock[],
 ): PendingImageGeneration[] {
   if (!run) return [];
-  const renderedFileIds = new Set(blocks.map(block => block.file_id));
+  const renderedImageIds = new Set(blocks.map(block => block.image_id));
   const calls = run.steps.flatMap(step => step.toolCalls.filter(call => call.toolName === GENERATE_IMAGE_TOOL_NAME));
   const pending: PendingImageGeneration[] = [];
   calls.forEach((call, index) => {
     const summary = call.resultSummary as (Record<string, unknown> | undefined);
-    const fileId = typeof summary?.file_id === 'string' ? summary.file_id : null;
+    const imageId = typeof summary?.image_id === 'string' ? summary.image_id : null;
     let status: PendingImageStatus;
     if (call.status === 'running') {
       status = 'running';
     } else if (call.status === 'success') {
-      if (!fileId || renderedFileIds.has(fileId)) return;
+      if (!imageId || renderedImageIds.has(imageId)) return;
       status = 'running';
     } else if (index < calls.length - 1) {
       // 失败或中断后又发起了生图（重试），由后一张卡片接替，不再保留失败卡片。

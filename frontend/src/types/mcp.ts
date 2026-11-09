@@ -36,8 +36,6 @@ export interface McpServer extends McpServerPayload {
 export interface McpModelTool {
   name: string;
   label: string;
-  kind: 'product' | 'generic';
-  source_tools: string[];
   description?: string;
 }
 
