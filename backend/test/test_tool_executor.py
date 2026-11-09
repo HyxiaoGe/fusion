@@ -1492,7 +1492,7 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(evidence_kwargs["evidence"]["title"], "官方发布页")
         self.assertEqual(evidence_kwargs["evidence"]["domain"], "example.com")
 
-    async def test_execute_tools_parallel_uses_network_budget_normalized_args_for_handler_and_log(self):
+    async def test_execute_tools_parallel_passes_model_args_with_budget_fields_to_handler_and_log(self):
         from app.services.stream.network_budget import NetworkToolBudget
 
         handler = AsyncMock()
@@ -1520,12 +1520,14 @@ class ToolExecutorMessageIdTests(unittest.IsolatedAsyncioTestCase):
                 network_budget=NetworkToolBudget(),
             )
 
+        # 模型参数原样交给搜索服务检查（出错时服务告诉模型），这里只加进上下文的条数和预算名
         normalized = {
             "query": "redis",
-            "count": 20,
+            "count": 99,
+            "domains": ["https://Redis.io/docs", "bad domain"],
+            "recency_days": 0,
             "context_source_limit": 10,
             "search_budget": "standard",
-            "recency_days": 1,
         }
         handler.execute.assert_awaited_once_with(normalized, None)
         self.assertEqual(handler.log.await_args.kwargs["input_params"], normalized)

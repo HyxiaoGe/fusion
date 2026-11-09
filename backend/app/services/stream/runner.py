@@ -260,7 +260,7 @@ class StreamHandler:
                     run_config={"prompt_bundle": run_input.prompt_bundle_snapshot.identity()},
                 )
                 identity_started = True
-                if dependencies.refresh_tool_catalog_fn is not None and not run_input.guest:
+                if dependencies.refresh_tool_catalog_fn is not None:
                     await dependencies.refresh_tool_catalog_fn()
                 call_config_inputs = prepare_agent_loop_call_config_inputs(
                     run_input=run_input,

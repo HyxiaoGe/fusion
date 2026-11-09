@@ -31,7 +31,6 @@ from app.ai.tools import (
     build_image_search_tool,
     build_url_read_tool,
     build_video_search_tool,
-    build_web_search_tool,
 )
 from app.core.logger import app_logger as logger
 from app.core.prompt_snapshot import PromptBundleSnapshot, use_prompt_snapshot
@@ -61,6 +60,7 @@ from app.services.stream.skill_loading import (
     build_load_skill_schema,
     build_skill_session,
 )
+from app.services.tool_handlers.web_search import build_web_search_tool
 from app.services.weather import WEATHER_TOOL_NAMES
 
 if TYPE_CHECKING:

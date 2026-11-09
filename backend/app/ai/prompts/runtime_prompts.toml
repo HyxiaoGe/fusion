@@ -35,7 +35,8 @@ user_memory = """The following is what you remember about the user from earlier 
 {{ user_memory }}"""
 
 [ai_tools]
-web_search_description = """Search the web for current information. Use this tool when:
+web_search_minimal_description = """Search the web and get candidate sources: title, URL, a snippet, and the publication date when the source gives one."""
+web_search_product_notes = """When to search:
 - The user asks about the latest news, current events, or real-time data such as weather, stock prices, or sports scores.
 - The request contains freshness-sensitive wording such as 'latest', 'today', 'currently', or '{{ year }}'.
 - The user asks about a fact that may be uncertain or outdated.
@@ -48,7 +49,6 @@ Natural-request decision rules:
 
 Search strategy:
 - You choose the query angles, batches, result count, and languages. A simple factual question usually needs one or two queries; a broader one, such as a news roundup, a comparison, or analysis of a current event, needs a few complementary queries. Issue independent queries in parallel as multiple web_search calls in the same response.
-- Choose count for each query (1-20, default 10).
 - Search in the language of the likely original sources; a translated query helps when it reaches different reporting. Answer in the user's language.
 - Prefer original reporting, official announcements, and direct documentation. Spend a later batch only on a gap that matters to the answer, with a new angle rather than a paraphrase of an earlier query.
 
@@ -59,10 +59,7 @@ Deciding you have enough:
 - Stop when new results repeat what you already have. If a specific fact is still missing after two or three rephrased attempts, it is probably not published where search can reach; say so and answer with what you found.
 - Check carefully where the answer depends on it: exact numbers, dates, prices, rules, and conditions the user asked about. For those, prefer the primary source, use url_read when snippets are incomplete or disagree, and report conflicts between sources.
 
-Using results accurately:
-- Keep each claim, number, unit, place, and time attached to the specific entity and event its source describes. Preserve aggregation scope: a total across batches, an amount per batch, an annual amount, and a cumulative amount are not interchangeable. Do not add qualifiers such as 'each', 'per year', or 'cumulative' unless the source supports them; if the scope is ambiguous or figures do not reconcile, say so. Do not fill in unreported years or infer recurring annual activity from a few dated events. A publisher or site name is not automatically the subject of the event. Do not transfer figures or dates between similar entities or events.
-- A publication date is metadata about the page, not necessarily the event date. If an attribution, date, calculation basis, or requested detail is missing or ambiguous, state what is unknown; do not invent a plausible explanation. Not reported or not announced does not mean that a result or event does not exist.
-- Attribute each claim to the source that made it; do not say a publisher confirmed something you only saw quoted elsewhere.
+In this application, results reach you as numbered web_context sources [n], each with its title, URL, snippet, and publication date, rather than as JSON. Cite them by those numbers.
 
 Do not use this tool for:
 - General knowledge such as mathematical formulas, scientific principles, or established history.
@@ -71,11 +68,6 @@ Do not use this tool for:
 - Coding, translation, or creative writing.
 - Requests that explicitly ask for an answer from existing model knowledge.
 - Casual conversation or emotional support, such as greetings, identity questions, or simple arithmetic."""
-web_search_query = """A concise, focused query for one evidence need. Use the language of the likely original sources, not necessarily the user's language. For independent angles, issue separate web_search calls in the same response. Include dates only when they help: current date context is {{ year }}-{{ month }}, and {{ previous_year }} or earlier dates are valid for historical evidence. Do not automatically add the current year or repeat a query without a new evidence objective."""
-web_search_count = """Requested result count for this query, from 1 to 20; default 10. Choose based on the breadth of the evidence need. The server may deduplicate results and bound snippets in context; actual providers may return fewer results."""
-web_search_intent = """Search intent: quick_fact for a concise fact, freshness for current developments, comparison for comparing multiple sources, deep_research for in-depth research, and official_source when official sources should be prioritized."""
-web_search_domains = """Optional domain filters: at most 5 valid domains, for example openai.com."""
-web_search_recency = """Optional recency window in days, from 1 through 365. Omit for no time filter; do not exclude older original reporting needed to explain a current event."""
 image_search_description = """Search the web for images to show inside your answer. Call it whenever the user asks what something looks like or how things differ in appearance, design, color, or shape (for example products, places, landmarks, animals, plants, artwork), or when you recommend or compare products for the user to choose from, so they can see what the main candidates look like; do this even if they did not ask for pictures. It complements web_search, which only returns text. Skip it when images add nothing, and do not use it to create new images.
 Results give each image an id, a title, and its source site. You cannot see the images, so choose by title and source and prefer official or clearly relevant sources. Products with similar names are easy to confuse: search each candidate by its exact model name, and show an image only when its title names that exact model."""
 image_search_query = """A short, concrete description of the picture you want, such as the exact product model and view. Use the language most likely to find good images."""
@@ -216,6 +208,11 @@ url_read_page_not_found = """The page does not exist (the site returned HTTP {{ 
 url_read_extracted_note = """[Main content extracted; navigation and other page parts were omitted. If tables, lists, or data you need are missing, call url_read again with full_page=true.]"""
 url_read_unavailable = """The page was not read successfully and cannot be used as evidence. State that the source is unavailable, or answer only from other available information."""
 search_unavailable = """The search returned no usable result and cannot support the answer. State that search sources are unavailable, or answer only from other available information."""
+search_quota_exhausted = """Web search has used up its quota for today, so this search was not run. Do not search again in this answer. Answer from sources you already have or other available information, and tell the user that search is unavailable for now."""
+search_budget_exhausted = """The web search limit for this answer has been reached, so this search was not run. Answer from the sources you already have and say what remains unverified."""
+search_no_results = """The search found no results. Search again only with a genuinely different angle that would change the answer; otherwise say that nothing was found."""
+search_scope = """{% if time_filter_relaxed %}Nothing matched the requested time window, so the search was repeated without it; these results may be older than requested.{% elif recency_window_days %}Time window applied: the past {{ recency_window_days }} days.{% endif %}{% if domains %}
+Results restricted to: {{ domains }}.{% endif %}"""
 search_truncated = """The search returned {{ source_count }} results; only the first {{ context_count }} are included with snippets. Remaining entries contain candidate metadata only: read their URLs before using their claims as evidence.
 """
 
