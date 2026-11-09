@@ -1,10 +1,9 @@
 """
-LLM Tool 定义 — url_read / image_search / video_search
+LLM Tool 定义 — image_search / video_search
 
-web_search 的定义来自 agent-tools 搜索服务的工具目录，见 app/services/tool_handlers/web_search.py。
+web_search、url_read 的定义来自 agent-tools 搜索、读取服务的工具目录，见 app/services/tool_handlers/web_search.py、url_read.py。
 """
 
-from app.ai.prompts.agent_loop import get_url_read_tool_description
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 
 IMAGE_SEARCH_TOOL_NAME = "image_search"
@@ -75,35 +74,3 @@ def build_video_search_tool() -> dict:
             },
         },
     }
-
-
-def build_url_read_tool() -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": "url_read",
-            "description": get_url_read_tool_description(),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": render_runtime_prompt("ai_tools.url"),
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": render_runtime_prompt("ai_tools.url_reason"),
-                    },
-                    "full_page": {
-                        "type": "boolean",
-                        "description": render_runtime_prompt("ai_tools.url_full_page"),
-                    },
-                },
-                "required": ["url"],
-                "additionalProperties": False,
-            },
-        },
-    }
-
-
-URL_READ_TOOL = build_url_read_tool()

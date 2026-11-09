@@ -50,16 +50,12 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
             self.assertEqual(agent_loop.get_url_read_tool_description(), "保留运行时模板")
 
     def test_build_url_read_tool_uses_runtime_description(self):
-        from app.ai import tools
+        from app.services.tool_handlers import url_read
 
-        with patch(
-            "app.ai.tools.get_url_read_tool_description",
-            return_value="动态读取网页说明",
-            create=True,
-        ):
-            tool = tools.build_url_read_tool()
+        with patch.object(url_read, "get_url_read_tool_description", return_value="动态读取网页说明"):
+            tool = url_read.build_url_read_tool()
 
-        self.assertEqual(tool["function"]["description"], "动态读取网页说明")
+        self.assertTrue(tool["function"]["description"].endswith("\n\n动态读取网页说明"))
 
     def test_message_builder_uses_shared_base_template(self):
         from app.ai.prompts import system_prompt
@@ -112,15 +108,11 @@ class PromptRuntimeTemplatesTests(unittest.TestCase):
 
     def test_url_preprocess_uses_runtime_url_read_tool_builder(self):
         from app.services.stream import persistence
+        from app.services.tool_handlers import url_read
 
         dynamic_tool = {"type": "function", "function": {"name": "url_read", "description": "运行时读取工具"}}
         call_kwargs = {"tools": []}
-        with patch.object(
-            persistence,
-            "build_url_read_tool",
-            return_value=dynamic_tool,
-            create=True,
-        ):
+        with patch.object(url_read, "build_url_read_tool", return_value=dynamic_tool):
             persistence.ensure_url_read_tool(call_kwargs)
             persistence.ensure_url_read_tool(call_kwargs)
 

@@ -242,223 +242,12 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
 
 class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
+    """调用、失败说明与上下文格式见 test_url_read_gateway.py；这里留卡片与摘要。"""
+
     def setUp(self):
         from app.services.tool_handlers.url_read import UrlReadHandler
 
         self.handler = UrlReadHandler()
-
-    async def test_execute_success(self):
-        """读取成功返回内容"""
-        from app.services.external.reader_client import UrlReadResponse, UrlReadResult
-
-        mock_result = UrlReadResult(
-            url="https://example.com",
-            title="Example",
-            content="# Example\n\nHello world content here",
-            favicon="https://favicon.example.com",
-            content_length=35,
-            fetch_ms=500,
-            attempts=2,
-        )
-        with patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-            new_callable=AsyncMock,
-            return_value=UrlReadResponse(result=mock_result),
-        ):
-            result = await self.handler.execute({"url": "https://example.com"})
-
-        self.assertEqual(result.status, "success")
-        self.assertEqual(result.data["title"], "Example")
-        self.assertIn("Hello world", result.data["content"])
-        self.assertEqual(result.data["reader_fetch_ms"], 500)
-        self.assertEqual(result.data["attempts"], 2)
-
-    async def test_execute_truncates_reason_to_result_data(self):
-        """url_read 保留并截断读取原因"""
-        from app.services.external.reader_client import UrlReadResponse, UrlReadResult
-
-        mock_result = UrlReadResult(
-            url="https://example.com",
-            title="Example",
-            content="content",
-            favicon=None,
-            content_length=7,
-            fetch_ms=100,
-        )
-        reason = "需要核实官方原文细节" * 20
-        with patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-            new_callable=AsyncMock,
-            return_value=UrlReadResponse(result=mock_result),
-        ):
-            result = await self.handler.execute({"url": "https://example.com", "reason": reason})
-
-        self.assertEqual(result.status, "success")
-        self.assertEqual(result.data["reason"], reason[:160])
-
-    async def test_execute_uses_configured_reason_length(self):
-        from app.services.external.reader_client import UrlReadResponse, UrlReadResult
-        from app.services.tool_handlers import url_read as url_read_module
-
-        mock_result = UrlReadResult(
-            url="https://example.com",
-            title="Example",
-            content="content",
-            favicon=None,
-            content_length=7,
-            fetch_ms=100,
-        )
-        reason = "需要核实官方原文细节" * 20
-        with patch.object(
-            url_read_module,
-            "get_agent_strategy_config",
-            return_value={
-                "tool_context": {
-                    "url_read_max_content_chars": 8000,
-                    "url_read_max_reason_chars": 20,
-                }
-            },
-            create=True,
-        ):
-            with patch(
-                "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-                new_callable=AsyncMock,
-                return_value=UrlReadResponse(result=mock_result),
-            ):
-                result = await self.handler.execute({"url": "https://example.com", "reason": reason})
-
-        self.assertEqual(result.status, "success")
-        self.assertEqual(result.data["reason"], reason[:20])
-
-    async def test_execute_passes_full_page_and_extracted_flag(self):
-        from app.services.external.reader_client import UrlReadResponse, UrlReadResult
-
-        read_result = UrlReadResult(
-            url="https://example.com",
-            title="T",
-            content="正文",
-            favicon=None,
-            content_length=2,
-            fetch_ms=1,
-            extracted=True,
-        )
-        with patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-            new_callable=AsyncMock,
-            return_value=UrlReadResponse(result=read_result),
-        ) as mock_read:
-            result = await self.handler.execute({"url": "https://example.com", "full_page": True})
-            await self.handler.execute({"url": "https://example.com", "full_page": "yes"})
-
-        self.assertTrue(result.data["extracted"])
-        self.assertTrue(mock_read.await_args_list[0].kwargs["full_page"])
-        self.assertFalse(mock_read.await_args_list[1].kwargs["full_page"])
-
-    async def test_execute_empty_url_returns_degraded(self):
-        """url 为空返回 degraded"""
-        result = await self.handler.execute({"url": ""})
-        self.assertEqual(result.status, "degraded")
-
-    async def test_execute_malformed_url_stays_degraded_without_raw_value(self):
-        result = await self.handler.execute({"url": "http://[::1"})
-
-        self.assertEqual(result.status, "degraded")
-        self.assertEqual(result.data["degraded_reason"], "invalid_url")
-        self.assertEqual(result.data["url"], "")
-        self.assertNotIn("http://[::1", str(result.data))
-
-    async def test_execute_failure_returns_degraded(self):
-        """读取失败走工具降级，不阻断对话"""
-        from app.services.external.reader_client import UrlReadFailure, UrlReadResponse
-
-        failure = UrlReadFailure(
-            kind="timeout",
-            message="网页读取超时，已跳过该来源",
-            retryable=True,
-            upstream_status=None,
-            attempts=2,
-            reader_duration_ms=18000,
-        )
-        with patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-            new_callable=AsyncMock,
-            return_value=UrlReadResponse(result=None, failure=failure),
-        ) as mock_read:
-            result = await self.handler.execute({"url": "https://example.com"})
-
-        self.assertEqual(result.status, "degraded")
-        self.assertEqual(result.error_message, "网页读取超时，已跳过该来源")
-        self.assertEqual(result.data["failure_kind"], "timeout")
-        self.assertTrue(result.data["retryable"])
-        self.assertIsNone(result.data["upstream_status"])
-        self.assertEqual(result.data["attempts"], 2)
-        self.assertEqual(result.data["reader_duration_ms"], 18000)
-        self.assertNotIn("failure_detail", result.data)
-        self.assertEqual(result.data["safe_log_url"], "https://example.com")
-        mock_read.assert_awaited_once_with("https://example.com", timeout=20.0, full_page=False, scene="url_read")
-
-    async def test_execute_unexpected_reader_error_stays_degraded_and_safe(self):
-        with patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("token=secret https://example.com/private"),
-        ):
-            result = await self.handler.execute({"url": "https://example.com/page"})
-
-        self.assertEqual(result.status, "degraded")
-        self.assertEqual(result.data["failure_kind"], "unknown")
-        self.assertEqual(result.data["url"], "https://example.com/page")
-        self.assertNotIn("secret", result.error_message)
-        self.assertNotIn("private", str(result.data))
-
-    async def test_execute_empty_reader_response_uses_local_safe_message(self):
-        from app.services.external.reader_client import UrlReadResponse
-
-        with patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-            new_callable=AsyncMock,
-            return_value=UrlReadResponse(result=None),
-        ):
-            result = await self.handler.execute({"url": "https://example.com/page"})
-
-        self.assertEqual(result.status, "degraded")
-        self.assertEqual(result.error_message, "网页暂时无法读取，已跳过该来源")
-        self.assertNotIn("reader-service", result.error_message)
-
-    def test_format_llm_context_truncates_long_content(self):
-        """超长内容会被截断"""
-        long_content = "x" * 20000
-        result = ToolResult(
-            status="success",
-            data={
-                "url": "https://example.com",
-                "title": "Test",
-                "content": long_content,
-            },
-        )
-        context = self.handler.format_llm_context(result)
-        self.assertLess(len(context), 15000)
-        self.assertIn("Content truncated", context)
-
-    def test_format_llm_context_marks_extracted_content(self):
-        """提取的正文告诉模型可用 full_page 读整页；整页结果不加提示。"""
-        data = {"url": "https://example.com", "title": "Test", "content": "正文"}
-        extracted = self.handler.format_llm_context(ToolResult(status="success", data={**data, "extracted": True}))
-        whole = self.handler.format_llm_context(ToolResult(status="success", data=data))
-
-        self.assertIn("full_page=true", extracted)
-        self.assertNotIn("full_page", whole)
-
-    def test_format_llm_context_keeps_full_page_note_on_long_extracted_content(self):
-        result = ToolResult(
-            status="success",
-            data={"url": "https://example.com", "title": "Test", "content": "x" * 20000, "extracted": True},
-        )
-        context = self.handler.format_llm_context(result)
-
-        self.assertIn("Content truncated", context)
-        self.assertIn("call url_read again with full_page=true.]", context)
-        self.assertEqual(context.count("Content truncated"), 1)
 
     def test_format_llm_context_short_content_not_truncated(self):
         """短内容不会被截断"""
@@ -474,65 +263,6 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Short content", context)
         self.assertNotIn("Content truncated", context)
         self.assertIn("<web_context", context)
-
-    def test_format_llm_context_failed_read_does_not_invite_unsourced_answer(self):
-        """读取失败时明确该网页不可作为依据"""
-        result = ToolResult(
-            status="degraded",
-            data={"url": "https://example.com", "content": ""},
-            error_message="reader-service 读取超时，已降级跳过",
-        )
-
-        context = self.handler.format_llm_context(result)
-
-        self.assertIn("page was not read successfully", context)
-        self.assertIn("cannot be used as evidence", context)
-        self.assertNotIn("Page read failed", context.split("Content:", 1)[-1])
-        self.assertNotIn("answer from your own knowledge", context)
-        self.assertIn("is untrusted", context)
-        self.assertIn("Do not output bare URLs", context)
-        self.assertIn("append a reference-link list", context)
-
-    def test_format_llm_context_page_not_found_tells_model_not_to_retry(self):
-        result = ToolResult(
-            status="degraded",
-            data={
-                "url": "https://example.com/gone",
-                "content": "",
-                "failure_kind": "page_not_found",
-                "upstream_status": 410,
-            },
-            error_message="网页不存在（链接已失效或地址有误），已跳过该来源",
-        )
-
-        context = self.handler.format_llm_context(result)
-
-        self.assertIn("page was not read successfully", context)
-        self.assertIn("does not exist (the site returned HTTP 410)", context)
-        self.assertIn("Do not read this URL again", context)
-
-    async def test_execute_rejects_private_url_without_reader_call(self):
-        with patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics", new_callable=AsyncMock
-        ) as mock_read:
-            result = await self.handler.execute({"url": "http://127.0.0.1/admin"})
-
-        self.assertEqual(result.status, "degraded")
-        self.assertEqual(result.data["degraded_reason"], "private_host")
-        mock_read.assert_not_called()
-
-    async def test_execute_rejects_sensitive_query_without_persisting_raw_url(self):
-        with patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics", new_callable=AsyncMock
-        ) as mock_read:
-            result = await self.handler.execute({"url": "https://example.com/page?token=secret&safe=1"})
-
-        self.assertEqual(result.status, "degraded")
-        self.assertEqual(result.data["degraded_reason"], "sensitive_query")
-        self.assertEqual(result.data["url"], "https://example.com/page")
-        self.assertEqual(result.data["safe_log_url"], "https://example.com/page")
-        self.assertNotIn("token", str(result.data))
-        mock_read.assert_not_called()
 
     def test_build_content_block(self):
         """构造 UrlBlock"""
@@ -553,21 +283,6 @@ class UrlReadHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(block.source_refs), 1)
         self.assertEqual(block.source_refs[0].kind, "url_read")
         self.assertEqual(block.source_refs[0].tool_call_log_id, "log_456")
-
-    def test_build_content_block_includes_reason(self):
-        """UrlBlock 包含读取原因"""
-        result = ToolResult(
-            status="success",
-            data={
-                "url": "https://example.com",
-                "title": "Example",
-                "reason": "需要核实官方原文细节",
-            },
-        )
-
-        block = self.handler.build_content_block(result, "blk_123", "log_456")
-
-        self.assertEqual(block.reason, "需要核实官方原文细节")
 
     def test_build_content_block_degraded_keeps_empty_source_refs(self):
         """降级 URL 读取仍有统一状态字段，但不伪造来源"""
@@ -666,11 +381,7 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
         handler = UrlReadHandler()
         result = ToolResult(
             status="degraded",
-            data={
-                "url": "https://example.com/page",
-                "safe_log_url": "https://example.com/page",
-                "degraded_reason": "sensitive_query",
-            },
+            data={"url": "https://example.com/page", "failure_kind": "unsafe_url"},
         )
 
         with patch(
@@ -686,7 +397,7 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
                 result=result,
                 input_params={
                     "url": "https://example.com/page?token=secret&safe=1",
-                    "reason": f"  {'核实原文' * 50}  ",
+                    "reason": "核实原文",
                     "api_key": "secret-key",
                     "nested": {"token": "secret"},
                 },
@@ -697,16 +408,14 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
 
         input_params = mock_log_tool_call.await_args.kwargs["input_params"]
-        self.assertEqual(set(input_params), {"url", "reason", "url_policy_reason"})
+        self.assertEqual(set(input_params), {"url", "url_policy_reason"})
         self.assertEqual(input_params["url"], "https://example.com/page")
-        self.assertEqual(len(input_params["reason"]), 160)
-        self.assertEqual(input_params["reason"], input_params["reason"].strip())
         self.assertEqual(input_params["url_policy_reason"], "sensitive_query")
         self.assertNotIn("api_key", input_params)
         self.assertNotIn("nested", input_params)
         self.assertNotIn("token", str(input_params))
 
-    async def test_url_read_log_drops_non_string_reason(self):
+    async def test_url_read_log_keeps_only_url_and_full_page(self):
         from app.services.tool_handlers.base import ToolResult
         from app.services.tool_handlers.url_read import UrlReadHandler
 
@@ -724,14 +433,15 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
                 result=ToolResult(status="degraded"),
                 input_params={
                     "url": "https://example.com",
-                    "reason": {"token": "secret"},
+                    "reason": "核实原文",
+                    "full_page": True,
                 },
             )
             await asyncio.sleep(0)
 
         self.assertEqual(
             mock_log_tool_call.await_args.kwargs["input_params"],
-            {"url": "https://example.com"},
+            {"url": "https://example.com", "full_page": True},
         )
 
     async def test_url_read_log_whitelists_success_output_metadata(self):
@@ -749,7 +459,6 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
                 "content_length": 100,
                 "reader_fetch_ms": 9000,
                 "attempts": 2,
-                "reason": "核实原文",
             },
         )
 
@@ -791,12 +500,10 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
             status="degraded",
             data={
                 "url": "https://example.com/page",
-                "safe_log_url": "https://example.com/page",
                 "failure_kind": "rate_limited",
                 "retryable": True,
                 "upstream_status": 429,
-                "attempts": 2,
-                "reader_duration_ms": 18200,
+                "model_text": "The page-reading service was rate-limited.",
                 "failure_detail": "token=secret https://example.com/private",
             },
             error_message="网页读取请求暂时受限，已跳过该来源",
@@ -825,8 +532,6 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
                 "failure_kind": "rate_limited",
                 "retryable": True,
                 "upstream_status": 429,
-                "attempts": 2,
-                "reader_duration_ms": 18200,
             },
         )
         self.assertNotIn("secret", str(output_data))
@@ -837,7 +542,7 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
         from app.services.tool_handlers.url_read import UrlReadHandler
 
         handler = UrlReadHandler()
-        result = ToolResult(status="failed", data={"url": "", "reason": None}, error_message="bad url")
+        result = ToolResult(status="failed", data={"url": ""}, error_message="bad url")
 
         with patch(
             "app.services.tool_handlers.base.log_tool_call",
@@ -850,7 +555,7 @@ class ToolHandlerLogTests(unittest.IsolatedAsyncioTestCase):
                 model_id="model-1",
                 provider="provider-1",
                 result=result,
-                input_params={"url": "http://[::1", "reason": "核实原文"},
+                input_params={"url": "http://[::1"},
                 trace_id="trace-1",
                 step_number=1,
                 message_id="assistant-1",

@@ -5,7 +5,7 @@ agent-tools 网关上自家服务的 MCP 工具：共用的工具目录与调用
 （结果怎么显示、查不到时用哪个工具）。
 - 目录：用 tools/list 拿服务的说明和参数（网关不计次）。进程内快照，Run 开始前异步刷新：有快照时不等网络，
   过期就后台刷新、先用旧的；还没有快照时最多等几秒。装配工具时同步读快照；没有快照就不公告这个服务的工具，
-  不拿 Fusion 自己写的一份顶上。web_search 例外：只公告同名的最小定义（只有 query），免得模型以为不能联网、
+  不拿 Fusion 自己写的一份顶上。web_search、url_read 例外：只公告同名的最小定义（只有 query / url），免得模型以为不能联网、
   凭记忆作答；调用照常走网关，失败如实告诉模型。
 - 调用：经专用的 McpClientManager（超时、错误分类、响应上限与其他 MCP 一致），只放行代码里写定的网关地址，
   不依赖管理员配置的 MCP 白名单。设备位置这类不该由模型填的信息走 tools/call 的 _meta。
@@ -30,8 +30,8 @@ from app.services.mcp.client import McpClientError, McpClientManager, McpClientP
 from app.services.mcp.provider_profiles import AGENT_TOOLS_CREDENTIAL_REF
 from app.services.mcp.tool_contract import sanitize_tool_schema_for_model
 
-# 已经改走网关 MCP 的服务；读取、出行、地图迁过来时加在这里。
-GATEWAY_MCP_SERVICES: tuple[str, ...] = ("weather", "search")
+# 已经改走网关 MCP 的服务；出行、地图迁过来时加在这里。
+GATEWAY_MCP_SERVICES: tuple[str, ...] = ("weather", "search", "reader")
 # 和 agent-tools 约定的设备位置键：{longitude, latitude, accuracy_m?}，WGS84。
 GEOLOCATION_META_KEY = "agent-tools/geolocation"
 _CATALOG_TTL_SECONDS = 10 * 60

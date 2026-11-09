@@ -18,7 +18,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import AgentEvent, AgentSession, Message, ToolCallLog
-from app.services.tool_handlers.url_read import model_visible_page_content
 from app.services.tool_handlers.web_search import SOURCE_CONTEXT_CHARS, _normalize_context_source_limit
 
 TOOL_RESULT_CHAR_LIMIT = 4000
@@ -53,13 +52,13 @@ def _model_view(
     if not isinstance(result, Mapping):
         return None
     if tool == "url_read":
-        content, truncated = model_visible_page_content(str(result.get("content") or ""), result.get("title"))
+        # 读取服务给的正文就是模型看到的窗口（服务截断时 truncated 为真）。
         return {
             "citation": refs[0].get("citation_index") if refs else None,
             "url": result.get("url"),
             "title": result.get("title"),
-            "content": content,
-            "content_truncated": truncated,
+            "content": str(result.get("content") or ""),
+            "content_truncated": result.get("truncated") is True,
         }
     if tool != "web_search":
         return None

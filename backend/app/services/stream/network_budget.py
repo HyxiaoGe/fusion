@@ -91,7 +91,6 @@ class NetworkToolBudget:
                 error_message="url_read 已达到本轮联网预算",
                 data={
                     "url": normalized.get("url", ""),
-                    "reason": normalized.get("reason"),
                     "budget_limited": True,
                 },
             )

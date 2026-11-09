@@ -16,7 +16,6 @@ class SanitizeArgumentsTests(unittest.TestCase):
         sanitized = sanitize_arguments("url_read", args)
 
         self.assertEqual(sanitized["url"], "https://example.com/page")
-        self.assertEqual(sanitized["reason"], "核实原文")
         self.assertNotIn("token", str(sanitized))
         self.assertEqual(args["url"], "https://example.com/page?token=secret&safe=1")
 
@@ -36,29 +35,27 @@ class SanitizeArgumentsTests(unittest.TestCase):
             "full_page", sanitize_arguments("url_read", {"url": "https://example.com", "full_page": False})
         )
 
-    def test_url_read_whitelists_fields_and_normalizes_reason(self):
+    def test_url_read_whitelists_fields(self):
         args = {
             "url": "https://example.com/page?token=secret&safe=1",
-            "reason": f"  {'核实原文' * 50}  ",
+            "reason": "核实原文",
             "api_key": "secret-key",
             "nested": {"token": "secret"},
         }
 
         sanitized = sanitize_arguments("url_read", args)
 
-        self.assertEqual(set(sanitized), {"url", "reason", "url_policy_reason"})
+        self.assertEqual(set(sanitized), {"url", "url_policy_reason"})
         self.assertEqual(sanitized["url"], "https://example.com/page")
         self.assertEqual(sanitized["url_policy_reason"], "sensitive_query")
-        self.assertEqual(len(sanitized["reason"]), 160)
-        self.assertEqual(sanitized["reason"], sanitized["reason"].strip())
         self.assertNotIn("api_key", sanitized)
         self.assertNotIn("nested", sanitized)
         self.assertNotIn("secret", str(sanitized))
 
-    def test_url_read_drops_non_string_reason(self):
+    def test_url_read_drops_reason(self):
         sanitized = sanitize_arguments(
             "url_read",
-            {"url": "https://example.com", "reason": {"token": "secret"}},
+            {"url": "https://example.com", "reason": "核实原文"},
         )
 
         self.assertEqual(sanitized, {"url": "https://example.com"})

@@ -84,12 +84,13 @@ class AgentLoopCallSiteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[0]["content"], "标记D-身份")
 
     def test_url_read_description_body_reaches_tool_definition(self):
-        from app.ai import tools
+        from app.services.tool_handlers import url_read
 
-        with patch.object(tools, "get_url_read_tool_description", return_value="标记E-读取说明"):
-            tool = tools.build_url_read_tool()
+        with patch.object(url_read, "get_url_read_tool_description", return_value="标记E-读取说明"):
+            tool = url_read.build_url_read_tool()
 
-        self.assertEqual(tool["function"]["description"], "标记E-读取说明")
+        # 服务说明（目录没读到时是最小说明）在前，Fusion 的读取约定接在后面
+        self.assertTrue(tool["function"]["description"].endswith("\n\n标记E-读取说明"))
 
     def test_limit_summary_body_reaches_summary_system_message(self):
         from app.services.stream import limit_summary

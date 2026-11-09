@@ -29,7 +29,6 @@ from app.ai.prompts.section_ids import (
 from app.ai.prompts.system_prompt import SystemPromptSection, assemble_system_prompt
 from app.ai.tools import (
     build_image_search_tool,
-    build_url_read_tool,
     build_video_search_tool,
 )
 from app.core.logger import app_logger as logger
@@ -60,6 +59,7 @@ from app.services.stream.skill_loading import (
     build_load_skill_schema,
     build_skill_session,
 )
+from app.services.tool_handlers.url_read import build_url_read_tool
 from app.services.tool_handlers.web_search import build_web_search_tool
 from app.services.weather import WEATHER_TOOL_NAMES
 

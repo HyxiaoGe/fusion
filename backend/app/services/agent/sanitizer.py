@@ -12,7 +12,6 @@ from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
 from app.services.security.url_policy import evaluate_url_policy
 from app.services.weather import WEATHER_TOOL_NAMES
 
-URL_READ_REASON_MAX_CHARS = 160
 EXTERNAL_TOOL_ARGUMENT_MAX_BYTES = 4096
 _SENSITIVE_KEY_PARTS = frozenset(
     {
@@ -139,11 +138,6 @@ def sanitize_url_read_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
         sanitized["url"] = ""
         sanitized["url_policy_reason"] = "invalid_url"
 
-    reason = source.get("reason")
-    if isinstance(reason, str):
-        normalized_reason = reason.strip()
-        if normalized_reason:
-            sanitized["reason"] = normalized_reason[:URL_READ_REASON_MAX_CHARS]
     if source.get("full_page") is True:
         sanitized["full_page"] = True
     return sanitized

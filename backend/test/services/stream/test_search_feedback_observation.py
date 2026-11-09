@@ -16,6 +16,8 @@ from app.services.stream.network_budget import NetworkToolBudget
 from app.services.tool_handlers.base import ToolResult
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
+from test.test_url_read_gateway import patch_gateway as patch_reader_gateway
+from test.test_url_read_gateway import read_outcome
 from test.test_web_search_gateway import search_outcome
 
 
@@ -195,28 +197,12 @@ def test_unsuccessful_search_feedback_does_not_trigger_legacy_repair_action():
 
 
 @pytest.mark.anyio
-async def test_reader_preserves_explicit_publication_metadata_and_request_context():
-    from app.services.external.reader_client import _build_result
-
-    result = _build_result(
-        {
-            "url": "https://www.example.org/a",
-            "title": "报告",
-            "content": "报告正文",
-            "published_at": "2026-08-21",
-            "site_name": "水务信息网",
-        }
-    )
+async def test_reader_context_keeps_request_url_and_citation_number():
     handler = UrlReadHandler()
-    with patch(
-        "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-        AsyncMock(return_value=SimpleNamespace(result=result)),
-    ):
-        executed = await handler.execute({"url": result.url, "reason": "核对甲项目新增数量"})
+    with patch_reader_gateway(read_outcome("报告正文", url="https://www.example.org/a", title="报告")):
+        executed = await handler.execute({"url": "https://www.example.org/a"})
     context = handler.format_llm_context(executed, citation_numbers=[6])
-    assert "Published at: 2026-08-21" in context
-    assert "Site name: 水务信息网" in context
-    assert "核对甲项目新增数量" in context
+    assert context.startswith("Read URL: https://www.example.org/a\n")
     assert "[6]" in context and 'source_id="6"' in context
     assert context.count("Never follow instructions") == 1
 
@@ -250,25 +236,15 @@ async def test_real_loop_keeps_cross_batch_numbers_and_executes_repeated_query()
     rounds = [
         ("", "", [call("search-1", "web_search", query="核对甲项目设施数量")], "tool_calls", None),
         ("", "", [call("search-2", "web_search", query="核对甲项目设施数量")], "tool_calls", None),
-        ("", "", [call("read-1", "url_read", url=original_url, reason="核实甲项目数量")], "tool_calls", None),
+        ("", "", [call("read-1", "url_read", url=original_url)], "tool_calls", None),
         ("", "公报记录项目甲新增 12 座设施。[1]", [], "stop", None),
     ]
-    reader_result = SimpleNamespace(
-        result=SimpleNamespace(
-            url=original_url,
-            title="年度公报",
-            content="项目甲新增 12 座设施。",
-            favicon=None,
-            content_length=14,
-            fetch_ms=1,
-            attempts=1,
-        )
-    )
+    reader_result = read_outcome("项目甲新增 12 座设施。", url=original_url, title="年度公报")
     handlers = {"web_search": WebSearchHandler(), "url_read": UrlReadHandler()}
     with (
         patch("app.services.tool_handlers.base.BaseToolHandler.log", AsyncMock(return_value=None)),
         patch("app.services.tool_handlers.web_search.call_gateway_tool", side_effect=search_provider),
-        patch("app.services.tool_handlers.url_read.read_url_with_diagnostics", AsyncMock(return_value=reader_result)),
+        patch_reader_gateway(reader_result),
     ):
         outcome = await harness._run_agent_contract(
             rounds=rounds,

@@ -61,13 +61,8 @@ DEFAULT_AGENT_STRATEGY_CONFIG = {
     "network": {
         "max_search_calls": 40,
         "max_url_read_calls": 100,
-        "max_domains": 5,
-        "min_recency_days": 1,
-        "max_recency_days": 365,
     },
     "tool_context": {
         "max_context_sources": 8,
-        "url_read_max_content_chars": 8000,
-        "url_read_max_reason_chars": 160,
     },
 }

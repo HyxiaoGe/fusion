@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, patch
 from app.schemas.chat import SearchSource
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
+from test.test_url_read_gateway import patch_gateway as patch_reader_gateway
+from test.test_url_read_gateway import read_outcome
 from test.test_web_search_gateway import patch_search_catalog, search_outcome
 
 
@@ -58,21 +60,10 @@ async def _run_parallel_searches(width):
         _round(*calls),
         _round(_call("followup-2", "web_search", query=queries[-2], count=16)),
         _round(_call("followup-3", "web_search", query=queries[-1], count=18)),
-        _round(_call("read-4", "url_read", url=source_urls[queries[-1]], reason="核实交叉分析中的原始数据")),
+        _round(_call("read-4", "url_read", url=source_urls[queries[-1]])),
         ("", "综合多角度来源完成分析。[1]", [], "stop", None),
     ]
-    reader_result = SimpleNamespace(
-        result=SimpleNamespace(
-            url=source_urls[queries[-1]],
-            title="原始分析报告",
-            content="报告正文和原始统计数据。",
-            favicon=None,
-            content_length=14,
-            fetch_ms=1,
-            attempts=1,
-        ),
-        failure=None,
-    )
+    reader_result = read_outcome("报告正文和原始统计数据。", url=source_urls[queries[-1]], title="原始分析报告")
     tools = SimpleNamespace(
         definitions=[], handlers={"web_search": WebSearchHandler(), "url_read": UrlReadHandler()}, audit_bindings=[]
     )
@@ -80,9 +71,7 @@ async def _run_parallel_searches(width):
         patch("app.services.tool_handlers.base.BaseToolHandler.log", AsyncMock(return_value=None)),
         patch("app.services.tool_handlers.web_search.call_gateway_tool", side_effect=search_provider),
         patch_search_catalog(),
-        patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics", AsyncMock(return_value=reader_result)
-        ) as reader,
+        patch_reader_gateway(reader_result) as reader,
     ):
         result = await harness._run_agent_contract(
             rounds=rounds,

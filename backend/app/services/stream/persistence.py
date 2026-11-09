@@ -4,7 +4,6 @@ spec §4.4。两个独立功能放一起的理由：都是 runner 之外的"副�
 跟 runner 的"控制流"职责正交。
 """
 
-import asyncio
 import copy
 import re
 import uuid
@@ -12,8 +11,7 @@ from typing import Optional
 
 from sqlalchemy import text
 
-from app.ai.tools import build_url_read_tool
-from app.core.config import settings
+from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.core.logger import app_logger as logger
 from app.schemas.chat import ClientPartialContentBlock, UrlBlock, Usage
 from app.services.security.url_policy import evaluate_url_policy
@@ -293,6 +291,8 @@ def extract_first_url(message: str) -> str | None:
 
 
 def ensure_url_read_tool(call_kwargs: dict) -> None:
+    from app.services.tool_handlers.url_read import build_url_read_tool
+
     tools = call_kwargs.setdefault("tools", [])
     if not any(_tool_name(tool) == "url_read" for tool in tools):
         tools.append(build_url_read_tool())
@@ -310,36 +310,33 @@ def resolve_reader_url(policy, detected_url: str) -> str:
 
 
 async def read_url_for_context(*, policy, detected_url: str):
-    from app.services.external.reader_client import read_url
+    """经读取服务的 read_page 预读；没读到返回 None，交给 url_read 工具（模型再读时拿到服务的说明）。"""
+    from app.services.tool_handlers.url_read import page_from_outcome, read_page
 
-    timeout = settings.READER_SERVICE_TIMEOUT
-    try:
-        return await asyncio.wait_for(
-            read_url(resolve_reader_url(policy, detected_url), timeout=timeout, scene="url_context"),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError:
-        logger.warning(f"URL 自动抓取超时: url={policy.safe_log_url}")
-        return None
+    url = resolve_reader_url(policy, detected_url)
+    outcome = await read_page(url, scene="url_context")
+    page = page_from_outcome(outcome, requested_url=url)
+    if page is None:
+        logger.info(f"URL 自动读取未成功: error_code={outcome.error_code}, url={policy.safe_log_url}")
+    return page
 
 
 def build_url_context_message(*, read_result, policy, detected_url: str) -> dict:
-    from app.services.tool_handlers.url_read import MAX_CONTENT_CHARS
-
-    return {
-        "role": "user",
-        "content": format_untrusted_source_context(
-            UntrustedSourceContext(
-                source_id="U1",
-                source_type="url_read",
-                title=read_result.title or "未知",
-                url=read_result.url or resolve_reader_url(policy, detected_url),
-                content=read_result.content,
-                provider="web",
-            ),
-            max_chars=MAX_CONTENT_CHARS,
+    # 服务已经截好窗口；截断或只提取了正文时，服务的 note 接在来源后面。
+    content = format_untrusted_source_context(
+        UntrustedSourceContext(
+            source_id="U1",
+            source_type="url_read",
+            title=read_result.title or "未知",
+            url=read_result.url or resolve_reader_url(policy, detected_url),
+            content=read_result.content,
+            provider="web",
         ),
-    }
+        max_chars=len(read_result.content),
+    )
+    if read_result.note:
+        content = f"{content}\n{render_runtime_prompt('tool_handlers.url_read_note', note=read_result.note)}"
+    return {"role": "user", "content": content}
 
 
 def build_url_read_block(*, read_result, policy, detected_url: str, block_id: str) -> UrlBlock:
