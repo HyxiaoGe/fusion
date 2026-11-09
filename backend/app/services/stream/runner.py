@@ -20,6 +20,7 @@ from app.services.agent import session_cache
 from app.services.agent.llm_round_detail_recorder import schedule_llm_round_detail
 from app.services.conversation_title_worker import schedule_conversation_title_generation
 from app.services.documents.agent_tools import load_document_tool_set
+from app.services.external.agent_tools_mcp import refresh_gateway_tool_catalog
 from app.services.knowledge.agent_tool import load_knowledge_tool_set
 from app.services.mcp.agent_tools import load_mcp_agent_tools
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle
@@ -146,6 +147,7 @@ def _agent_loop_wiring_dependencies() -> AgentLoopWiringDependencies:
         fail_suggested_questions_fn=fail_claimed_suggested_questions,
         generate_conversation_title_fn=schedule_conversation_title_generation,
         load_dynamic_tools_fn=load_mcp_agent_tools,
+        refresh_tool_catalog_fn=refresh_gateway_tool_catalog,
         llm_round_detail_scheduler=schedule_llm_round_detail,
         load_document_tools_fn=partial(load_document_tool_set, session_factory=SessionLocal),
         load_knowledge_tools_fn=partial(load_knowledge_tool_set, session_factory=SessionLocal),
@@ -258,6 +260,8 @@ class StreamHandler:
                     run_config={"prompt_bundle": run_input.prompt_bundle_snapshot.identity()},
                 )
                 identity_started = True
+                if dependencies.refresh_tool_catalog_fn is not None and not run_input.guest:
+                    await dependencies.refresh_tool_catalog_fn()
                 call_config_inputs = prepare_agent_loop_call_config_inputs(
                     run_input=run_input,
                     db=db,

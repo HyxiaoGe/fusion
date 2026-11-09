@@ -139,6 +139,8 @@ class AgentLoopWiringDependencies:
     fail_suggested_questions_fn: Callable[..., Any] | None = None
     generate_conversation_title_fn: Callable[..., Any] | None = None
     load_dynamic_tools_fn: Callable[..., Any] | None = None
+    # 装配工具前异步刷新 agent-tools 网关的工具目录（说明和参数归服务）；永不抛错。
+    refresh_tool_catalog_fn: Callable[[], Awaitable[None]] | None = None
     llm_round_detail_scheduler: Callable[[Any], Any] | None = None
     load_document_tools_fn: Callable[..., Any] | None = None
     load_knowledge_tools_fn: Callable[..., Any] | None = None

@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.schemas.chat import FlightResultsBlock, TrainResultsBlock
 from app.schemas.content_block_registry import deserialize_content_blocks
 from app.services.agent.events import ContentBlockUpserted
+from app.services.external.agent_tools_mcp import GatewayToolCatalog
 from app.services.mcp.agent_tools import load_mcp_agent_tools
 from app.services.mcp.flyai_travel_tools import (
     FLYAI_SEARCH_FLIGHTS,
@@ -504,8 +505,11 @@ class FlyAiTravelToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("app.services.mcp.agent_tools.settings.ENABLE_FLYAI_TRAVEL_TOOLS", True),
-            # 天气工具也只看网关密钥，这里屏蔽掉，只看出行工具的注册条件。
-            patch("app.services.mcp.agent_tools._build_qweather_client", return_value=None),
+            # 天气工具看网关的服务目录，这里给空目录，只看出行工具的注册条件。
+            patch(
+                "app.services.mcp.agent_tools.gateway_tool_catalog",
+                return_value=GatewayToolCatalog(services=("weather",)),
+            ),
         ):
             disabled_without_user = load_mcp_agent_tools(
                 object(),

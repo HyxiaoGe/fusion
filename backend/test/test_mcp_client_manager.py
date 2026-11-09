@@ -28,6 +28,7 @@ class FakeSession:
         self.list_cursors: list[str | None] = []
         self.calls: list[tuple[str, dict]] = []
         self.call_read_timeouts: list[timedelta | None] = []
+        self.call_metas: list[dict | None] = []
 
     async def initialize(self):
         if self.initialize_error:
@@ -40,9 +41,10 @@ class FakeSession:
         self.list_cursors.append(cursor)
         return SimpleNamespace(tools=self.tools, nextCursor=None)
 
-    async def call_tool(self, name, arguments, read_timeout_seconds=None):
+    async def call_tool(self, name, arguments, read_timeout_seconds=None, *, meta=None):
         self.calls.append((name, arguments))
         self.call_read_timeouts.append(read_timeout_seconds)
+        self.call_metas.append(meta)
         return self.call_result or SimpleNamespace(
             isError=False,
             model_dump=lambda **_: {"content": [{"type": "text", "text": "ok"}], "isError": False},
@@ -838,6 +840,25 @@ class McpClientManagerTests(unittest.TestCase):
         asyncio.run(manager.call_tool(config, "search", {"query": "b"}, min_call_timeout_seconds=1))
 
         self.assertEqual(session.call_read_timeouts, [timedelta(seconds=120), timedelta(seconds=2.5)])
+
+    def test_call_tool_passes_meta_only_when_given(self):
+        session = FakeSession()
+        manager = McpClientManager(
+            policy=build_policy(),
+            connector=FakeConnector(session),
+            environ={"DASHSCOPE_API_KEY": "test-secret"},
+        )
+        config = build_config(allowed_tools=["search"])
+        meta = {"agent-tools/geolocation": {"longitude": 120.16, "latitude": 30.27}}
+
+        asyncio.run(manager.call_tool(config, "search", {"query": "a"}, meta=meta))
+        asyncio.run(manager.call_tool(config, "search", {"query": "b"}))
+
+        self.assertEqual(session.call_metas, [meta, None])
+        with self.assertRaises(McpClientError) as raised:
+            asyncio.run(manager.call_tool(config, "search", {"query": "c"}, meta={"bad": float("nan")}))
+        self.assertEqual(raised.exception.code, "invalid_arguments")
+        self.assertEqual(len(session.calls), 2)
 
     def test_query_credential_is_injected_only_into_transport_parameters(self):
         connector = FakeConnector(FakeSession())
