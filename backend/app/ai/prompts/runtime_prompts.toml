@@ -35,6 +35,7 @@ user_memory = """The following is what you remember about the user from earlier 
 {{ user_memory }}"""
 
 [ai_tools]
+url_read_minimal_description = """Read one web page and get its text, with its title."""
 web_search_minimal_description = """Search the web and get candidate sources: title, URL, a snippet, and the publication date when the source gives one."""
 web_search_product_notes = """When to search:
 - The user asks about the latest news, current events, or real-time data such as weather, stock prices, or sports scores.
@@ -88,9 +89,6 @@ video_search_context = """Video candidates (you cannot watch them; judge by titl
 To embed a video, write ![short caption](id) on its own line where it helps, for example ![Gulangyu walking tour](vid_1a2b3c4d). Each video is shown on its own row. Embed only videos whose title clearly matches what you describe, usually one or two. Use only ids listed above; never write video URLs. Do not mention ids or this list in your prose."""
 video_search_empty = """No embeddable videos were found for "{{ query }}". Answer without videos, or search again with a different query."""
 video_search_failed = """Video search failed: {{ reason }}. Answer without videos; do not invent video links."""
-url = """Complete URL to read, including http:// or https://."""
-url_reason = """Reason for reading this URL, shown in network diagnostics; the backend retains at most 160 characters."""
-url_full_page = """Optional. Omit to receive the page's extracted main content. Set to true to re-read the whole page when an extracted read is missing tables, lists, or data the task needs, such as forecast tables or release lists."""
 
 [file_processor]
 default_analysis = """Analyze the contents of these files and provide a detailed description."""
@@ -201,11 +199,10 @@ amap_coordinates = """ Origin and destination coordinates must come from user in
 
 [tool_handlers]
 search_query = """Search query: {{ query }}"""
-url_read_request = """Read URL: {{ url }}
-Reading purpose: {{ reason }}"""
-url_read_failure_reason = """Read failure: {{ failure_kind }}. No article body was obtained. Continue with an alternative source; do not count this page as successfully read or cite its wrapper metadata as evidence."""
-url_read_page_not_found = """The page does not exist (the site returned HTTP {{ upstream_status }}): the link is dead or the address is wrong. Do not read this URL again; find another source if the information is still needed."""
-url_read_extracted_note = """[Main content extracted; navigation and other page parts were omitted. If tables, lists, or data you need are missing, call url_read again with full_page=true.]"""
+url_read_request = """Read URL: {{ url }}"""
+url_read_note = """Reader note: {{ note }}"""
+url_read_budget_exhausted = """The page-reading limit for this answer has been reached, so this page was not read and cannot be used as evidence. Answer from the sources you already have and say what remains unverified."""
+url_read_quota_exhausted = """Not read: page reading has used up its quota for today, so other pages will fail the same way. Do not keep trying other pages; continue with search results and pages already read, and say what could not be checked. This page cannot be used as evidence; do not fabricate its content."""
 url_read_unavailable = """The page was not read successfully and cannot be used as evidence. State that the source is unavailable, or answer only from other available information."""
 search_unavailable = """The search returned no usable result and cannot support the answer. State that search sources are unavailable, or answer only from other available information."""
 search_quota_exhausted = """Web search has used up its quota for today, so this search was not run. Do not search again in this answer. Answer from sources you already have or other available information, and tell the user that search is unavailable for now."""

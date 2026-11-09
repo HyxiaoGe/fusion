@@ -8,7 +8,7 @@ const SAFE_EXTERNAL_TOOL_NAMES = new Set([
 ]);
 
 /**
- * 网页读取失败的中性原因。只展示后端 reader_client 的固定说明（网页不存在、访问受限、超时等，
+ * 网页读取失败的中性原因。只展示后端 url_read 工具的固定说明（网页不存在、访问受限、超时等，
  * 均以「，已跳过该来源」结尾），其他自由文本可能含底层错误，统一显示「未能读取」。
  */
 export function getUrlReadFailureReason(error?: string | null): string {

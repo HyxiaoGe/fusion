@@ -161,7 +161,12 @@ class BuildSnapshotTests(unittest.TestCase):
                     "status": "success",
                     "detail": {
                         "payload": {"url": "https://a.example/1"},
-                        "result": {"url": "https://a.example/1", "title": "A", "content": "正" * 9000},
+                        "result": {
+                            "url": "https://a.example/1",
+                            "title": "A",
+                            "content": "正" * 8000,
+                            "truncated": True,
+                        },
                     },
                 },
             ],

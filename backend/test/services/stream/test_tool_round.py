@@ -638,7 +638,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
     def test_unannounced_calls_do_not_consume_global_tool_capacity(self):
         stale_call = {"id": "tc-stale", "name": "mcp_maps_search", "arguments": "{}"}
         search_call = {"id": "tc-search", "name": "web_search", "arguments": '{"query": "q"}'}
-        read_call = {"id": "tc-read", "name": "url_read", "arguments": "{}"}
+        read_call = {"id": "tc-read", "name": "url_read", "arguments": '{"url": "https://example.com/a"}'}
         request = Mock(
             tool_calls=[stale_call, search_call, read_call],
             announced_tool_names=frozenset({"web_search", "url_read"}),

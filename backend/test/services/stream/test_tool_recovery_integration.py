@@ -11,6 +11,8 @@ from app.services.external.agent_tools_mcp import GatewayToolOutcome
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
 from app.services.weather.forecast_tool import build_weather_forecast_definition
+from test.test_url_read_gateway import patch_gateway as patch_reader_gateway
+from test.test_url_read_gateway import read_failure
 from test.test_web_search_gateway import search_outcome
 
 
@@ -59,10 +61,7 @@ async def _run_recovery(*, search_success=True, answer_suffix="[1]", degrade_rea
             "app.services.tool_handlers.web_search.call_gateway_tool",
             AsyncMock(return_value=search_outcome(sources if search_success else [])),
         ),
-        patch(
-            "app.services.tool_handlers.url_read.read_url_with_diagnostics",
-            AsyncMock(return_value=SimpleNamespace(result=None, failure=None)),
-        ),
+        patch_reader_gateway(read_failure("access_blocked", "The site blocked automated reading.")),
     ):
         result = await harness._run_agent_contract(
             rounds=rounds,

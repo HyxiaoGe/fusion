@@ -412,9 +412,6 @@ class Settings(BaseSettings):
     # Fusion 的产品服务密钥；生图 MCP 也以凭证引用 AGENT_TOOLS_API_KEY 使用同一把。
     AGENT_TOOLS_API_KEY: str = os.getenv("AGENT_TOOLS_API_KEY", "")
 
-    # reader-service 内部默认等待 Jina 10s；调用方保留更长余量，避免冷抓取或文档站读取提前断开。
-    READER_SERVICE_TIMEOUT: float = float(os.getenv("READER_SERVICE_TIMEOUT", "20"))
-
     # 远程 MCP Client：仅允许精确配置的 HTTPS 主机和凭证环境变量引用。
     # 现有 MCP 都经 agent-tools 网关（写在 MCP_ALLOWED_INTERNAL_ENDPOINTS），默认不放行任何公网主机。
     MCP_ALLOWED_HOSTS: str = os.getenv("MCP_ALLOWED_HOSTS", "")

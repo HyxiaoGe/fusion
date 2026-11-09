@@ -8,7 +8,6 @@ import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.ai import tools
 from app.ai.prompts import agent_loop
 from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES
 from app.ai.prompts.runtime_prompt_store import RUNTIME_PROMPT_FILE, render_runtime_prompt
@@ -21,6 +20,7 @@ from app.services.stream import (
     agent_loop_round_outcome,
     limit_summary,
 )
+from app.services.tool_handlers.url_read import build_url_read_tool
 from app.services.tool_handlers.web_search import build_web_search_tool
 
 _CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
@@ -67,7 +67,7 @@ def test_static_system_prompts_are_english():
 def test_tool_definitions_are_english():
     values = (
         build_web_search_tool(),
-        tools.build_url_read_tool(),
+        build_url_read_tool(),
         agent_loop_request_prep.build_update_plan_tool(),
         amap_product_tools.AMAP_PRODUCT_DEFINITIONS,
         flyai_travel_tools.FLYAI_TRAVEL_DEFINITIONS,

@@ -162,7 +162,6 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
             payload["arguments"],
             {
                 "url": "https://example.com/page",
-                "reason": "核实原文",
                 "url_policy_reason": "sensitive_query",
             },
         )

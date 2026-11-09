@@ -9,12 +9,13 @@ import pytest
 
 from app.schemas.chat import SearchSource, TextBlock, ThinkingBlock
 from app.services.external.agent_tools_mcp import GatewayToolOutcome
-from app.services.external.reader_client import UrlReadResponse, UrlReadResult
 from app.services.stream.limit_summary_fact_guard import has_tool_evidence
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset, has_recovery_evidence
 from app.services.tool_handlers.base import ToolResult
-from app.services.tool_handlers.url_read import UrlReadHandler
+from app.services.tool_handlers.url_read import PageText, UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
+from test.test_url_read_gateway import patch_gateway as patch_reader_gateway
+from test.test_url_read_gateway import read_outcome
 from test.test_web_search_gateway import search_outcome
 
 
@@ -95,14 +96,7 @@ class TestPrefetchedPageEvidence:
             reason="ok",
             safe_log_url="https://example.com/a",
         )
-        link_only = UrlReadResult(
-            url="https://example.com/a",
-            title="示例页面",
-            content="https://example.com/a",
-            favicon=None,
-            content_length=21,
-            fetch_ms=10,
-        )
+        link_only = PageText(url="https://example.com/a", title="示例页面", content="https://example.com/a")
         block = build_url_read_block(
             read_result=link_only, policy=policy, detected_url="https://example.com/a", block_id="blk-pre"
         )
@@ -122,13 +116,8 @@ class TestPrefetchedPageEvidence:
             reason="ok",
             safe_log_url="https://example.com/a",
         )
-        real = UrlReadResult(
-            url="https://example.com/a",
-            title="示例页面",
-            content="该型号实测续航 5 小时，官方定价 280 元。",
-            favicon=None,
-            content_length=24,
-            fetch_ms=10,
+        real = PageText(
+            url="https://example.com/a", title="示例页面", content="该型号实测续航 5 小时，官方定价 280 元。"
         )
         block = build_url_read_block(
             read_result=real, policy=policy, detected_url="https://example.com/a", block_id="blk-pre"
@@ -177,23 +166,15 @@ def test_真实搜索处理器只有实际正文可通过总结守卫(query, des
     assert has_tool_evidence([block]) is False
 
 
-@pytest.mark.parametrize("content", [None, "https://example.com/timetable", "车次八点十五出发。"])
+@pytest.mark.parametrize("content", ["", "https://example.com/timetable", "车次八点十五出发。"])
 def test_真实网页处理器成功标记与URL不能代替正文(content):
     handler = UrlReadHandler()
-    response = UrlReadResponse(
-        result=UrlReadResult(
-            url="https://example.com/timetable",
-            title=None,
-            content=content,
-            favicon=None,
-            content_length=len(content or ""),
-            fetch_ms=1,
-        )
-    )
-    with patch("app.services.tool_handlers.url_read.read_url_with_diagnostics", new=AsyncMock(return_value=response)):
+    outcome = read_outcome(content, url="https://example.com/timetable", title="")
+    with patch_reader_gateway(outcome):
         result = asyncio.run(handler.execute({"url": "https://example.com/timetable"}))
     block = handler.build_content_block(result, "url-block", "url-log")
-    assert result.status == "success"
+    # 服务没给正文就不算读到（成功答复本不该没有正文）；只有链接的正文算读到，但不能当证据
+    assert result.status == ("degraded" if not content else "success")
     evidence = RecoveryEvidenceWorkset()
     evidence.record_result("url_read", result)
     usable = content == "车次八点十五出发。"

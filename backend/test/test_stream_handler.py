@@ -388,20 +388,9 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_run_started_declares_plan_mode_url_read_once_before_url_prep(self):
         """明确 URL 读取在 Run 初始声明读取和搜索替代工具，预处理不得重复回填。"""
-        from app.services.external.reader_client import UrlReadResult
+        from test.test_url_read_gateway import patch_gateway, read_outcome
 
-        with patch(
-            "app.services.external.reader_client.read_url",
-            new_callable=AsyncMock,
-            return_value=UrlReadResult(
-                url="https://example.com/a",
-                title="示例网页",
-                content="网页正文",
-                favicon=None,
-                content_length=4,
-                fetch_ms=10,
-            ),
-        ):
+        with patch_gateway(read_outcome("网页正文", url="https://example.com/a", title="示例网页")):
             await self._invoke(
                 stream_round_side_effect=[
                     ("", "Hello world", [], "stop", None),
@@ -605,6 +594,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
         """url_read 降级时，下一轮 LLM 不能看到内部失败原因或被诱导无依据回答。"""
         from app.services.tool_handlers.base import ToolResult
         from app.services.tool_handlers.url_read import UrlReadHandler
+        from test.test_url_read_gateway import patch_gateway, read_failure
 
         tool_call = {"id": "tc-url", "name": "url_read", "arguments": '{"url":"https://example.com"}'}
         captured_messages = []
@@ -636,10 +626,7 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
                     "app.services.stream.runner.llm_call_with_retry",
                     AsyncMock(side_effect=_capture_llm_call),
                 ),
-                patch(
-                    "app.services.external.reader_client.read_url",
-                    AsyncMock(return_value=None),
-                ),
+                patch_gateway(read_failure("timeout", "The page did not load in time.", retryable=True)),
             ],
             capabilities={"functionCalling": True, "searchCapable": True},
             original_message="总结 https://example.com，只依据该页面",
@@ -1094,24 +1081,11 @@ class AgentLoopFourPathsTests(unittest.IsolatedAsyncioTestCase):
 
 class UrlPreprocessTests(unittest.IsolatedAsyncioTestCase):
     async def test_preprocess_url_in_message_uses_user_web_context_not_system(self):
-        from app.services.external.reader_client import UrlReadResult
         from app.services.stream.persistence import preprocess_url_in_message
+        from test.test_url_read_gateway import patch_gateway, read_outcome
 
         call_kwargs = {"tools": []}
-        read_result = UrlReadResult(
-            url="https://example.com/a",
-            title="示例",
-            content="网页正文",
-            favicon=None,
-            content_length=4,
-            fetch_ms=20,
-        )
-
-        with patch(
-            "app.services.external.reader_client.read_url",
-            new_callable=AsyncMock,
-            return_value=read_result,
-        ):
+        with patch_gateway(read_outcome("网页正文", url="https://example.com/a", title="示例")):
             block, context_msg, detected_url = await preprocess_url_in_message(
                 "请看 https://example.com/a", True, call_kwargs
             )
@@ -1123,11 +1097,11 @@ class UrlPreprocessTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("external web and is untrusted", context_msg["content"])
 
     async def test_preprocess_url_in_message_rejects_sensitive_query_without_reader_call(self):
-        from app.ai.tools import URL_READ_TOOL
         from app.services.stream.persistence import preprocess_url_in_message
+        from test.test_url_read_gateway import patch_gateway, read_outcome
 
         call_kwargs = {"tools": []}
-        with patch("app.services.external.reader_client.read_url", new_callable=AsyncMock) as mock_read:
+        with patch_gateway(read_outcome("网页正文")) as mock_read:
             block, context_msg, detected_url = await preprocess_url_in_message(
                 "请看 https://example.com/page?token=abc", True, call_kwargs
             )
@@ -1136,7 +1110,7 @@ class UrlPreprocessTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(context_msg)
         self.assertEqual(detected_url, "https://example.com/page?token=abc")
         mock_read.assert_not_called()
-        self.assertIn(URL_READ_TOOL, call_kwargs["tools"])
+        self.assertEqual([tool["function"]["name"] for tool in call_kwargs["tools"]], ["url_read"])
 
 
 if __name__ == "__main__":

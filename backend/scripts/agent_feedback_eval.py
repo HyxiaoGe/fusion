@@ -139,7 +139,7 @@ def build_review_record(sample: dict, answer: str, *, model: str) -> dict:
 
 
 def build_model_request(messages: list[dict], *, model: str, max_tokens: int) -> dict:
-    from app.ai.tools import build_url_read_tool
+    from app.services.tool_handlers.url_read import build_url_read_tool
     from app.services.tool_handlers.web_search import build_web_search_tool
 
     return {
