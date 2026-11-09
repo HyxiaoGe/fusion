@@ -16,6 +16,7 @@ from sqlalchemy.pool import StaticPool
 from app.api import generated_images as generated_images_api
 from app.api.deps import get_current_user, get_db
 from app.db.database import Base
+from app.db.generated_image_repository import GeneratedImageRepository, image_ids_in_blocks
 from app.db.models import (
     AgentSession,
     Changelog,
@@ -109,8 +110,8 @@ def remaining(db) -> set[str]:
     return {row.id for row in db.query(GeneratedImage).all()}
 
 
-def test_forgotten_images_are_deleted_from_the_service_only_after_commit(db, deleted):
-    generated_images.forget_generated_images(db, {iid(1), "not-an-id"})
+def test_removed_images_are_deleted_from_the_service_only_after_commit(db, deleted):
+    GeneratedImageRepository(db).remove({iid(1), "not-an-id"})
     assert deleted == []
 
     db.commit()
@@ -122,7 +123,7 @@ def test_forgotten_images_are_deleted_from_the_service_only_after_commit(db, del
 
 
 def test_rollback_keeps_records_and_deletes_nothing(db, deleted):
-    generated_images.forget_generated_images(db, {iid(1)})
+    GeneratedImageRepository(db).remove({iid(1)})
     db.rollback()
     db.commit()
 
@@ -212,10 +213,19 @@ def test_partial_checkpoint_deletes_nothing(db, deleted):
 
 
 def test_image_ids_in_blocks_reads_only_generated_image_blocks():
-    blocks = [image_block(1), {"type": "file", "image_id": iid(2)}, {"type": "generated_image", "image_id": "x"}, None]
+    blocks = [image_block(1), {"type": "file", "image_id": iid(2)}, {"type": "generated_image", "image_id": 7}, None]
 
-    assert generated_images.image_ids_in_blocks(blocks) == {iid(1)}
-    assert generated_images.image_ids_in_blocks(None) == set()
+    assert image_ids_in_blocks(blocks) == {iid(1)}
+    assert image_ids_in_blocks(None) == set()
+
+
+def test_only_registered_images_are_deleted_from_the_service(db, deleted):
+    # 块里的编号不在表里（别的产品的、早已删掉的）：不交给服务删
+    GeneratedImageRepository(db).remove({iid(9), "x"})
+    db.commit()
+
+    assert deleted == []
+    assert remaining(db) == {iid(1), iid(2), iid(3), iid(4)}
 
 
 def _client(db, *, user_id="user-1"):
