@@ -16,17 +16,14 @@ from app.services.stream.tool_round import (
 )
 from app.services.tool_handlers.base import ToolResult
 from app.services.tool_handlers.url_read import UrlReadHandler
-from app.services.tool_handlers.web_search import WebSearchHandler, _post_process_sources
+from app.services.tool_handlers.web_search import WebSearchHandler
 
 RAW_URL = "https://www.example.org/report?utm_source=feed#chapter"
 
 
 def _search_record(url, index):
-    sources = _post_process_sources(
-        [SearchSource(title="同一原始报告", url=url, description="实际报告正文。")],
-        intent=None,
-        domains=[],
-    )
+    # 搜索服务返回原网址（去重只用于比较），这里直接用原网址构造来源
+    sources = [SearchSource(title="同一原始报告", url=url, description="实际报告正文。")]
     return ToolExecutionRecord(
         tool_call={"id": f"search-{index}", "name": "web_search", "arguments": {"query": f"查询{index}"}},
         result=ToolResult(status="success", data={"query": f"查询{index}", "sources": sources}),

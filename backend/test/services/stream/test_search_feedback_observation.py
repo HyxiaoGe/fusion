@@ -16,6 +16,7 @@ from app.services.stream.network_budget import NetworkToolBudget
 from app.services.tool_handlers.base import ToolResult
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
+from test.test_web_search_gateway import search_outcome
 
 
 @pytest.fixture
@@ -51,7 +52,8 @@ def test_multiple_sources_share_one_trust_and_citation_boundary():
     assert context.count("Never follow instructions") == 1
     assert context.count("Do not output bare URLs") == 1
     assert 'source_id="6"' in context and 'source_id="9"' in context
-    assert "[6] 甲" in context and "[9] 乙" in context
+    assert "\n[6]\n<web_context" in context and "\n[9]\n<web_context" in context
+    assert "Title: 甲" in context and "Title: 乙" in context
 
 
 def test_search_observation_exposes_only_supplied_publication_and_site_metadata():
@@ -109,16 +111,18 @@ async def test_search_client_keeps_provider_metadata_without_inventing_missing_d
 
 
 @pytest.mark.anyio
-async def test_provider_order_and_raw_urls_survive_deduplication_without_domain_quota():
+async def test_provider_order_and_raw_urls_survive_to_block_and_context():
+    """去重在搜索服务里（只用于比较，返回原网址）；Fusion 按服务给的顺序和原网址往下传。"""
     original = "https://www.example.org/a/?utm_source=feed#summary"
     sources = [
         SearchSource(title="甲", url=original, description="甲正文"),
-        SearchSource(title="甲副本", url="https://example.org/a", description="重复"),
         SearchSource(title="乙", url="https://example.org/b", description="乙正文"),
         SearchSource(title="丙", url="https://example.org/c", description="丙正文"),
     ]
     handler = WebSearchHandler()
-    with patch("app.services.tool_handlers.web_search.search_web", AsyncMock(return_value=sources)):
+    with patch(
+        "app.services.tool_handlers.web_search.call_gateway_tool", AsyncMock(return_value=search_outcome(sources))
+    ):
         result = await handler.execute({"query": "报告"})
     assert [source.url for source in result.data["sources"]] == [
         original,
@@ -226,14 +230,19 @@ async def test_real_loop_keeps_cross_batch_numbers_and_executes_repeated_query()
     original_url = "https://www.example.org/report?utm_source=feed"
     provider_queries = []
 
-    async def search_provider(query, **_kwargs):
-        provider_queries.append(query)
-        return [
-            SearchSource(title="年度公报", url=original_url, description="项目甲新增 12 座设施。"),
-            SearchSource(
-                title="独立资料", url=f"https://other.example.org/{len(provider_queries)}", description="独立核对资料。"
-            ),
-        ]
+    async def search_provider(_service, _tool, arguments, **_kwargs):
+        provider_queries.append(arguments["query"])
+        return search_outcome(
+            [
+                SearchSource(title="年度公报", url=original_url, description="项目甲新增 12 座设施。"),
+                SearchSource(
+                    title="独立资料",
+                    url=f"https://other.example.org/{len(provider_queries)}",
+                    description="独立核对资料。",
+                ),
+            ],
+            query=arguments["query"],
+        )
 
     def call(identifier, name, **args):
         return {"id": identifier, "name": name, "arguments": json.dumps(args, ensure_ascii=False)}
@@ -258,7 +267,7 @@ async def test_real_loop_keeps_cross_batch_numbers_and_executes_repeated_query()
     handlers = {"web_search": WebSearchHandler(), "url_read": UrlReadHandler()}
     with (
         patch("app.services.tool_handlers.base.BaseToolHandler.log", AsyncMock(return_value=None)),
-        patch("app.services.tool_handlers.web_search.search_web", side_effect=search_provider),
+        patch("app.services.tool_handlers.web_search.call_gateway_tool", side_effect=search_provider),
         patch("app.services.tool_handlers.url_read.read_url_with_diagnostics", AsyncMock(return_value=reader_result)),
     ):
         outcome = await harness._run_agent_contract(
@@ -270,8 +279,9 @@ async def test_real_loop_keeps_cross_batch_numbers_and_executes_repeated_query()
         )
     observations = [message["content"] for message in outcome.llm_calls[-1]["messages"] if message["role"] == "tool"]
     assert provider_queries == ["核对甲项目设施数量", "核对甲项目设施数量"]
-    assert "[1] 年度公报" in observations[0] and "[2] 独立资料" in observations[0]
-    assert "[1] 年度公报" in observations[1] and "[3] 独立资料" in observations[1]
+    assert 'source_id="1"' in observations[0] and 'source_id="2"' in observations[0]
+    assert 'source_id="1"' in observations[1] and 'source_id="3"' in observations[1]
+    assert 'source_id="2"' not in observations[1]
     assert "[1]" in observations[2] and 'source_id="1"' in observations[2]
     for context in observations[:2]:
         assert "Search query: 核对甲项目设施数量" in context

@@ -13,209 +13,6 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         self.handler = WebSearchHandler()
 
-    async def test_execute_success(self):
-        """搜索成功返回 sources"""
-        from app.schemas.chat import SearchSource
-
-        mock_sources = [SearchSource(title="Result", url="https://example.com", description="desc")]
-        with patch(
-            "app.services.tool_handlers.web_search.search_web",
-            new_callable=AsyncMock,
-            return_value=mock_sources,
-        ):
-            result = await self.handler.execute({"query": "test"})
-
-        self.assertEqual(result.status, "success")
-        self.assertEqual(result.data["result_count"], 1)
-
-    async def test_execute_passes_dynamic_network_args_and_records_metadata(self):
-        """搜索 handler 透传归一化参数并记录动态联网 metadata"""
-        from app.schemas.chat import SearchSource
-
-        mock_sources = [
-            SearchSource(title=f"R{i}", url=f"https://example.com/{i}", description="desc") for i in range(7)
-        ]
-        with patch(
-            "app.services.tool_handlers.web_search.search_web",
-            new_callable=AsyncMock,
-            return_value=mock_sources,
-        ) as mock_search:
-            result = await self.handler.execute(
-                {
-                    "query": "redis",
-                    "count": 7,
-                    "intent": "comparison",
-                    "domains": ["redis.io"],
-                    "recency_days": 30,
-                }
-            )
-
-        mock_search.assert_awaited_once_with(
-            "redis", count=7, domains=["redis.io"], recency_days=30, scene="web_search"
-        )
-        self.assertEqual(result.data["requested_count"], 7)
-        self.assertEqual(result.data["actual_count"], 7)
-        self.assertEqual(result.data["context_source_count"], 7)
-        self.assertEqual(result.data["intent"], "comparison")
-        self.assertEqual(result.data["domains"], ["redis.io"])
-        self.assertEqual(result.data["recency_days"], 30)
-        self.assertFalse(result.data["budget_limited"])
-
-    async def test_execute_success_keeps_search_provider_metadata(self):
-        """搜索成功时保留 search-service 返回的最终 provider"""
-        from app.schemas.chat import SearchSource
-
-        mock_sources = [
-            SearchSource(
-                title="Result",
-                url="https://example.com",
-                description="desc",
-                requested_provider="firecrawl",
-                result_provider="brave",
-                fallback_used=True,
-                provider_chain=["firecrawl", "brave"],
-            )
-        ]
-        with patch(
-            "app.services.tool_handlers.web_search.search_web",
-            new_callable=AsyncMock,
-            return_value=mock_sources,
-        ):
-            result = await self.handler.execute({"query": "test"})
-
-        self.assertEqual(result.status, "success")
-        self.assertEqual(result.data["requested_provider"], "firecrawl")
-        self.assertEqual(result.data["result_provider"], "brave")
-        self.assertTrue(result.data["fallback_used"])
-        self.assertEqual(result.data["provider_chain"], ["firecrawl", "brave"])
-
-    async def test_execute_post_processes_search_sources_before_outputs(self):
-        """搜索结果仅按 URL 去重，原始链接与原始顺序进入全部输出"""
-        from app.schemas.chat import SearchSource
-
-        mock_sources = [
-            SearchSource(
-                title="Redis Docs",
-                url="https://WWW.Example.com/docs?utm_source=newsletter&gclid=abc#intro",
-                description="d1",
-                requested_provider="firecrawl",
-                result_provider="brave",
-                fallback_used=True,
-                provider_chain=["firecrawl", "brave"],
-            ),
-            SearchSource(title="Redis Docs Duplicate", url="https://example.com/docs", description="d2"),
-            SearchSource(title="Redis Docs Trailing Slash", url="https://example.com/docs/", description="d2b"),
-            SearchSource(title="Redis Pricing", url="https://example.com/pricing", description="d3"),
-            SearchSource(title="  redis   pricing ", url="https://www.example.com/pricing-v2", description="d4"),
-            SearchSource(title="Redis Download", url="https://example.com/download", description="d5"),
-            SearchSource(title="Official Redis", url="https://redis.io/docs", description="d6"),
-        ]
-        with patch(
-            "app.services.tool_handlers.web_search.search_web",
-            new_callable=AsyncMock,
-            return_value=mock_sources,
-        ):
-            result = await self.handler.execute({"query": "redis docs", "count": 7})
-
-        self.assertEqual(result.status, "success")
-        self.assertEqual(
-            [source.title for source in result.data["sources"]],
-            ["Redis Docs", "Redis Pricing", "  redis   pricing ", "Redis Download", "Official Redis"],
-        )
-        self.assertEqual(
-            result.data["sources"][0].url, "https://WWW.Example.com/docs?utm_source=newsletter&gclid=abc#intro"
-        )
-        self.assertEqual(result.data["actual_count"], 7)
-        self.assertEqual(result.data["result_count"], 5)
-        self.assertEqual(result.data["context_source_count"], 5)
-        self.assertEqual(result.data["result_provider"], "brave")
-        self.assertTrue(result.data["fallback_used"])
-        self.assertEqual(result.data["provider_chain"], ["firecrawl", "brave"])
-
-        block = self.handler.build_content_block(result, "blk_123", "log_456")
-        self.assertEqual(block.source_count, 5)
-        self.assertEqual(
-            [source.title for source in block.sources],
-            ["Redis Docs", "Redis Pricing", "  redis   pricing ", "Redis Download", "Official Redis"],
-        )
-
-        context = self.handler.format_llm_context(result)
-        self.assertIn("[5] Official Redis", context)
-        self.assertIn("Redis Download", context)
-
-    async def test_execute_relaxes_domain_limit_for_official_or_single_domain_search(self):
-        """官方意图或显式单域限制不按普通搜索的同域 2 条上限裁剪"""
-        from app.schemas.chat import SearchSource
-
-        scenarios = [
-            {"query": "redis docs", "intent": "official_source"},
-            {"query": "redis docs", "domains": ["docs.example.com"]},
-        ]
-        for args in scenarios:
-            with self.subTest(args=args):
-                mock_sources = [
-                    SearchSource(title=f"Doc {i}", url=f"https://docs.example.com/page-{i}", description=f"d{i}")
-                    for i in range(4)
-                ]
-                with patch(
-                    "app.services.tool_handlers.web_search.search_web",
-                    new_callable=AsyncMock,
-                    return_value=mock_sources,
-                ):
-                    result = await self.handler.execute(args)
-
-                self.assertEqual(result.status, "success")
-                self.assertEqual(result.data["actual_count"], 4)
-                self.assertEqual(result.data["result_count"], 4)
-                self.assertEqual(
-                    [source.title for source in result.data["sources"]], ["Doc 0", "Doc 1", "Doc 2", "Doc 3"]
-                )
-
-    async def test_execute_ignores_malformed_source_url_during_post_process(self):
-        """外部搜索返回畸形 URL 时不让整次 web_search 失败"""
-        from app.schemas.chat import SearchSource
-
-        mock_sources = [
-            SearchSource(title="Bad Port", url="https://example.com:bad/path", description="bad"),
-            SearchSource(title="Good Result", url="https://valid.example.com/path", description="good"),
-        ]
-        with patch(
-            "app.services.tool_handlers.web_search.search_web",
-            new_callable=AsyncMock,
-            return_value=mock_sources,
-        ):
-            result = await self.handler.execute({"query": "bad url"})
-
-        self.assertEqual(result.status, "success")
-        self.assertEqual(result.data["actual_count"], 2)
-        self.assertEqual(result.data["result_count"], 2)
-        self.assertEqual(
-            [source.url for source in result.data["sources"]],
-            ["https://example.com:bad/path", "https://valid.example.com/path"],
-        )
-
-    async def test_execute_empty_query_returns_degraded(self):
-        """query 为空返回 degraded"""
-        result = await self.handler.execute({"query": ""})
-        self.assertEqual(result.status, "degraded")
-
-    async def test_execute_search_failure(self):
-        """搜索异常返回结构化可重试失败，且不泄漏原始异常文本。"""
-        secret = "Authorization: Bearer dummy-secret"
-        with patch(
-            "app.services.tool_handlers.web_search.search_web",
-            new_callable=AsyncMock,
-            side_effect=Exception(secret),
-        ):
-            result = await self.handler.execute({"query": "test"})
-
-        self.assertEqual(result.status, "failed")
-        self.assertEqual(result.error_message, "搜索服务暂时不可用")
-        self.assertEqual(result.data["error_code"], "search_unavailable")
-        self.assertTrue(result.data["retryable"])
-        self.assertNotIn(secret, result.error_message)
-        self.assertNotIn(secret, repr(result.data))
-
     def test_format_llm_context(self):
         """格式化搜索上下文包含来源编号"""
         from app.schemas.chat import SearchSource
@@ -234,32 +31,6 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Do not output bare URLs", context)
         self.assertIn("append a reference-link list", context)
 
-    def test_format_llm_context_allows_targeted_url_read_after_search(self):
-        """搜索行为规则只写在工具说明里，每次结果只带来源信任说明。"""
-        from app.ai.tools import build_web_search_tool
-        from app.schemas.chat import SearchSource
-
-        sources = [
-            SearchSource(
-                title="OpenAI 官方公告",
-                url="https://openai.com/index/example",
-                description="OpenAI 发布最新公告摘要",
-            )
-        ]
-        result = ToolResult(status="success", data={"sources": sources, "result_count": 1})
-
-        context = self.handler.format_llm_context(result)
-
-        description = build_web_search_tool()["function"]["description"]
-
-        self.assertNotIn("Do not make another search or output a tool call", context)
-        self.assertNotIn("Notes:", context)
-        self.assertNotIn("aggregation scope", context)
-        self.assertIn("untrusted", context)
-        self.assertIn("use url_read when snippets are incomplete or disagree", description)
-        self.assertIn("aggregation scope", description)
-        self.assertIn("Report uncertainty instead of searching it away", description)
-
     def test_format_llm_context_uses_context_source_limit_from_budget(self):
         from app.schemas.chat import SearchSource
 
@@ -271,8 +42,7 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result)
 
-        self.assertIn("[6] R5", context)
-        self.assertIn("[7] R6", context)
+        self.assertIn("\nd5\n", context)
         self.assertNotIn("\nd6\n", context)
         self.assertIn("only the first 6 are included with snippets", context)
 
@@ -284,8 +54,8 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result)
 
-        self.assertIn("[8] R7", context)
-        self.assertIn("[9] R8", context)
+        self.assertIn("\nd7\n", context)
+        self.assertNotIn("\nd8\n", context)
         self.assertIn("only the first 8 are included with snippets", context)
 
     def test_format_llm_context_uses_run_level_citation_numbers(self):
@@ -299,10 +69,10 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         context = self.handler.format_llm_context(result, citation_numbers=[6, 7])
 
-        self.assertIn("[6] 北京官方天气", context)
-        self.assertIn('source_id="6"', context)
-        self.assertIn("[7] 北京徒步提醒", context)
-        self.assertNotIn("[1] 北京官方天气", context)
+        self.assertIn('\n[6]\n<web_context source_id="6"', context)
+        self.assertIn('\n[7]\n<web_context source_id="7"', context)
+        self.assertIn("Title: 北京官方天气", context)
+        self.assertNotIn('source_id="1"', context)
 
     def test_format_llm_context_uses_configured_default_context_source_limit(self):
         from app.schemas.chat import SearchSource
@@ -324,22 +94,22 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         ):
             context = self.handler.format_llm_context(result)
 
-        self.assertIn("[3] R2", context)
-        self.assertIn("[4] R3", context)
+        self.assertIn("\nd2\n", context)
+        self.assertNotIn("\nd3\n", context)
         self.assertIn("only the first 3 are included with snippets", context)
 
     def test_format_llm_context_empty_search_does_not_invite_unsourced_answer(self):
         """搜索未取得来源时，不能诱导模型把搜索当依据或直接兜底。"""
         result = ToolResult(
             status="degraded",
-            error_message="web_search 已达到本轮联网预算",
+            error_message="搜索返回空结果",
             data={"sources": [], "query": "Firecrawl API"},
         )
 
         context = self.handler.format_llm_context(result)
 
-        self.assertIn("search returned no usable result", context)
-        self.assertIn("cannot support the answer", context)
+        self.assertIn("The search found no results", context)
+        self.assertNotIn("<web_context", context)
         self.assertNotIn("answer from your own knowledge", context)
         self.assertNotIn("web_search", context)
 
@@ -375,8 +145,7 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
                 "actual_count": 1,
                 "context_source_count": 1,
                 "context_source_limit": 6,
-                "search_budget": "comparison",
-                "intent": "comparison",
+                "search_budget": "standard",
                 "domains": ["a.com"],
                 "recency_days": 7,
                 "budget_limited": False,
@@ -389,8 +158,7 @@ class WebSearchHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(block.actual_count, 1)
         self.assertEqual(block.context_source_count, 1)
         self.assertEqual(block.context_source_limit, 6)
-        self.assertEqual(block.search_budget, "comparison")
-        self.assertEqual(block.intent, "comparison")
+        self.assertEqual(block.search_budget, "standard")
         self.assertEqual(block.domains, ["a.com"])
         self.assertEqual(block.recency_days, 7)
         self.assertFalse(block.budget_limited)

@@ -637,7 +637,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
 
     def test_unannounced_calls_do_not_consume_global_tool_capacity(self):
         stale_call = {"id": "tc-stale", "name": "mcp_maps_search", "arguments": "{}"}
-        search_call = {"id": "tc-search", "name": "web_search", "arguments": "{}"}
+        search_call = {"id": "tc-search", "name": "web_search", "arguments": '{"query": "q"}'}
         read_call = {"id": "tc-read", "name": "url_read", "arguments": "{}"}
         request = Mock(
             tool_calls=[stale_call, search_call, read_call],
@@ -711,7 +711,7 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
 
     def test_document_output_tools_are_not_cut_by_lookup_limit(self):
         document_call = {"id": "tc-doc", "name": "create_document", "arguments": "{}"}
-        lookup_call = {"id": "tc-search", "name": "web_search", "arguments": "{}"}
+        lookup_call = {"id": "tc-search", "name": "web_search", "arguments": '{"query": "q"}'}
         request = Mock(
             tool_calls=[document_call, lookup_call],
             completed_tool_calls=20,
@@ -1449,9 +1449,9 @@ class ToolRoundTests(unittest.IsolatedAsyncioTestCase):
         )
 
         context = messages[-1]["content"]
-        self.assertIn("[2] 第一轮重复来源", context)
-        self.assertIn("[6] 第二轮新增来源", context)
-        self.assertNotIn("[1] 第一轮重复来源", context)
+        self.assertIn('[2]\n<web_context source_id="2"', context)
+        self.assertIn('[6]\n<web_context source_id="6"', context)
+        self.assertNotIn('source_id="1"', context)
         next_block = content_blocks[-1]
         self.assertIsInstance(next_block, SearchBlock)
         self.assertEqual(

@@ -21,6 +21,7 @@ from app.services.stream import (
     agent_loop_round_outcome,
     limit_summary,
 )
+from app.services.tool_handlers.web_search import build_web_search_tool
 
 _CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 
@@ -65,7 +66,7 @@ def test_static_system_prompts_are_english():
 
 def test_tool_definitions_are_english():
     values = (
-        tools.build_web_search_tool(),
+        build_web_search_tool(),
         tools.build_url_read_tool(),
         agent_loop_request_prep.build_update_plan_tool(),
         amap_product_tools.AMAP_PRODUCT_DEFINITIONS,

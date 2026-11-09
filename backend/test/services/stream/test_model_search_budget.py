@@ -37,7 +37,8 @@ class ModelSearchBudgetTests(unittest.TestCase):
                     {"query": "北京人口", "intent": "quick_fact", "count": supplied}
                 )
                 self.assertIsNone(result)
-                self.assertEqual(args["count"], expected)
+                # 条数原样交给搜索服务检查；进上下文的条数按合法范围算
+                self.assertEqual(args["count"], supplied)
                 self.assertEqual(args["context_source_limit"], min(expected, 10))
 
     def test_complementary_search_passes_old_similarity_and_plan_limits(self):
@@ -77,12 +78,13 @@ class ModelSearchBudgetTests(unittest.TestCase):
         self.assertEqual(args["count"], 15)
         self.assertEqual(args["context_source_limit"], 10)
 
-    def test_invalid_count_uses_default_or_safe_range(self):
+    def test_invalid_count_keeps_context_limit_in_safe_range(self):
         for count, expected in ((False, 10), ("invalid", 10), (-2, 1), (0, 1), (float("inf"), 10)):
             with self.subTest(count=count):
                 args, result = NetworkToolBudget().prepare_web_search_args({"query": "信息", "count": count})
                 self.assertIsNone(result)
-                self.assertEqual(args["count"], expected)
+                self.assertEqual(args["count"], count)
+                self.assertEqual(args["context_source_limit"], expected)
 
     def test_reordered_domains_and_identical_provider_request_both_execute(self):
         budget = NetworkToolBudget()

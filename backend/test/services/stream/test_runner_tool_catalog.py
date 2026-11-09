@@ -1,4 +1,4 @@
-"""装配工具前先刷新 agent-tools 网关的工具目录；游客不加载网关工具，不刷新。"""
+"""装配工具前先刷新 agent-tools 网关的工具目录；游客也用网关的 web_search，同样刷新。"""
 
 from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -37,7 +37,7 @@ async def test_gateway_tool_catalog_is_refreshed_before_tools_are_assembled(gues
     ):
         await runner.StreamHandler().generate_to_redis(**run_kwargs(), guest=guest)
 
-    assert order == (["prepare"] if guest else ["refresh", "prepare"])
+    assert order == ["refresh", "prepare"]
 
 
 def test_runner_wires_the_gateway_catalog_refresh():

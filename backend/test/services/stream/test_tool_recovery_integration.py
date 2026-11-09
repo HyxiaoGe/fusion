@@ -11,6 +11,7 @@ from app.services.external.agent_tools_mcp import GatewayToolOutcome
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
 from app.services.weather.forecast_tool import build_weather_forecast_definition
+from test.test_web_search_gateway import search_outcome
 
 
 def _tool_round(tool_id, name, arguments):
@@ -55,8 +56,8 @@ async def _run_recovery(*, search_success=True, answer_suffix="[1]", degrade_rea
     with (
         patch("app.services.tool_handlers.base.BaseToolHandler.log", AsyncMock(return_value=None)),
         patch(
-            "app.services.tool_handlers.web_search.search_web",
-            AsyncMock(return_value=sources if search_success else []),
+            "app.services.tool_handlers.web_search.call_gateway_tool",
+            AsyncMock(return_value=search_outcome(sources if search_success else [])),
         ),
         patch(
             "app.services.tool_handlers.url_read.read_url_with_diagnostics",

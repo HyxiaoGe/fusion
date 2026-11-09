@@ -1,25 +1,19 @@
-"""单轮联网工具预算与参数归一化。"""
+"""单轮联网工具预算。
+
+web_search 的参数（条数、时效、限定网站）由搜索服务检查，出错时服务告诉模型哪里不对；
+这里不改写模型的参数，只管本轮调用次数和进上下文的条数。
+"""
 
 from __future__ import annotations
 
-import re
 from dataclasses import asdict, dataclass, field
 
 from app.services.agent_strategy_config import get_agent_strategy_config
-from app.services.search_budget import (
-    SearchBudgetDecision,
-    derive_search_budget,
-    resolve_search_intent,
-)
+from app.services.search_budget import SearchBudgetDecision, derive_search_budget
 from app.services.tool_handlers.base import ToolResult
 
 MAX_SEARCH_CALLS = 40
 MAX_URL_READ_CALLS = 100
-MAX_DOMAINS = 5
-MIN_RECENCY_DAYS = 1
-MAX_RECENCY_DAYS = 365
-
-_DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 
 @dataclass
@@ -31,83 +25,48 @@ class NetworkToolBudget:
     web_search_queries: list[str] = field(default_factory=list)
 
     def prepare_web_search_args(self, args: dict) -> tuple[dict, ToolResult | None]:
-        strategy_config = get_agent_strategy_config()
-        network_config = _network_config(strategy_config)
+        network_config = _network_config(get_agent_strategy_config())
         normalized = dict(args or {})
-
         query = str(normalized.get("query") or "")
-        intent = resolve_search_intent(normalized.get("intent"), query, strategy_config=strategy_config)
-        if intent:
-            normalized["intent"] = intent
-        else:
-            normalized.pop("intent", None)
-
-        max_domains = _network_int(network_config, "max_domains", MAX_DOMAINS)
-        domains = _normalize_domains(normalized.get("domains"), max_domains=max_domains)
-        if domains:
-            normalized["domains"] = domains
-        else:
-            normalized.pop("domains", None)
-
-        # 仅保留全局调用上限；旧计划次数不会将互补查询判为“已收敛”。
-        planned_search_limit = _network_int(network_config, "max_search_calls", MAX_SEARCH_CALLS)
+        max_search_calls = _network_int(network_config, "max_search_calls", MAX_SEARCH_CALLS)
         previous_query_count = len(self.web_search_queries)
 
-        search_budget = derive_search_budget(intent, requested_count=normalized.get("count"))
-        if normalized.get("recency_days") is not None:
-            normalized["recency_days"] = _clamp_int(
-                normalized.get("recency_days"),
-                _network_int(network_config, "min_recency_days", MIN_RECENCY_DAYS),
-                _network_int(network_config, "min_recency_days", MIN_RECENCY_DAYS),
-                _network_int(network_config, "max_recency_days", MAX_RECENCY_DAYS),
-            )
-        normalized["count"] = search_budget.requested_count
+        search_budget = derive_search_budget(requested_count=normalized.get("count"))
         normalized["context_source_limit"] = search_budget.context_source_limit
         normalized["search_budget"] = search_budget.name
-        max_search_calls = _network_int(network_config, "max_search_calls", MAX_SEARCH_CALLS)
-        decision = _search_budget_decision(
-            query=query,
-            intent=intent,
-            action="execute",
-            budget_name=normalized["search_budget"],
-            requested_count=normalized["count"],
-            context_source_limit=normalized["context_source_limit"],
-            reason_code=_allowed_search_reason_code(previous_query_count),
-            previous_query_count=previous_query_count,
-            planned_search_limit=planned_search_limit,
+        limit_reached = self.web_search_calls >= max_search_calls
+        decision = asdict(
+            SearchBudgetDecision(
+                query=query,
+                action="limit_budget" if limit_reached else "execute",
+                budget_name=search_budget.name,
+                requested_count=search_budget.requested_count,
+                context_source_limit=search_budget.context_source_limit,
+                reason_code=(
+                    "hard_search_limit_reached"
+                    if limit_reached
+                    else ("complementary_search" if previous_query_count > 0 else "initial_search")
+                ),
+                previous_query_count=previous_query_count,
+                planned_search_limit=max_search_calls,
+            )
         )
         normalized["budget_decision"] = decision
 
-        if self.web_search_calls >= max_search_calls:
-            decision = _search_budget_decision(
-                query=str(normalized.get("query") or ""),
-                intent=normalized.get("intent"),
-                action="limit_budget",
-                budget_name=str(normalized.get("search_budget") or search_budget.name),
-                requested_count=normalized.get("count", search_budget.requested_count),
-                context_source_limit=normalized.get("context_source_limit", search_budget.context_source_limit),
-                reason_code="hard_search_limit_reached",
-                previous_query_count=previous_query_count,
-                planned_search_limit=planned_search_limit,
-            )
-            normalized["budget_decision"] = decision
+        if limit_reached:
             return normalized, ToolResult(
                 status="degraded",
                 error_message="web_search 已达到本轮联网预算",
                 data={
-                    "query": normalized.get("query", ""),
+                    "query": query,
                     "sources": [],
                     "result_count": 0,
-                    "requested_count": normalized.get("count", search_budget.requested_count),
+                    "requested_count": search_budget.requested_count,
                     "actual_count": 0,
                     "context_source_count": 0,
-                    "context_source_limit": normalized.get(
-                        "context_source_limit",
-                        search_budget.context_source_limit,
-                    ),
-                    "search_budget": normalized.get("search_budget", search_budget.name),
-                    "intent": normalized.get("intent"),
-                    "domains": normalized.get("domains", []),
+                    "context_source_limit": search_budget.context_source_limit,
+                    "search_budget": search_budget.name,
+                    "domains": normalized.get("domains") if isinstance(normalized.get("domains"), list) else [],
                     "recency_days": normalized.get("recency_days"),
                     "budget_limited": True,
                     "budget_decision": decision,
@@ -139,79 +98,6 @@ class NetworkToolBudget:
 
         self.url_read_calls += 1
         return normalized, None
-
-
-def _clamp_int(value, default: int, minimum: int, maximum: int) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        parsed = default
-    return max(minimum, min(maximum, parsed))
-
-
-def _normalize_domains(value, *, max_domains: int = MAX_DOMAINS) -> list[str]:
-    if not isinstance(value, list):
-        return []
-
-    domains: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        domain = _extract_domain(item)
-        if not domain or domain in seen:
-            continue
-        seen.add(domain)
-        domains.append(domain)
-        if len(domains) >= max_domains:
-            break
-    return domains
-
-
-def _extract_domain(value: str) -> str | None:
-    raw = value.strip().lower()
-    if not raw:
-        return None
-    if any(char in raw for char in ("://", "/", "?", "#", ":", "*")):
-        return None
-    if raw.startswith("www."):
-        raw = raw[4:]
-    if _DOMAIN_RE.match(raw):
-        return raw
-    return None
-
-
-def _allowed_search_reason_code(previous_query_count: int) -> str:
-    if previous_query_count > 0:
-        return "complementary_search"
-    return "initial_search"
-
-
-def _search_budget_decision(
-    *,
-    query: str,
-    intent: str | None,
-    action: str,
-    budget_name: str,
-    requested_count: int,
-    context_source_limit: int,
-    reason_code: str,
-    previous_query_count: int,
-    planned_search_limit: int,
-) -> dict:
-    return asdict(
-        SearchBudgetDecision(
-            query=query,
-            intent=intent,
-            action=action,
-            budget_name=budget_name,
-            requested_count=requested_count,
-            context_source_limit=context_source_limit,
-            reason_code=reason_code,
-            previous_query_count=previous_query_count,
-            planned_search_limit=planned_search_limit,
-        )
-    )
 
 
 def _network_config(strategy_config: dict | None) -> dict:

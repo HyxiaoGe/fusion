@@ -8,12 +8,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.schemas.chat import SearchSource, TextBlock, ThinkingBlock
+from app.services.external.agent_tools_mcp import GatewayToolOutcome
 from app.services.external.reader_client import UrlReadResponse, UrlReadResult
 from app.services.stream.limit_summary_fact_guard import has_tool_evidence
 from app.services.stream.tool_recovery_evidence import RecoveryEvidenceWorkset, has_recovery_evidence
 from app.services.tool_handlers.base import ToolResult
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
+from test.test_web_search_gateway import search_outcome
 
 
 class TestHasToolEvidence:
@@ -151,7 +153,18 @@ class TestPrefetchedPageEvidence:
 def test_真实搜索处理器只有实际正文可通过总结守卫(query, description):
     handler = WebSearchHandler()
     source = SearchSource(title="", url="https://example.com/timetable", description=description, content="")
-    with patch("app.services.tool_handlers.web_search.search_web", new=AsyncMock(return_value=[source])):
+    # 空查询由搜索服务判为参数错误（不是空结果）
+    outcome = (
+        search_outcome([source], query=query)
+        if query
+        else GatewayToolOutcome(
+            ok=False,
+            model_text="The arguments were invalid: query must not be empty.",
+            error_code="bad_arguments",
+            error={"code": "bad_arguments", "retryable": False},
+        )
+    )
+    with patch("app.services.tool_handlers.web_search.call_gateway_tool", new=AsyncMock(return_value=outcome)):
         result = asyncio.run(handler.execute({"query": query}))
     block = handler.build_content_block(result, "search-block", "search-log")
     evidence = RecoveryEvidenceWorkset()

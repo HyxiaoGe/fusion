@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from app.schemas.chat import SearchSource
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
+from test.test_web_search_gateway import patch_search_catalog, search_outcome
 
 
 def _call(identifier, name, **arguments):
@@ -33,8 +34,9 @@ async def _run_parallel_searches(width):
     concurrency_observations = []
     provider_calls = []
 
-    async def search_provider(query, **kwargs):
-        provider_calls.append((query, kwargs))
+    async def search_provider(_service, _tool, arguments, **_kwargs):
+        query = arguments["query"]
+        provider_calls.append((query, arguments))
         if query in angles:
             entered.add(query)
             if len(entered) == width:
@@ -42,9 +44,14 @@ async def _run_parallel_searches(width):
             await asyncio.wait_for(all_entered.wait(), timeout=2)
             concurrency_observations.append((len(entered), len(completed)))
         completed.add(query)
-        return [
-            SearchSource(title=query, url=source_urls[query], description=f"独立证据：{query}；含原始数据与分析结论。")
-        ]
+        return search_outcome(
+            [
+                SearchSource(
+                    title=query, url=source_urls[query], description=f"独立证据：{query}；含原始数据与分析结论。"
+                )
+            ],
+            query=query,
+        )
 
     calls = [_call(f"angle-{index}", "web_search", query=query, count=10 + index) for index, query in enumerate(angles)]
     rounds = [
@@ -71,7 +78,8 @@ async def _run_parallel_searches(width):
     )
     with (
         patch("app.services.tool_handlers.base.BaseToolHandler.log", AsyncMock(return_value=None)),
-        patch("app.services.tool_handlers.web_search.search_web", side_effect=search_provider),
+        patch("app.services.tool_handlers.web_search.call_gateway_tool", side_effect=search_provider),
+        patch_search_catalog(),
         patch(
             "app.services.tool_handlers.url_read.read_url_with_diagnostics", AsyncMock(return_value=reader_result)
         ) as reader,

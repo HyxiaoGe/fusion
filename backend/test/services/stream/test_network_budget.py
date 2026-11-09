@@ -1,101 +1,17 @@
 import unittest
 from copy import deepcopy
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from app.schemas.chat import SearchSource
 from app.services.config_defaults import DEFAULT_AGENT_STRATEGY_CONFIG
-from app.services.source_candidate_ranker import SearchResultForRanking, rank_search_sources
 from app.services.stream import network_budget as network_budget_module
 from app.services.stream.network_budget import NetworkToolBudget
-from app.services.stream.tool_execution_result import ToolExecutionRecord
-from app.services.tool_handlers.base import ToolResult
 
 
 def _low_network_budget():
-    """用显式低预算保留触顶与修复搜索的边界验证。"""
+    """用显式低预算保留触顶边界验证。"""
     config = deepcopy(DEFAULT_AGENT_STRATEGY_CONFIG)
-    config["network"].update(
-        max_search_calls=4,
-        default_planned_search_calls=2,
-        max_url_read_calls=5,
-    )
+    config["network"].update(max_search_calls=4, max_url_read_calls=5)
     return patch.object(network_budget_module, "get_agent_strategy_config", return_value=config)
-
-
-def _search_record(args: dict, *, status: str, sources: list[SearchSource] | None = None) -> ToolExecutionRecord:
-    handler = Mock()
-    handler.tool_name = "web_search"
-    return ToolExecutionRecord(
-        tool_call={"id": f"tc-search-{len(args.get('query', ''))}", "name": "web_search", "arguments": args},
-        result=ToolResult(
-            status=status,
-            data={
-                "query": args.get("query", ""),
-                "sources": sources or [],
-                "result_count": len(sources or []),
-                "search_budget": args.get("search_budget"),
-                "intent": args.get("intent"),
-                "budget_decision": args.get("budget_decision"),
-            },
-        ),
-        handler=handler,
-        block_id="blk-search",
-        log_id="log-search",
-    )
-
-
-def _url_read_record(
-    url: str,
-    *,
-    status: str,
-    plan_item_id: str | None = None,
-) -> ToolExecutionRecord:
-    handler = Mock()
-    handler.tool_name = "url_read"
-    return ToolExecutionRecord(
-        tool_call={
-            "id": f"tc-read-{status}",
-            "name": "url_read",
-            "arguments": {"url": url},
-            **({"plan_item_id": plan_item_id} if plan_item_id else {}),
-        },
-        result=ToolResult(status=status, data={"url": url}),
-        handler=handler,
-        block_id="blk-read",
-        log_id="log-read",
-    )
-
-
-def _source_plan(urls: list[str]):
-    return rank_search_sources(
-        [
-            SearchResultForRanking(
-                tool_call_id="tc-search-plan",
-                query="OpenAI 2026 最新产品",
-                sources=[
-                    SearchSource(title=f"候选 {index}", url=url, description="可替代候选来源")
-                    for index, url in enumerate(urls, 1)
-                ],
-            )
-        ],
-        max_recommended=len(urls),
-    )
-
-
-def _source_plan_with_read_limit(urls: list[str], *, max_recommended: int):
-    return rank_search_sources(
-        [
-            SearchResultForRanking(
-                tool_call_id="tc-search-plan",
-                query="OpenAI 2026 最新产品",
-                sources=[
-                    SearchSource(title=f"候选 {index}", url=url, description="可替代候选来源")
-                    for index, url in enumerate(urls, 1)
-                ],
-            )
-        ],
-        max_recommended=max_recommended,
-    )
 
 
 class NetworkToolBudgetTests(unittest.TestCase):
@@ -107,15 +23,10 @@ class NetworkToolBudgetTests(unittest.TestCase):
             ):
                 budget = NetworkToolBudget()
                 for index in range(40):
-                    args, degraded = budget.prepare_web_search_args(
-                        {"query": f"核对资料 {index}", "domains": ["example.com"]}
-                    )
+                    _args, degraded = budget.prepare_web_search_args({"query": f"核对资料 {index}"})
                     self.assertIsNone(degraded, f"第 {index + 1} 次搜索不应被预算阻断")
-                    self.assertGreater(args["count"], 0)
                 self.assertEqual(budget.web_search_calls, 40)
-                args, degraded = budget.prepare_web_search_args(
-                    {"query": "核对最后一份资料", "domains": ["example.com"]}
-                )
+                args, degraded = budget.prepare_web_search_args({"query": "核对最后一份资料"})
                 self.assertTrue(degraded.data["budget_limited"])
                 self.assertEqual(args["budget_decision"]["reason_code"], "hard_search_limit_reached")
                 self.assertEqual(budget.web_search_calls, 40)
@@ -135,334 +46,77 @@ class NetworkToolBudgetTests(unittest.TestCase):
                 self.assertTrue(degraded.data["budget_limited"])
                 self.assertEqual(budget.url_read_calls, 100)
 
-    def test_web_search_uses_standard_budget_when_intent_missing(self):
+    def test_model_arguments_reach_the_search_service_unchanged(self):
+        """条数、时效、限定网站由搜索服务检查并告诉模型哪里不对，这里不清洗、不截断、不丢弃。"""
         budget = NetworkToolBudget()
+        model_args = {
+            "query": "redis",
+            "count": 99,
+            "recency_days": 0,
+            "domains": ["https://Redis.io/docs", "bad domain"],
+        }
 
-        args, degraded = budget.prepare_web_search_args({"query": "redis"})
+        args, degraded = budget.prepare_web_search_args(dict(model_args))
 
         self.assertIsNone(degraded)
-        self.assertEqual(args["count"], 10)
-        self.assertEqual(args["context_source_limit"], 10)
+        self.assertEqual({key: args[key] for key in model_args}, model_args)
         self.assertEqual(args["search_budget"], "standard")
 
-    def test_web_search_without_model_intent_keeps_standard_budget(self):
-        budget = NetworkToolBudget()
-
-        args, degraded = budget.prepare_web_search_args({"query": "OpenAI GPT-5.6 Sol 2026年6月 官方公告"})
-
-        self.assertIsNone(degraded)
-        self.assertNotIn("intent", args)
-        self.assertEqual(args["count"], 10)
-        self.assertEqual(args["context_source_limit"], 10)
-        self.assertEqual(args["search_budget"], "standard")
+    def test_context_source_limit_follows_model_count_up_to_ten(self):
+        for count, expected in ((3, 3), (None, 10), (15, 10), (99, 10), ("bad", 10)):
+            with self.subTest(count=count):
+                args, _degraded = NetworkToolBudget().prepare_web_search_args({"query": "redis", "count": count})
+                self.assertEqual(args["context_source_limit"], expected)
 
     def test_initial_search_records_budget_decision(self):
         budget = NetworkToolBudget()
 
-        args, degraded = budget.prepare_web_search_args({"query": "OpenAI 最新公告 2026年7月"})
-
-        self.assertIsNone(degraded)
-        self.assertEqual(args["budget_decision"]["query"], "OpenAI 最新公告 2026年7月")
-        self.assertEqual(args["budget_decision"]["action"], "execute")
-        self.assertEqual(args["budget_decision"]["reason_code"], "initial_search")
-        self.assertEqual(args["budget_decision"]["budget_name"], args["search_budget"])
-        self.assertEqual(args["budget_decision"]["requested_count"], args["count"])
-        self.assertEqual(args["budget_decision"]["context_source_limit"], args["context_source_limit"])
-        self.assertEqual(args["budget_decision"]["previous_query_count"], 0)
-        self.assertEqual(args["budget_decision"]["planned_search_limit"], 40)
-
-    def test_similar_followup_records_complementary_search_decision(self):
-        budget = NetworkToolBudget()
-
-        _first_args, first_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026", "intent": "official_source"}
-        )
-        second_args, second_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol 2026年6月 官方公告", "intent": "official_source"}
-        )
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["search_budget"], "official_source")
-        self.assertEqual(second_args["budget_decision"]["action"], "execute")
-        self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
-        self.assertEqual(second_args["budget_decision"]["budget_name"], "official_source")
-        self.assertEqual(second_args["budget_decision"]["previous_query_count"], 1)
-        self.assertEqual(second_args["count"], 10)
-
-    def test_legacy_planner_limit_does_not_block_third_search(self):
-        self.enterContext(_low_network_budget())
-        budget = NetworkToolBudget()
-
-        first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年产品更新 最新发布"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年最新新闻 媒体报道"})
-        third_args, third_degraded = budget.prepare_web_search_args({"query": "OpenAI GPT-5.6 Sol 预览 2026年7月"})
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertIsNone(third_degraded)
-        self.assertEqual(third_args["budget_decision"]["action"], "execute")
-        self.assertEqual(third_args["budget_decision"]["reason_code"], "complementary_search")
-        self.assertEqual(third_args["budget_decision"]["previous_query_count"], 2)
-        self.assertEqual(third_args["count"], 10)
-        self.assertEqual(budget.web_search_calls, 3)
-
-    def test_empty_first_search_allows_normal_followup(self):
-        budget = NetworkToolBudget()
-
-        first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 官方公告 2026 最新"})
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "execute")
-        self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
-        self.assertEqual(second_args["count"], 10)
-        self.assertEqual(budget.web_search_calls, 2)
-
-    def test_single_source_search_allows_normal_followup(self):
-        budget = NetworkToolBudget()
-        first_args, first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 官方公告 2026 最新"})
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "execute")
-        self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
-        self.assertEqual(second_args["count"], 10)
-
-    def test_search_continues_after_multiple_empty_results(self):
-        self.enterContext(_low_network_budget())
-        budget = NetworkToolBudget()
-
-        first_args, _first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 官方公告 2026 最新"})
-        third_args, third_degraded = budget.prepare_web_search_args({"query": "OpenAI 权威媒体 2026 最新"})
-
-        self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "execute")
-        self.assertIsNone(third_degraded)
-        self.assertEqual(third_args["budget_decision"]["action"], "execute")
-        self.assertEqual(third_args["budget_decision"]["reason_code"], "complementary_search")
-        self.assertEqual(budget.web_search_calls, 3)
-
-    def test_same_query_can_retry_after_empty_result(self):
-        budget = NetworkToolBudget()
-
-        first_args, _first_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
-
-        self.assertIsNone(second_degraded)
-        self.assertEqual(second_args["budget_decision"]["action"], "execute")
-        self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
-        self.assertEqual(budget.web_search_calls, 2)
-
-    def test_chinese_year_query_without_model_intent_keeps_standard_budget(self):
-        budget = NetworkToolBudget()
-
-        args, degraded = budget.prepare_web_search_args({"query": "SpaceX 估值 上市 2026年"})
-
-        self.assertIsNone(degraded)
-        self.assertNotIn("intent", args)
-        self.assertEqual(args["count"], 10)
-        self.assertEqual(args["search_budget"], "standard")
-
-    def test_second_similar_chinese_year_query_keeps_full_budget(self):
-        budget = NetworkToolBudget()
-
-        first_args, first_degraded = budget.prepare_web_search_args(
-            {"query": "SpaceX 估值 上市 2026年", "intent": "freshness"}
-        )
-        second_args, second_degraded = budget.prepare_web_search_args(
-            {"query": "SpaceX IPO 估值 2026 最新", "intent": "freshness"}
-        )
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertEqual(first_args["search_budget"], "freshness")
-        self.assertEqual(second_args["search_budget"], "freshness")
-        self.assertEqual(second_args["count"], 10)
-        self.assertEqual(second_args["context_source_limit"], 10)
-
-    def test_web_search_preserves_budget_for_similar_followup(self):
-        budget = NetworkToolBudget()
-
-        first_args, first_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026", "intent": "official_source"}
-        )
-        second_args, second_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol 2026年6月 官方公告", "intent": "official_source"}
-        )
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertEqual(first_args["search_budget"], "official_source")
-        self.assertEqual(first_args["count"], 10)
-        self.assertEqual(first_args["context_source_limit"], 10)
-        self.assertEqual(second_args["intent"], "official_source")
-        self.assertEqual(second_args["search_budget"], "official_source")
-        self.assertEqual(second_args["count"], 10)
-        self.assertEqual(second_args["context_source_limit"], 10)
-
-    def test_web_search_keeps_complementary_media_followup_broad(self):
-        budget = NetworkToolBudget()
-
-        official_args, official_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol official announcement June 2026", "intent": "official_source"}
-        )
-        media_args, media_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI GPT-5.6 Sol TechCrunch Reuters 权威媒体报道", "intent": "comparison"}
-        )
-
-        self.assertIsNone(official_degraded)
-        self.assertIsNone(media_degraded)
-        self.assertEqual(official_args["search_budget"], "official_source")
-        self.assertEqual(media_args["intent"], "comparison")
-        self.assertEqual(media_args["search_budget"], "comparison")
-        self.assertEqual(media_args["count"], 10)
-        self.assertEqual(media_args["context_source_limit"], 10)
-
-    def test_third_non_deep_search_is_not_blocked_by_old_plan_limit(self):
-        self.enterContext(_low_network_budget())
-        budget = NetworkToolBudget()
-
-        first_args, first_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI 2026年产品更新 最新发布", "intent": "official_source"}
-        )
-        second_args, second_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI 2026年最新新闻 媒体报道", "intent": "comparison"}
-        )
-        third_args, third_degraded = budget.prepare_web_search_args({"query": "OpenAI GPT-5.6 Sol 预览 2026年6月"})
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertEqual(first_args["search_budget"], "official_source")
-        self.assertEqual(second_args["search_budget"], "comparison")
-        self.assertIsNone(third_degraded)
-        self.assertEqual(third_args["count"], 10)
-        self.assertEqual(third_args["context_source_limit"], 10)
-        self.assertEqual(budget.web_search_calls, 3)
-        self.assertEqual(len(budget.web_search_queries), 3)
-
-    def test_deep_research_allows_third_effective_search(self):
-        self.enterContext(_low_network_budget())
-        budget = NetworkToolBudget()
-
-        first_args, first_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI 2026年 深入调研 技术报告", "intent": "deep_research"}
-        )
-        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026年 官方公告"})
-        third_args, third_degraded = budget.prepare_web_search_args(
-            {"query": "OpenAI 2026年 权威媒体报道", "intent": "comparison"}
-        )
-        fourth_args, fourth_degraded = budget.prepare_web_search_args({"query": "OpenAI GPT-5.6 Sol 预览 2026年6月"})
-
-        self.assertIsNone(first_degraded)
-        self.assertIsNone(second_degraded)
-        self.assertIsNone(third_degraded)
-        self.assertEqual(first_args["search_budget"], "deep_research")
-        self.assertEqual(third_args["search_budget"], "comparison")
-        self.assertIsNone(fourth_degraded)
-        self.assertEqual(budget.web_search_calls, 4)
-        _args, fifth_degraded = budget.prepare_web_search_args({"query": "独立的新问题"})
-        self.assertTrue(fifth_degraded.data["budget_limited"])
-        self.assertEqual(budget.web_search_calls, 4)
-
-    def test_web_search_honors_model_count_with_hard_cap(self):
-        budget = NetworkToolBudget()
-
-        low_args, low_degraded = budget.prepare_web_search_args({"query": "redis", "count": 1})
-        high_args, high_degraded = budget.prepare_web_search_args({"query": "postgres", "count": 99})
-
-        self.assertIsNone(low_degraded)
-        self.assertIsNone(high_degraded)
-        self.assertEqual(low_args["count"], 1)
-        self.assertEqual(high_args["count"], 20)
-        self.assertEqual(low_args["search_budget"], "standard")
-        self.assertEqual(high_args["search_budget"], "standard")
-
-    def test_web_search_maps_supported_intents_to_search_budgets(self):
-        expected = {
-            "quick_fact": ("quick_fact", 20, 10),
-            "freshness": ("freshness", 20, 10),
-            "comparison": ("comparison", 20, 10),
-            "deep_research": ("deep_research", 20, 10),
-            "official_source": ("official_source", 20, 10),
-        }
-
-        for intent, (budget_name, requested_count, context_limit) in expected.items():
-            with self.subTest(intent=intent):
-                budget = NetworkToolBudget()
-
-                args, degraded = budget.prepare_web_search_args({"query": "redis", "intent": intent, "count": 99})
-
-                self.assertIsNone(degraded)
-                self.assertEqual(args["intent"], intent)
-                self.assertEqual(args["search_budget"], budget_name)
-                self.assertEqual(args["count"], requested_count)
-                self.assertEqual(args["context_source_limit"], context_limit)
-
-    def test_web_search_drops_unsupported_intent(self):
-        budget = NetworkToolBudget()
-
-        args, degraded = budget.prepare_web_search_args({"query": "redis", "intent": "ignore-system", "count": 10})
-
-        self.assertIsNone(degraded)
-        self.assertNotIn("intent", args)
-        self.assertEqual(args["count"], 10)
-        self.assertEqual(args["search_budget"], "standard")
-
-    def test_web_search_keeps_at_most_five_plain_domains(self):
-        budget = NetworkToolBudget()
-
-        args, degraded = budget.prepare_web_search_args(
-            {
-                "query": "redis",
-                "domains": [
-                    "https://Redis.io/docs",
-                    "docs.python.org",
-                    "bad domain",
-                    "openai.com/path?q=1",
-                    "api.example.com:443",
-                    "*.example.com",
-                    "example",
-                    "sub.example.org",
-                    "localhost",
-                    "ietf.org",
-                    "github.com",
-                    "www.python.org",
-                    "mozilla.org",
-                ],
-            }
-        )
+        args, degraded = budget.prepare_web_search_args({"query": "OpenAI 最新公告 2026年7月", "count": 6})
 
         self.assertIsNone(degraded)
         self.assertEqual(
-            args["domains"],
-            ["docs.python.org", "sub.example.org", "ietf.org", "github.com", "python.org"],
+            args["budget_decision"],
+            {
+                "query": "OpenAI 最新公告 2026年7月",
+                "action": "execute",
+                "budget_name": "standard",
+                "requested_count": 6,
+                "context_source_limit": 6,
+                "reason_code": "initial_search",
+                "previous_query_count": 0,
+                "planned_search_limit": 40,
+            },
         )
 
-    def test_web_search_clamps_recency_days(self):
+    def test_followups_and_repeated_queries_are_complementary_searches(self):
+        self.enterContext(_low_network_budget())
         budget = NetworkToolBudget()
 
-        low_args, low_degraded = budget.prepare_web_search_args({"query": "redis", "recency_days": 0})
-        high_args, high_degraded = budget.prepare_web_search_args({"query": "postgres", "recency_days": 999})
+        budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
+        second_args, second_degraded = budget.prepare_web_search_args({"query": "OpenAI 2026 最新产品"})
+        third_args, third_degraded = budget.prepare_web_search_args({"query": "OpenAI 权威媒体 2026 最新"})
 
-        self.assertIsNone(low_degraded)
-        self.assertIsNone(high_degraded)
-        self.assertEqual(low_args["recency_days"], 1)
-        self.assertEqual(high_args["recency_days"], 365)
+        self.assertIsNone(second_degraded)
+        self.assertIsNone(third_degraded)
+        self.assertEqual(second_args["budget_decision"]["reason_code"], "complementary_search")
+        self.assertEqual(third_args["budget_decision"]["previous_query_count"], 2)
+        self.assertEqual(budget.web_search_calls, 3)
+        self.assertEqual(len(budget.web_search_queries), 3)
 
     def test_web_search_hard_cap_returns_degraded_without_consuming_handler(self):
         self.enterContext(_low_network_budget())
         budget = NetworkToolBudget(web_search_calls=4)
 
-        args, degraded = budget.prepare_web_search_args({"query": "q4", "count": 8})
+        args, degraded = budget.prepare_web_search_args({"query": "q4", "count": 8, "domains": ["redis.io"]})
 
         self.assertEqual(args["query"], "q4")
-        self.assertIsNotNone(degraded)
         self.assertEqual(degraded.status, "degraded")
         self.assertTrue(degraded.data["budget_limited"])
+        self.assertEqual(degraded.data["requested_count"], 8)
+        self.assertEqual(degraded.data["context_source_limit"], 8)
+        self.assertEqual(degraded.data["domains"], ["redis.io"])
+        self.assertEqual(args["budget_decision"]["action"], "limit_budget")
+        self.assertEqual(budget.web_search_calls, 4)
 
     def test_standard_sixth_url_read_returns_degraded(self):
         self.enterContext(_low_network_budget())
