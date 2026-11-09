@@ -9,7 +9,7 @@ workflow	step	script	body_sha256
 .github/workflows/_deploy-api.yml	Bootstrap current API release ledger	ops/deploy/api-bootstrap-current-release-ledger.sh	ace357d17340fafd24131481fcd854b81d9031bbe2c69171563d35834ab2c5dc
 .github/workflows/_deploy-api.yml	Resolve API deployment digest	ops/deploy/api-resolve-deployment-digest.sh	63d35d9c41fa2e6ad91f12e3052a20dbceb68a9158f4be790dd3dfc9dfb6f95e
 .github/workflows/_deploy-api.yml	Apply alembic migrations	ops/deploy/api-apply-alembic-migrations.sh	d551f00a445e352bcedb1b1633f3b03342824e397bdfef1604a6212028203ac3
-.github/workflows/_deploy-api.yml	Pull and restart fusion-api	ops/deploy/api-pull-and-restart.sh	8fc64e2344c23d13d6209b76a6eda0582fabb8d7aadb49e86e51fcba3b5934a8
+.github/workflows/_deploy-api.yml	Pull and restart fusion-api	ops/deploy/api-pull-and-restart.sh	c09be1653a0ad36dc301cb3c2054322b2c056a009e4d4e247fe9b918c797d589
 .github/workflows/_deploy-api.yml	Verify deployed image identity	ops/deploy/api-verify-image-identity.sh	209a60764a8a6fba6c32a4a8d0690a96948ca6cd8883d1293c225354c309ddbe
 .github/workflows/_deploy-api.yml	Verify health	ops/deploy/api-verify-health.sh	c7904133553c19462e03baf6a3854c733029bd9f3a7fdd8216fb11caeb5be368
 .github/workflows/_deploy-api.yml	Install LiteLLM cost sync	ops/deploy/api-install-litellm-cost-sync.sh	53c29a4d58853c6a86e8e235785322afd6f8ee154def9d61c5e61ccbff80c827
