@@ -22,25 +22,24 @@ vi.mock('@/lib/api/prompts', () => ({
 
 import HomeShowcaseManager from './HomeShowcaseManager';
 
-function candidate(fileId: string, prompt: string, extra: { title?: string | null; inPool?: boolean } = {}) {
+function candidate(imageId: string, prompt: string, extra: { inPool?: boolean } = {}) {
   return {
-    file_id: fileId,
+    image_id: imageId,
     prompt,
-    title: extra.title ?? null,
     width: 864,
     height: 864,
-    thumbnail_url: `/signed/${fileId}`,
+    thumbnail_url: `/api/generated-images/${imageId}/content?token=t`,
     in_pool: extra.inPool ?? false,
   };
 }
 
-function showcaseImage(id: string, label: string, prompt: string, sourceFileId: string | null = null) {
+function showcaseImage(id: string, label: string, prompt: string, sourceImageId: string | null = null) {
   return {
     id,
     label,
     prompt,
     object_position: null,
-    source_file_id: sourceFileId,
+    source_image_id: sourceImageId,
     image_url: `/api/prompts/showcase/${id}/image`,
     width: 480,
     height: 600,
@@ -55,7 +54,7 @@ describe('HomeShowcaseManager', () => {
     addShowcaseFromGeneratedMock.mockReset();
     fetchGeneratedShowcaseCandidatesMock.mockResolvedValue({
       groups: [
-        { key: 'f-new', versions: [candidate('f-new', '一张通货膨胀成因的信息图海报', { title: '信息图' })] },
+        { key: 'f-new', versions: [candidate('f-new', '一张通货膨胀成因的信息图海报')] },
         { key: 'f-old', versions: [candidate('f-old', '水墨白鹭', { inPool: true })] },
       ],
       next_offset: null,
@@ -65,7 +64,7 @@ describe('HomeShowcaseManager', () => {
     });
   });
 
-  it('从自己的生成图挑选，标签和提示词默认沿用生成时的名称和原文，加入后标为已在图片池', async () => {
+  it('从自己的生成图挑选，提示词默认沿用原文、标签手填，加入后标为已在图片池', async () => {
     addShowcaseFromGeneratedMock.mockResolvedValue(
       showcaseImage('infographic', '信息图', '一张通货膨胀成因的信息图海报', 'f-new'),
     );
@@ -77,12 +76,13 @@ describe('HomeShowcaseManager', () => {
     expect(within(picker).getAllByText('已在图片池')).toHaveLength(1);
     fireEvent.click(within(picker).getByRole('button', { name: '一张通货膨胀成因的信息图海报' }));
     expect(screen.getByLabelText('做同款提示词')).toHaveValue('一张通货膨胀成因的信息图海报');
-    expect(screen.getByLabelText('标签')).toHaveValue('信息图');
+    expect(screen.getByLabelText('标签')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '信息图' } });
 
     fireEvent.click(screen.getByRole('button', { name: /添加到图片池/ }));
 
     await waitFor(() => expect(addShowcaseFromGeneratedMock).toHaveBeenCalledWith({
-      fileId: 'f-new',
+      imageId: 'f-new',
       label: '信息图',
       prompt: '一张通货膨胀成因的信息图海报',
       objectPosition: null,
@@ -99,7 +99,7 @@ describe('HomeShowcaseManager', () => {
     await waitFor(() => expect(within(picker).getAllByText('已在图片池')).toHaveLength(1));
     expect(screen.getByRole('list', { name: '我的生成图' })).toBe(picker);
 
-    // 旧图没有名称，标签留空等手填
+    // 换一张图时标签清空重填
     fireEvent.click(within(picker).getByRole('button', { name: '水墨白鹭' }));
     expect(screen.getByLabelText('标签')).toHaveValue('');
   });
@@ -110,7 +110,7 @@ describe('HomeShowcaseManager', () => {
     );
     fetchGeneratedShowcaseCandidatesMock.mockResolvedValue({
       groups: [
-        { key: 'f-new', versions: [candidate('f-new', '一张通货膨胀成因的信息图海报', { title: '信息图' })] },
+        { key: 'f-new', versions: [candidate('f-new', '一张通货膨胀成因的信息图海报')] },
         { key: 'f-b', versions: [candidate('f-b', '另一张')] },
       ],
       next_offset: null,
@@ -120,6 +120,7 @@ describe('HomeShowcaseManager', () => {
     const picker = await screen.findByRole('list', { name: '我的生成图' });
     expect(fetchGeneratedShowcaseCandidatesMock).toHaveBeenCalledWith({ hideInPool: true });
     fireEvent.click(within(picker).getByRole('button', { name: '一张通货膨胀成因的信息图海报' }));
+    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '信息图' } });
     fireEvent.click(screen.getByRole('button', { name: /添加到图片池/ }));
 
     await waitFor(() => expect(
@@ -149,7 +150,7 @@ describe('HomeShowcaseManager', () => {
     fetchGeneratedShowcaseCandidatesMock.mockResolvedValue({
       groups: [{
         key: 'f-1',
-        versions: [candidate('f-3', '第三版'), candidate('f-2', '第二版', { title: '家常菜' }), candidate('f-1', '初版')],
+        versions: [candidate('f-3', '第三版'), candidate('f-2', '第二版'), candidate('f-1', '初版')],
       }],
       next_offset: null,
     });
@@ -164,7 +165,6 @@ describe('HomeShowcaseManager', () => {
     fireEvent.click(within(versions).getByRole('button', { name: '第二版' }));
 
     expect(screen.getByLabelText('做同款提示词')).toHaveValue('第二版');
-    expect(screen.getByLabelText('标签')).toHaveValue('家常菜');
     expect(within(versions).getByRole('button', { name: '第二版' })).toHaveAttribute('aria-pressed', 'true');
   });
 
@@ -206,7 +206,7 @@ describe('HomeShowcaseManager', () => {
     fireEvent.click(submit);
 
     await waitFor(() => expect(addShowcaseFromGeneratedMock).toHaveBeenCalledWith({
-      fileId: 'f-old',
+      imageId: 'f-old',
       label: '中文海报',
       prompt: '水墨白鹭',
       objectPosition: 'top',
@@ -226,6 +226,7 @@ describe('HomeShowcaseManager', () => {
     const picker = await screen.findByRole('list', { name: '我的生成图' });
 
     fireEvent.click(within(picker).getByRole('button', { name: '一张通货膨胀成因的信息图海报' }));
+    fireEvent.change(screen.getByLabelText('标签'), { target: { value: '信息图' } });
     fireEvent.click(screen.getByRole('button', { name: /添加到图片池/ }));
 
     expect(await screen.findByText('图片无法读取，请换一张')).toBeInTheDocument();

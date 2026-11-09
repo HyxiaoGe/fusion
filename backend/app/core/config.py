@@ -415,7 +415,7 @@ class Settings(BaseSettings):
     # 远程 MCP Client：仅允许精确配置的 HTTPS 主机和凭证环境变量引用。
     # 现有 MCP 都经 agent-tools 网关（写在 MCP_ALLOWED_INTERNAL_ENDPOINTS），默认不放行任何公网主机。
     MCP_ALLOWED_HOSTS: str = os.getenv("MCP_ALLOWED_HOSTS", "")
-    # 部署在内网的自建 MCP（如 image-service）按完整地址逐个放行，可用 HTTP 与内网 IP；
+    # 部署在内网的自建 MCP（如 agent-tools 网关上的热榜）按完整地址逐个放行，可用 HTTP 与内网 IP；
     # 只认精确匹配，不放开整个网段。
     MCP_ALLOWED_INTERNAL_ENDPOINTS: str = os.getenv("MCP_ALLOWED_INTERNAL_ENDPOINTS", "")
     MCP_ALLOWED_CREDENTIAL_REFS: str = os.getenv("MCP_ALLOWED_CREDENTIAL_REFS", "")

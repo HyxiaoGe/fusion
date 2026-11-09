@@ -5,8 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { Download, ImageOff, RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { getFileUrl } from '@/lib/api/files';
-import type { FileBlock, GeneratedImageBlock } from '@/types/conversation';
+import { getGeneratedImageUrl } from '@/lib/api/files';
+import type { GeneratedImageBlock } from '@/types/conversation';
 import ImageGenerationDots from './ImageGenerationDots';
 import ImageViewer from './ImageViewer';
 import { track } from '@/lib/analytics/analytics';
@@ -32,18 +32,6 @@ const EMPTY_PENDING: PendingImageGeneration[] = [];
 const signedUrlCache = new Map<string, string>();
 const KNOWN_FAILURE_CODES = new Set(['content_filtered', 'upstream_timeout', 'generation_in_progress', 'source_image_unavailable']);
 
-function toFileBlock(block: GeneratedImageBlock): FileBlock {
-  return {
-    type: 'file',
-    id: block.id,
-    file_id: block.file_id,
-    filename: block.prompt,
-    mime_type: block.mime_type,
-    ...(block.width ? { width: block.width } : {}),
-    ...(block.height ? { height: block.height } : {}),
-  };
-}
-
 function frameStyle(width: number, height: number): CSSProperties {
   return { width: imageDisplayWidth(width, height), aspectRatio: `${width} / ${height}` };
 }
@@ -55,7 +43,7 @@ function blockFrame(block: GeneratedImageBlock): [number, number] {
 
 function downloadName(block: GeneratedImageBlock): string {
   const extension = block.mime_type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
-  return `fusion-image-${block.file_id.slice(0, 8)}.${extension}`;
+  return `fusion-image-${block.image_id.slice(0, 8)}.${extension}`;
 }
 
 function useElapsedSeconds(startedAt: number, active: boolean, completedAt?: number): number {
@@ -118,11 +106,11 @@ function GeneratedImageCard({
   onRegenerate,
 }: {
   block: GeneratedImageBlock;
-  onOpen: () => void;
+  onOpen: (src: string) => void;
   onRegenerate?: (request: string) => void;
 }) {
   const { t } = useTranslation();
-  const cachedSrc = signedUrlCache.get(block.file_id) ?? '';
+  const cachedSrc = signedUrlCache.get(block.image_id) ?? '';
   const [src, setSrc] = useState(cachedSrc);
   const [state, setState] = useState<'loading' | 'ready' | 'loaded' | 'failed'>(cachedSrc ? 'ready' : 'loading');
   const [instant] = useState(Boolean(cachedSrc));
@@ -136,36 +124,36 @@ function GeneratedImageCard({
   const load = useCallback(async () => {
     setState('loading');
     try {
-      const url = await getFileUrl(block.file_id, 'processed');
-      signedUrlCache.set(block.file_id, url);
+      const url = await getGeneratedImageUrl(block.image_id);
+      signedUrlCache.set(block.image_id, url);
       setSrc(url);
       setState('ready');
     } catch {
       setState('failed');
     }
-  }, [block.file_id]);
+  }, [block.image_id]);
 
   useEffect(() => {
-    if (signedUrlCache.has(block.file_id)) return;
+    if (signedUrlCache.has(block.image_id)) return;
     void load();
-  }, [block.file_id, load]);
+  }, [block.image_id, load]);
 
   const handleImageError = () => {
     // 缓存的签名地址可能已过期：丢掉后重新取一次，再失败才显示失败。
     if (instant && !retriedCachedUrl) {
       setRetriedCachedUrl(true);
-      signedUrlCache.delete(block.file_id);
+      signedUrlCache.delete(block.image_id);
       void load();
       return;
     }
-    signedUrlCache.delete(block.file_id);
+    signedUrlCache.delete(block.image_id);
     setState('failed');
   };
 
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const url = src || await getFileUrl(block.file_id, 'processed');
+      const url = src || await getGeneratedImageUrl(block.image_id);
       try {
         const response = await fetch(url);
         if (!response.ok) throw new Error(String(response.status));
@@ -201,7 +189,7 @@ function GeneratedImageCard({
           </div>
         ) : null}
         {src && state !== 'failed' ? (
-          // eslint-disable-next-line @next/next/no-img-element -- 签名地址的私有文件，不走 next/image 优化
+          // eslint-disable-next-line @next/next/no-img-element -- 签名地址的私有图片，不走 next/image 优化
           <img
             src={src}
             alt={block.prompt}
@@ -210,7 +198,7 @@ function GeneratedImageCard({
             className="image-gen-image absolute inset-0 h-full w-full cursor-zoom-in object-cover"
             onLoad={() => setState('loaded')}
             onError={handleImageError}
-            onClick={onOpen}
+            onClick={() => onOpen(src)}
           />
         ) : null}
       </div>
@@ -264,7 +252,7 @@ function GeneratedImageCard({
 
 /** 模型生成的图片：生成中按目标比例显示点阵占位，出图后原位淡入，卡片下标注生图模型。 */
 function GeneratedImages({ blocks, pending = EMPTY_PENDING, onRegenerate, runId = null }: GeneratedImagesProps) {
-  const [viewing, setViewing] = useState<FileBlock | null>(null);
+  const [viewing, setViewing] = useState<{ url: string; alt: string } | null>(null);
   if (blocks.length === 0 && pending.length === 0) return null;
 
   return (
@@ -273,9 +261,9 @@ function GeneratedImages({ blocks, pending = EMPTY_PENDING, onRegenerate, runId 
         <GeneratedImageCard
           key={block.id}
           block={block}
-          onOpen={() => {
+          onOpen={(src) => {
             track('generated_image_opened', { run_id: runId });
-            setViewing(toFileBlock(block));
+            setViewing({ url: src, alt: block.prompt });
           }}
           onRegenerate={onRegenerate ? (request) => {
             track('generated_image_regenerate_clicked', { run_id: runId });
@@ -284,7 +272,7 @@ function GeneratedImages({ blocks, pending = EMPTY_PENDING, onRegenerate, runId 
         />
       ))}
       {pending.map(item => <PendingImageCard key={item.toolCallId} pending={item} />)}
-      <ImageViewer fileBlock={viewing} onClose={() => setViewing(null)} />
+      <ImageViewer imageUrl={viewing?.url ?? null} alt={viewing?.alt} onClose={() => setViewing(null)} />
     </div>
   );
 }

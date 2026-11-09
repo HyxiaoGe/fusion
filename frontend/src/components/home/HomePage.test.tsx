@@ -54,7 +54,7 @@ const SHOWCASE_IMAGES = [
   ...image,
   id: `showcase-${index}`,
   object_position: null,
-  source_file_id: null,
+  source_image_id: null,
   image_url: `/api/prompts/showcase/showcase-${index}/image`,
   full_image_url: `/api/prompts/showcase/showcase-${index}/image/full`,
   width: 480,

@@ -1,17 +1,15 @@
 # app/api/prompts.py
-import asyncio
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_audit_service, get_current_admin_user, get_file_service
+from app.api.deps import get_admin_audit_service, get_current_admin_user
 from app.db.database import get_db
 from app.db.models import User as UserModel
 from app.schemas.response import success
-from app.services import home_showcase_service
+from app.services import generated_images, home_showcase_service
 from app.services.admin_audit_service import AdminAuditService
-from app.services.file_service import FileService
+from app.services.external.agent_tools_images import ImageStoreError, fetch_image
 from app.services.prompt_examples_service import get_prompt_examples
 
 router = APIRouter()
@@ -19,7 +17,7 @@ admin_router = APIRouter()
 
 
 class ShowcaseFromGeneratedRequest(BaseModel):
-    file_id: str = Field(min_length=1, max_length=64)
+    image_id: str = Field(min_length=1, max_length=64)
     label: str
     prompt: str
     object_position: str | None = None
@@ -88,27 +86,27 @@ async def list_generated_for_showcase(
     hide_in_pool: bool = Query(default=False),
     db: Session = Depends(get_db),
     admin: UserModel = Depends(get_current_admin_user),
-    file_service: FileService = Depends(get_file_service),
 ):
     """当前管理员自己生成过的图片，按编辑链分组，供挑进图片池；不列其他用户的图。"""
     in_pool = frozenset(
-        row.source_file_id for row in home_showcase_service.list_showcase_images(db) if row.source_file_id
+        row.source_image_id for row in home_showcase_service.list_showcase_images(db) if row.source_image_id
     )
     page, next_offset = home_showcase_service.list_generated_groups(
-        db, str(admin.id), exclude_file_ids=in_pool if hide_in_pool else frozenset(), offset=offset
+        db, str(admin.id), exclude_image_ids=in_pool if hide_in_pool else frozenset(), offset=offset
     )
-    versions = [image for group in page for image in group["versions"]]
-    # 签发缩略图地址要逐张确认存储对象存在，并发进行
-    thumbnail_urls = await asyncio.gather(
-        *(file_service.get_file_url(image["file_id"], str(admin.id), "thumbnail") for image in versions)
-    )
-    url_of = {image["file_id"]: url for image, url in zip(versions, thumbnail_urls, strict=True)}
+    versions = [image["image_id"] for group in page for image in group["versions"]]
+    # 只列还记在 generated_images 里、归当前管理员的图（会话删了的取不到）
+    available = generated_images.user_image_ids(db, image_ids=versions, user_id=str(admin.id))
     groups = []
     for group in page:
         items = [
-            {**image, "thumbnail_url": url_of[image["file_id"]], "in_pool": image["file_id"] in in_pool}
+            {
+                **image,
+                "thumbnail_url": generated_images.signed_image_url(image["image_id"]),
+                "in_pool": image["image_id"] in in_pool,
+            }
             for image in group["versions"]
-            if url_of[image["file_id"]] is not None
+            if image["image_id"] in available
         ]
         if items:
             groups.append({"key": group["key"], "versions": items})
@@ -121,21 +119,25 @@ async def add_showcase_from_generated(
     request: Request,
     db: Session = Depends(get_db),
     admin: UserModel = Depends(get_current_admin_user),
-    file_service: FileService = Depends(get_file_service),
     audit_service: AdminAuditService = Depends(get_admin_audit_service),
 ):
-    # 按当前管理员取文件，别人的图取不到
-    file_content = await file_service.get_file_content(payload.file_id, str(admin.id), "processed")
-    if file_content is None:
+    # 只认当前管理员自己画的图，别人的图取不到
+    if generated_images.user_image(db, image_id=payload.image_id, user_id=str(admin.id)) is None:
+        raise HTTPException(status_code=404, detail="图片不存在或无权访问")
+    try:
+        got = await fetch_image(payload.image_id)
+    except ImageStoreError:
+        raise HTTPException(status_code=502, detail="图片暂时取不到，请稍后再试") from None
+    if got is None:
         raise HTTPException(status_code=404, detail="图片不存在或无权访问")
     row = await home_showcase_service.add_showcase_image(
         db,
-        content=file_content[0],
+        content=got[0],
         label=payload.label,
         prompt=payload.prompt,
         object_position=payload.object_position,
         created_by=str(admin.id),
-        source_file_id=payload.file_id,
+        source_image_id=payload.image_id,
     )
     audit_service._record(
         admin=admin,
@@ -143,7 +145,7 @@ async def add_showcase_from_generated(
         resource_type="home_showcase_image",
         resource_id=row.id,
         request_id=request.state.request_id,
-        metadata={"label": row.label, "source_file_id": payload.file_id},
+        metadata={"label": row.label, "source_image_id": payload.image_id},
     )
     return success(data=home_showcase_service.serialize_showcase_image(row), request_id=request.state.request_id)
 

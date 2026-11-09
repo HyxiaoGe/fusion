@@ -12,10 +12,15 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api import prompts
-from app.api.deps import get_admin_audit_service, get_current_admin_user, get_file_service
+from app.api.deps import get_admin_audit_service, get_current_admin_user
 from app.db.database import get_db
-from app.db.models import Conversation, HomeShowcaseImage, Message, ToolCallLog, User
+from app.db.models import Conversation, GeneratedImage, HomeShowcaseImage, Message, ToolCallLog, User
 from app.services import home_showcase_service
+
+
+def iid(name: str) -> str:
+    """image-service 的图片编号（uuid4 形状），按名字固定生成。"""
+    return f"00000000-0000-4000-8000-{name.encode().hex():0>12}"[:36]
 
 
 class FakeStorage:
@@ -46,7 +51,7 @@ def storage(monkeypatch):
 @pytest.fixture
 def db():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    for model in (User, Conversation, Message, ToolCallLog, HomeShowcaseImage):
+    for model in (User, Conversation, Message, ToolCallLog, HomeShowcaseImage, GeneratedImage):
         model.__table__.create(engine)
     session = sessionmaker(autoflush=False, bind=engine)()
     yield session
@@ -84,7 +89,7 @@ def test_add_stores_480_short_side_card_and_1600_long_side_full_webp(db, storage
         "label": "水彩插画",
         "prompt": "画一只水彩风格的橘猫",
         "object_position": "top",
-        "source_file_id": None,
+        "source_image_id": None,
         "image_url": f"/api/prompts/showcase/{row.id}/image",
         "full_image_url": f"/api/prompts/showcase/{row.id}/image/full",
         "width": 480,
@@ -126,56 +131,59 @@ def _seed_generated(db):
     db.add(Conversation(id="conv-1", user_id="admin-1", title="生图", model_id="m"))
     db.add(Conversation(id="conv-2", user_id="user-2", title="别人的", model_id="m"))
 
-    def image_block(file_id, prompt, title=None):
-        block = {
+    def image_block(name, prompt):
+        return {
             "type": "generated_image",
-            "file_id": file_id,
+            "schema_version": 2,
+            "image_id": iid(name),
             "prompt": prompt,
             "width": 864,
             "height": 1312,
-            "tool_call_log_id": f"log-{file_id}",
+            "tool_call_log_id": f"log-{name}",
         }
-        return {**block, "title": title} if title else block
 
-    def generated(
-        message_id, day, conversation_id, file_id, prompt, params, *, user_id="admin-1", title=None, extra=()
-    ):
+    def generated(message_id, day, conversation_id, name, prompt, params, *, user_id="admin-1", extra=()):
         db.add(
             ToolCallLog(
-                id=f"log-{file_id}",
+                id=f"log-{name}",
                 conversation_id=conversation_id,
                 user_id=user_id,
                 tool_name="generate_image",
                 status="success",
                 model_id="m",
-                provider="image-service",
+                provider="image",
                 input_params={"prompt": prompt, **params},
             )
         )
+        db.add(GeneratedImage(id=iid(name), conversation_id=conversation_id, user_id=user_id, mime_type="image/png"))
         db.add(
             Message(
                 id=message_id,
                 conversation_id=conversation_id,
                 role="assistant",
-                content=[{"type": "text", "content": "好的"}, image_block(file_id, prompt, title), *extra],
+                content=[{"type": "text", "content": "好的"}, image_block(name, prompt), *extra],
                 created_at=datetime(2026, 10, day, tzinfo=UTC),
             )
         )
 
-    # f-a 编辑出 f-b，f-b 再编辑出 f-e；f-c 之后在同会话里重画出 f-d
-    generated("m1", 1, "conv-1", "f-a", "初版", {})
-    generated("m2", 2, "conv-1", "f-b", "改一版", {"source_image_id": "f-a"}, title="信息图")
-    generated("m3", 3, "conv-1", "f-c", "另一张", {})
-    generated("m4", 4, "conv-1", "f-d", "另一张", {"regenerate": True})
+    # a 编辑出 b，b 再编辑出 e；c 之后在同会话里重画出 d
+    generated("m1", 1, "conv-1", "a", "初版", {})
+    generated("m2", 2, "conv-1", "b", "改一版", {"source_image_id": iid("a")})
+    generated("m3", 3, "conv-1", "c", "另一张", {})
+    generated("m4", 4, "conv-1", "d", "另一张", {"regenerate": True})
     # 回复里重复出现的旧图块只算一次
-    generated("m5", 5, "conv-1", "f-e", "再改", {"source_image_id": "f-b"}, extra=[image_block("f-a", "初版")])
-    generated("m6", 6, "conv-2", "f-other", "别人的图", {}, user_id="user-2")
-    db.add(Message(id="m7", conversation_id="conv-1", role="user", content=[image_block("f-user", "用户消息")]))
+    generated("m5", 5, "conv-1", "e", "再改", {"source_image_id": iid("b")}, extra=[image_block("a", "初版")])
+    generated("m6", 6, "conv-2", "other", "别人的图", {}, user_id="user-2")
+    db.add(Message(id="m7", conversation_id="conv-1", role="user", content=[image_block("user", "用户消息")]))
     db.commit()
 
 
-def _file_ids(groups):
-    return [[image["file_id"] for image in group["versions"]] for group in groups]
+def _image_ids(groups):
+    return [[image["image_id"] for image in group["versions"]] for group in groups]
+
+
+def _ids(*names):
+    return [iid(name) for name in names]
 
 
 def test_generated_groups_follow_edit_and_regenerate_records_newest_first(db):
@@ -184,13 +192,12 @@ def test_generated_groups_follow_edit_and_regenerate_records_newest_first(db):
     groups, next_offset = home_showcase_service.list_generated_groups(db, "admin-1")
 
     assert next_offset is None
-    assert _file_ids(groups) == [["f-e", "f-b", "f-a"], ["f-d", "f-c"]]
+    assert _image_ids(groups) == [_ids("e", "b", "a"), _ids("d", "c")]
     # key 是链上最早那张图，排除部分版本后不变
-    assert [group["key"] for group in groups] == ["f-a", "f-c"]
+    assert [group["key"] for group in groups] == _ids("a", "c")
     assert groups[0]["versions"][1] == {
-        "file_id": "f-b",
+        "image_id": iid("b"),
         "prompt": "改一版",
-        "title": "信息图",
         "width": 864,
         "height": 1312,
     }
@@ -200,28 +207,29 @@ def test_generated_groups_exclude_versions_and_page_by_group(db):
     _seed_generated(db)
 
     excluded, _ = home_showcase_service.list_generated_groups(
-        db, "admin-1", exclude_file_ids=frozenset({"f-e", "f-c", "f-d"})
+        db, "admin-1", exclude_image_ids=frozenset(_ids("e", "c", "d"))
     )
     first, next_offset = home_showcase_service.list_generated_groups(db, "admin-1", page_size=1)
     second, last_offset = home_showcase_service.list_generated_groups(db, "admin-1", offset=next_offset, page_size=1)
 
     # 整组都被排除时这组不出现
-    assert _file_ids(excluded) == [["f-b", "f-a"]]
-    assert excluded[0]["key"] == "f-a"
-    assert (_file_ids(first), next_offset) == ([["f-e", "f-b", "f-a"]], 1)
-    assert (_file_ids(second), last_offset) == ([["f-d", "f-c"]], None)
+    assert _image_ids(excluded) == [_ids("b", "a")]
+    assert excluded[0]["key"] == iid("a")
+    assert (_image_ids(first), next_offset) == ([_ids("e", "b", "a")], 1)
+    assert (_image_ids(second), last_offset) == ([_ids("d", "c")], None)
 
 
-class FakeFileService:
-    def __init__(self):
-        self.files = {(file_id, "admin-1"): _png(864, 1312) for file_id in ("f-a", "f-b", "f-c", "f-d", "f-e")}
+@pytest.fixture(autouse=True)
+def image_store(monkeypatch):
+    """image-service 里存着的图；按编号取。"""
+    images = {image_id: _png(864, 1312) for image_id in _ids("a", "b", "c", "d", "e", "other")}
 
-    async def get_file_url(self, file_id, user_id, variant):
-        return f"/signed/{file_id}/{variant}" if (file_id, user_id) in self.files else None
-
-    async def get_file_content(self, file_id, user_id, variant):
-        data = self.files.get((file_id, user_id))
+    async def fetch_image(image_id):
+        data = images.get(image_id)
         return (data, "image/png") if data is not None else None
+
+    monkeypatch.setattr(prompts, "fetch_image", fetch_image)
+    return images
 
 
 def _client(db, *, admin=True):
@@ -235,7 +243,6 @@ def _client(db, *, admin=True):
     app.include_router(prompts.router, prefix="/api/prompts")
     app.include_router(prompts.admin_router, prefix="/api/admin/home-showcase")
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_file_service] = FakeFileService
     audit_calls = []
     app.dependency_overrides[get_admin_audit_service] = lambda: SimpleNamespace(
         _record=lambda **kwargs: audit_calls.append(kwargs)
@@ -251,7 +258,7 @@ def test_admin_pool_image_then_public_list_images_and_unpublish(db, storage):
 
     created = client.post(
         "/api/admin/home-showcase/from-generated",
-        json={"file_id": "f-a", "label": "水彩插画", "prompt": "初版"},
+        json={"image_id": iid("a"), "label": "水彩插画", "prompt": "初版"},
     )
     assert created.status_code == 200
     image = created.json()["data"]
@@ -275,7 +282,7 @@ def test_admin_pool_image_then_public_list_images_and_unpublish(db, storage):
     assert client.get(image["full_image_url"]).status_code == 404
     assert storage.objects == {}
     hidden = client.get("/api/admin/home-showcase/generated", params={"hide_in_pool": "true"}).json()["data"]
-    assert [item["file_id"] for item in hidden["groups"][0]["versions"]] == ["f-e", "f-b", "f-a"]
+    assert [item["image_id"] for item in hidden["groups"][0]["versions"]] == _ids("e", "b", "a")
 
 
 def test_manual_upload_endpoint_is_gone(db, storage):
@@ -297,47 +304,63 @@ def test_admin_picks_own_generated_image_into_pool(db, storage):
 
     def listed(**params):
         data = client.get("/api/admin/home-showcase/generated", params=params).json()["data"]
-        return data["next_offset"], [
-            [(item["file_id"], item["thumbnail_url"], item["in_pool"]) for item in group["versions"]]
-            for group in data["groups"]
-        ]
+        return (
+            data["next_offset"],
+            [[(item["image_id"], item["in_pool"]) for item in group["versions"]] for group in data["groups"]],
+            [item["thumbnail_url"] for group in data["groups"] for item in group["versions"]],
+        )
 
-    assert listed() == (
+    next_offset, groups, thumbnails = listed()
+    assert (next_offset, groups) == (
         None,
         [
-            [
-                ("f-e", "/signed/f-e/thumbnail", False),
-                ("f-b", "/signed/f-b/thumbnail", False),
-                ("f-a", "/signed/f-a/thumbnail", False),
-            ],
-            [("f-d", "/signed/f-d/thumbnail", False), ("f-c", "/signed/f-c/thumbnail", False)],
+            [(iid("e"), False), (iid("b"), False), (iid("a"), False)],
+            [(iid("d"), False), (iid("c"), False)],
         ],
     )
+    # 缩略图走签名的生成图地址
+    assert thumbnails[0].startswith(f"/api/generated-images/{iid('e')}/content?token=")
 
     created = client.post(
         "/api/admin/home-showcase/from-generated",
-        json={"file_id": "f-b", "label": "信息图", "prompt": "改一版"},
+        json={"image_id": iid("b"), "label": "信息图", "prompt": "改一版"},
     )
     assert created.status_code == 200
     image = created.json()["data"]
-    assert (image["source_file_id"], image["width"], image["height"]) == ("f-b", 480, 729)
-    assert audit_calls[0]["metadata"] == {"label": "信息图", "source_file_id": "f-b"}
+    assert (image["source_image_id"], image["width"], image["height"]) == (iid("b"), 480, 729)
+    assert audit_calls[0]["metadata"] == {"label": "信息图", "source_image_id": iid("b")}
 
-    _, groups = listed()
-    assert [item[2] for item in groups[0]] == [False, True, False]
+    _, groups, _ = listed()
+    assert [item[1] for item in groups[0]] == [False, True, False]
     hidden = client.get("/api/admin/home-showcase/generated", params={"hide_in_pool": "true"}).json()["data"]
-    assert [(group["key"], [item["file_id"] for item in group["versions"]]) for group in hidden["groups"]] == [
-        ("f-a", ["f-e", "f-a"]),
-        ("f-c", ["f-d", "f-c"]),
+    assert [(group["key"], [item["image_id"] for item in group["versions"]]) for group in hidden["groups"]] == [
+        (iid("a"), _ids("e", "a")),
+        (iid("c"), _ids("d", "c")),
     ]
 
     # 别人的图按当前管理员取不到
     other = client.post(
         "/api/admin/home-showcase/from-generated",
-        json={"file_id": "f-other", "label": "别人的", "prompt": "别人的图"},
+        json={"image_id": iid("other"), "label": "别人的", "prompt": "别人的图"},
     )
     assert other.status_code == 404
     assert db.query(HomeShowcaseImage).count() == 1
+
+
+def test_images_whose_conversation_is_gone_are_not_listed_or_pickable(db, storage):
+    _seed_generated(db)
+    db.query(GeneratedImage).filter(GeneratedImage.id.in_(_ids("c", "d"))).delete(synchronize_session=False)
+    db.commit()
+    client, _ = _client(db)
+
+    data = client.get("/api/admin/home-showcase/generated").json()["data"]
+
+    assert [[item["image_id"] for item in group["versions"]] for group in data["groups"]] == [_ids("e", "b", "a")]
+    response = client.post(
+        "/api/admin/home-showcase/from-generated",
+        json={"image_id": iid("c"), "label": "没了", "prompt": "另一张"},
+    )
+    assert response.status_code == 404
 
 
 def test_admin_endpoints_require_admin(db, storage):
@@ -346,7 +369,7 @@ def test_admin_endpoints_require_admin(db, storage):
 
     response = client.post(
         "/api/admin/home-showcase/from-generated",
-        json={"file_id": "f-a", "label": "水彩插画", "prompt": "初版"},
+        json={"image_id": iid("a"), "label": "水彩插画", "prompt": "初版"},
     )
 
     assert response.status_code in {401, 403}

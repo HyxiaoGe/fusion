@@ -18,7 +18,15 @@ from sqlalchemy.pool import StaticPool
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from app.db.database import Base
-from app.db.models import AgentSession, Changelog, Conversation, Notification, NotificationUserState, User
+from app.db.models import (
+    AgentSession,
+    Changelog,
+    Conversation,
+    GeneratedImage,
+    Notification,
+    NotificationUserState,
+    User,
+)
 from app.db.notification_repository import NotificationRepository
 from app.db.repositories import ConversationRepository
 from app.schemas.response import ApiException
@@ -43,6 +51,7 @@ def db():
             Changelog.__table__,
             NotificationUserState.__table__,
             Notification.__table__,
+            GeneratedImage.__table__,
         ],
     )
     with Session(engine) as session:

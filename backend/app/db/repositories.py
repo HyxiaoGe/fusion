@@ -34,6 +34,7 @@ from app.schemas.chat import (
     Usage,
 )
 from app.schemas.content_block_registry import deserialize_content_blocks
+from app.services.generated_images import conversation_image_ids, forget_generated_images, image_ids_in_blocks
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -247,6 +248,8 @@ class ConversationRepository:
                 is not None
             ):
                 state.revision += 1
+            # 生成图存在 image-service 里：记录随会话删除，服务里的图在提交后删。
+            forget_generated_images(self.db, conversation_image_ids(self.db, conversation_id))
             result = (
                 self.db.query(ConversationModel)
                 .filter(ConversationModel.id == conversation_id, ConversationModel.user_id == user_id)
@@ -508,6 +511,8 @@ class ConversationRepository:
         edited_text = {**(text_block or {"type": "text", "id": f"blk_{uuid.uuid4().hex[:12]}"}), "text": text}
         target.content = [edited_text, *(block for block in blocks if block.get("type") != "text")]
         for row in rows[target_index + 1 :]:
+            # 被删回答里的生成图不再有人指着，提交后从服务里删掉。
+            forget_generated_images(self.db, image_ids_in_blocks(row.content))
             self.db.delete(row)
         conversation.updated_at = utc_now()
         self.db.flush()
@@ -610,7 +615,10 @@ class ConversationRepository:
                 db_message.sequence = message.sequence
             elif db_message.sequence != message.sequence:
                 raise ValueError("assistant 消息顺序号与原轮次不一致")
-        db_message.content = [block.model_dump(mode="json") for block in message.content]
+        new_content = [block.model_dump(mode="json") for block in message.content]
+        # 旧回答里、新回答不再指着的生成图，提交后从服务里删掉。
+        forget_generated_images(self.db, image_ids_in_blocks(db_message.content) - image_ids_in_blocks(new_content))
+        db_message.content = new_content
         db_message.model_id = message.model_id
         db_message.usage = message.usage.model_dump() if message.usage else None
         db_message.suggested_questions = None

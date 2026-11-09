@@ -882,20 +882,18 @@ class DocumentBlock(BaseModel):
 
 
 class GeneratedImageBlock(BaseModel):
-    """模型通过 generate_image 生成的图片；图片转存在 Fusion 文件存储，前端按 file_id 取签名地址。"""
+    """模型通过 generate_image 生成的图片；图存在 image-service 里，前端按 image_id 经 Fusion 后端取。"""
 
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["generated_image"]
     id: str = Field(default_factory=lambda: f"blk_{uuid4().hex[:12]}", max_length=160)
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     provider: str = Field(min_length=1, max_length=40)
-    file_id: str = Field(min_length=1, max_length=64)
+    image_id: str = Field(min_length=1, max_length=64)
     mime_type: str = Field(min_length=1, max_length=40)
     width: Optional[int] = Field(default=None, ge=1, le=20_000)
     height: Optional[int] = Field(default=None, ge=1, le=20_000)
-    # 模型给这张图起的简短名称，挑进首页示例图时作为标签
-    title: Optional[str] = Field(default=None, max_length=12)
     prompt: str = Field(min_length=1, max_length=1_000)
     aspect_ratio: Optional[str] = Field(default=None, max_length=8)
     model: Optional[str] = Field(default=None, max_length=80)
