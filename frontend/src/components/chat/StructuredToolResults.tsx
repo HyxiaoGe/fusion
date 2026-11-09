@@ -1714,6 +1714,9 @@ function formatTravelPrice(price: TravelMoney | null | undefined, fallback: stri
   return `¥${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)}`;
 }
 
+// 与出行服务放行的预订主机一致；服务实际返回的多是 router.feizhu.com 短链。
+const TRAVEL_BOOKING_HOSTS = new Set(['a.feizhu.com', 'router.feizhu.com']);
+
 function secureTravelActions(
   actions?: StructuredResultAction[] | null,
 ): Array<{ kind: 'open_external'; url: string }> {
@@ -1722,7 +1725,7 @@ function secureTravelActions(
     const parsed = parseHttpsUrl(action.url);
     if (
       !parsed
-      || parsed.hostname.toLowerCase() !== 'a.feizhu.com'
+      || !TRAVEL_BOOKING_HOSTS.has(parsed.hostname.toLowerCase())
       || parsed.username
       || parsed.password
       || (parsed.port && parsed.port !== '443')
