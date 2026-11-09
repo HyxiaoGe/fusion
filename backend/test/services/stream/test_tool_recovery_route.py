@@ -4,7 +4,10 @@ import unittest
 
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
-from app.services.weather.qweather_forecast_tool import WEATHER_FORECAST_DEFINITION
+from app.services.weather.forecast_tool import build_weather_forecast_definition
+from test.test_forecast_tool import WEATHER_SPEC
+
+WEATHER_FORECAST_DEFINITION = build_weather_forecast_definition(WEATHER_SPEC)
 
 
 class RecoveryRouteTests(unittest.TestCase):

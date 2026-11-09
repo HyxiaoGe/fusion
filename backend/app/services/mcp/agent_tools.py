@@ -18,6 +18,7 @@ from app.core.logger import app_logger as logger
 from app.db.database import SessionLocal
 from app.db.mcp_server_repository import McpServerRepository
 from app.schemas.chat import DataSourceBlock, ToolSourceReference
+from app.services.external.agent_tools_mcp import GatewayToolCatalog, GatewayToolSpec, gateway_tool_catalog
 from app.services.mcp.amap_product_tools import (
     AMAP_PRODUCT_DEFINITIONS,
     AMAP_PRODUCT_REMOTE_DEPENDENCIES,
@@ -73,11 +74,12 @@ from app.services.tool_handlers.itinerary import (
     PresentItineraryHandler,
     build_present_itinerary_tool,
 )
-from app.services.weather.qweather_client import QWeatherClient
-from app.services.weather.qweather_forecast_tool import (
-    WEATHER_FORECAST_DEFINITION,
-    QWeatherForecastToolHandler,
-    build_qweather_binding,
+from app.services.weather.forecast_tool import (
+    WEATHER_REMOTE_TOOL,
+    WEATHER_SERVICE,
+    WeatherForecastToolHandler,
+    build_weather_binding,
+    build_weather_forecast_definition,
 )
 
 MCP_AGENT_TOOL_ERROR_MESSAGE = MCP_TOOL_UNAVAILABLE_MESSAGE
@@ -947,7 +949,7 @@ def load_mcp_agent_tools(
     flyai_client: FlyAiTravelAdapterClient | None = None,
     store_generated_image: Callable[..., Any] | None = None,
     load_generated_image: Callable[..., Any] | None = None,
-    qweather_client: QWeatherClient | None = None,
+    gateway_catalog: GatewayToolCatalog | None = None,
     quota_state_reader: Callable[[str, frozenset[str]], frozenset[str]] = read_exhausted_quota_groups,
 ) -> McpAgentToolSet:
     """从持久化发现快照构建一次 Agent run 专属的 MCP 工具集合。"""
@@ -987,14 +989,15 @@ def load_mcp_agent_tools(
             )
         except ValueError:
             logger.warning("FlyAI 出行工具配置无效，本次 Agent run 不注册相关工具")
-    # weather_forecast 只由和风天气（经 agent-tools 网关的 weather 代理）提供；未配置产品服务密钥时不注册天气工具。
-    resolved_qweather_client = qweather_client or _build_qweather_client()
-    if resolved_qweather_client is not None:
-        _append_qweather_forecast_tool(
+    # weather_forecast 由 agent-tools 天气服务的 get_weather 提供，说明和参数来自服务目录；
+    # 目录里还没有它（网关不可达、未配置产品密钥）就不公告天气工具。
+    weather_spec = (gateway_catalog or gateway_tool_catalog()).spec(WEATHER_SERVICE, WEATHER_REMOTE_TOOL)
+    if weather_spec is not None:
+        _append_weather_forecast_tool(
             definitions=definitions,
             handlers=handlers,
             audit_bindings=audit_bindings,
-            client=resolved_qweather_client,
+            spec=weather_spec,
             limits=resolved_limits,
         )
     official_amap_rows = [row for row in rows if is_official_amap_endpoint(str(row.endpoint_url))]
@@ -1184,34 +1187,26 @@ def _append_amap_product_tools(
         audit_bindings.append(binding.to_audit_dict())
 
 
-def _build_qweather_client() -> QWeatherClient | None:
-    """和风凭证在 agent-tools 的 weather 代理侧；Fusion 配置了产品服务密钥就能经网关调用。"""
-
-    if not settings.AGENT_TOOLS_API_KEY.strip():
-        return None
-    return QWeatherClient(timeout_seconds=max(1.0, settings.QWEATHER_TIMEOUT_SECONDS))
-
-
-def _append_qweather_forecast_tool(
+def _append_weather_forecast_tool(
     *,
     definitions: list[dict[str, Any]],
     handlers: dict[str, BaseToolHandler],
     audit_bindings: list[dict[str, Any]],
-    client: QWeatherClient,
+    spec: GatewayToolSpec,
     limits: McpAgentToolLimits,
 ) -> None:
     if len(definitions) >= limits.max_tools:
         return
-    definition = json.loads(json.dumps(WEATHER_FORECAST_DEFINITION, ensure_ascii=False))
+    definition = build_weather_forecast_definition(spec)
     if len(canonical_json_bytes([*definitions, definition])) > limits.max_definition_bytes:
         return
-    binding = build_qweather_binding()
+    binding = build_weather_binding(definition)
     if binding.alias in handlers:
         raise RuntimeError("MCP 工具别名冲突")
     definitions.append(definition)
-    handlers[binding.alias] = QWeatherForecastToolHandler(
+    handlers[binding.alias] = WeatherForecastToolHandler(
         binding=binding,
-        client=client,
+        parameters=definition["function"]["parameters"],
         max_llm_context_bytes=limits.max_llm_context_bytes,
     )
     audit_bindings.append(binding.to_audit_dict())

@@ -7,9 +7,10 @@ from unittest.mock import AsyncMock, patch
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.schemas.chat import SearchSource
+from app.services.external.agent_tools_mcp import GatewayToolOutcome
 from app.services.tool_handlers.url_read import UrlReadHandler
 from app.services.tool_handlers.web_search import WebSearchHandler
-from app.services.weather.qweather_forecast_tool import WEATHER_FORECAST_DEFINITION
+from app.services.weather.forecast_tool import build_weather_forecast_definition
 
 
 def _tool_round(tool_id, name, arguments):
@@ -19,15 +20,15 @@ def _tool_round(tool_id, name, arguments):
 async def _run_recovery(*, search_success=True, answer_suffix="[1]", degrade_read=False, stop_after_failure=False):
     # 复用隔离持久化/LLM fixture，执行器、真实处理器和恢复决策均不替换。
     from test.services.stream.test_agent_loop_contract import AgentLoopContractTests
-    from test.test_qweather_forecast import FakeQWeather, build_handler
+    from test.test_forecast_tool import WEATHER_SPEC, FakeWeatherGateway, build_handler
 
     harness = AgentLoopContractTests()
     harness.setUp()
-    # 和风上游不可用：城市查询直接 503，工具失败后由模型改用通用搜索。
-    remote = FakeQWeather(status=503)
+    # 天气服务没答复（网关出错），工具失败后由模型改用通用搜索。
+    remote = FakeWeatherGateway(GatewayToolOutcome(ok=False, error_code="upstream_error"))
     weather = build_handler(remote)
     tools = SimpleNamespace(
-        definitions=[WEATHER_FORECAST_DEFINITION],
+        definitions=[build_weather_forecast_definition(WEATHER_SPEC)],
         handlers={"weather_forecast": weather, "web_search": WebSearchHandler(), "url_read": UrlReadHandler()},
         audit_bindings=[],
     )
@@ -93,7 +94,7 @@ class ToolRecoveryIntegrationTests(unittest.TestCase):
         for search_success in [True, False]:
             with self.subTest(search_success=search_success):
                 result, answer, remote = asyncio.run(_run_recovery(search_success=search_success))
-                assert [request.url.path for request in remote.requests] == ["/weather/v1/cities"]
+                assert [call["tool"] for call in remote.calls] == ["get_weather"]
                 assert [call["args"][0][0]["name"] for call in result.tool_execute_calls] == [
                     "weather_forecast",
                     "web_search",

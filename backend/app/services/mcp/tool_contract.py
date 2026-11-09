@@ -20,6 +20,7 @@ _REMOTE_TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.:/-]+$")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _SCHEMA_PROPERTY_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$")
 _SAFE_SCHEMA_STRING_LITERAL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,63}$")
+_MAX_SCHEMA_DESCRIPTION_CHARS = 1_000
 _JSON_SCHEMA_TYPES = frozenset({"array", "boolean", "integer", "null", "number", "object", "string"})
 _MAX_ARGUMENT_VALIDATION_ERRORS = 16
 _MAX_ARGUMENT_VALIDATION_DEPTH = 12
@@ -113,16 +114,20 @@ def build_tool_label(server_name: Any, remote_tool_name: str) -> str:
     return f"{safe_server_name} / {remote_tool_name}"[:160]
 
 
-def sanitize_tool_schema_for_model(schema: Mapping[str, Any]) -> dict[str, Any]:
-    """仅保留模型调用工具所需的结构字段，丢弃远端自由文本元数据。"""
+def sanitize_tool_schema_for_model(schema: Mapping[str, Any], *, keep_descriptions: bool = False) -> dict[str, Any]:
+    """仅保留模型调用工具所需的结构字段，默认丢弃远端自由文本元数据。
 
-    sanitized = _sanitize_schema_node(schema, depth=0)
+    keep_descriptions 只给 agent-tools 网关上的自家服务用：参数说明归服务所有（04 文档「服务拥有说明」），
+    管理员接入的第三方 MCP 仍不让远端自述进入模型可见内容。
+    """
+
+    sanitized = _sanitize_schema_node(schema, depth=0, keep_descriptions=keep_descriptions)
     if sanitized.get("type") != "object":
         return {"type": "object", "properties": {}, "additionalProperties": False}
     return sanitized
 
 
-def _sanitize_schema_node(schema: Any, *, depth: int) -> dict[str, Any]:
+def _sanitize_schema_node(schema: Any, *, depth: int, keep_descriptions: bool = False) -> dict[str, Any]:
     if not isinstance(schema, Mapping) or depth > 8:
         return {}
 
@@ -139,7 +144,7 @@ def _sanitize_schema_node(schema: Any, *, depth: int) -> dict[str, Any]:
         for name, value in list(properties.items())[:64]:
             if not isinstance(name, str) or not _SCHEMA_PROPERTY_NAME_PATTERN.fullmatch(name):
                 continue
-            safe_property = _sanitize_schema_node(value, depth=depth + 1)
+            safe_property = _sanitize_schema_node(value, depth=depth + 1, keep_descriptions=keep_descriptions)
             if name not in required_names:
                 safe_property = _without_null_branch(safe_property)
             safe_properties[name] = safe_property
@@ -153,7 +158,7 @@ def _sanitize_schema_node(schema: Any, *, depth: int) -> dict[str, Any]:
 
     items = schema.get("items")
     if isinstance(items, Mapping):
-        sanitized["items"] = _sanitize_schema_node(items, depth=depth + 1)
+        sanitized["items"] = _sanitize_schema_node(items, depth=depth + 1, keep_descriptions=keep_descriptions)
 
     additional_properties = schema.get("additionalProperties")
     if isinstance(additional_properties, bool):
@@ -162,6 +167,7 @@ def _sanitize_schema_node(schema: Any, *, depth: int) -> dict[str, Any]:
         sanitized["additionalProperties"] = _sanitize_schema_node(
             additional_properties,
             depth=depth + 1,
+            keep_descriptions=keep_descriptions,
         )
 
     for key in ("allOf", "anyOf", "oneOf"):
@@ -173,12 +179,14 @@ def _sanitize_schema_node(schema: Any, *, depth: int) -> dict[str, Any]:
             or not all(isinstance(branch, Mapping) for branch in branches)
         ):
             continue
-        safe_branches = [_sanitize_schema_node(branch, depth=depth + 1) for branch in branches]
+        safe_branches = [
+            _sanitize_schema_node(branch, depth=depth + 1, keep_descriptions=keep_descriptions) for branch in branches
+        ]
         if all(safe or not branch for safe, branch in zip(safe_branches, branches, strict=True)):
             sanitized[key] = safe_branches
 
     if isinstance(schema.get("not"), Mapping):
-        safe_negation = _sanitize_schema_node(schema["not"], depth=depth + 1)
+        safe_negation = _sanitize_schema_node(schema["not"], depth=depth + 1, keep_descriptions=keep_descriptions)
         if safe_negation or not schema["not"]:
             sanitized["not"] = safe_negation
 
@@ -210,6 +218,12 @@ def _sanitize_schema_node(schema: Any, *, depth: int) -> dict[str, Any]:
         if _is_safe_schema_literal(const):
             sanitized["const"] = const
 
+    description = schema.get("description") if keep_descriptions else None
+    if isinstance(description, str):
+        safe_description = _CONTROL_PATTERN.sub("", description).strip()[:_MAX_SCHEMA_DESCRIPTION_CHARS]
+        if safe_description:
+            sanitized["description"] = safe_description
+
     return sanitized
 
 
@@ -221,12 +235,16 @@ def _without_null_branch(schema: dict[str, Any]) -> dict[str, Any]:
     """
 
     branches = schema.get("anyOf")
-    if set(schema) != {"anyOf"} or not isinstance(branches, list):
+    if set(schema) - {"description"} != {"anyOf"} or not isinstance(branches, list):
         return schema
     non_null = [branch for branch in branches if branch != {"type": "null"}]
     if not non_null or len(non_null) == len(branches):
         return schema
-    return non_null[0] if len(non_null) == 1 else {"anyOf": non_null}
+    stripped = non_null[0] if len(non_null) == 1 else {"anyOf": non_null}
+    if "description" in schema:
+        # 保留的参数说明挂在 anyOf 外层，去掉 null 分支后接回剩下的那一支。
+        stripped = {**stripped, "description": schema["description"]}
+    return stripped
 
 
 def _sanitize_enum(value: Any) -> list[Any]:

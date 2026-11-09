@@ -443,11 +443,6 @@ class Settings(BaseSettings):
     FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS: float = float(os.getenv("FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS", "20"))
     FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN: int = int(os.getenv("FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN", "4"))
 
-    # 和风天气：配置齐全时 weather_forecast 改由和风提供，高德只保留地点与路线。
-    # 私钥为 Ed25519 PKCS8，可填 PEM 全文或去掉首尾行的单行 base64。
-    # 和风天气经 agent-tools 网关的 weather 代理提供，凭证在代理侧；这里只有单次请求的超时。
-    QWEATHER_TIMEOUT_SECONDS: float = float(os.getenv("QWEATHER_TIMEOUT_SECONDS", "10"))
-
     # 文档站点开关（生产关掉减少攻击面）
     ENABLE_DOCS: bool = True
 

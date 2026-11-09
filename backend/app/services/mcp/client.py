@@ -124,6 +124,8 @@ class McpSession(Protocol):
         name: str,
         arguments: dict[str, Any],
         read_timeout_seconds: timedelta | None = None,
+        *,
+        meta: dict[str, Any] | None = None,
     ) -> Any: ...
 
 
@@ -438,7 +440,9 @@ class McpClientManager:
         *,
         min_call_timeout_seconds: float | None = None,
         request_headers: Mapping[str, str] | None = None,
+        meta: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """meta 走 tools/call 的 _meta，放不该由模型填写的运行时信息（如设备位置）。"""
         if not _TOOL_NAME_PATTERN.fullmatch(tool_name) or tool_name not in config.allowed_tools:
             raise McpClientError("tool_not_allowed", "MCP 工具未获授权")
         extra_headers = _validate_request_headers(config, request_headers)
@@ -451,6 +455,13 @@ class McpClientManager:
             or len(_json_bytes(normalized_arguments)) > self.policy.max_response_bytes
         ):
             raise McpClientError("invalid_arguments", "MCP 工具参数无效")
+        meta_kwargs: dict[str, Any] = {}
+        if meta:
+            try:
+                normalized_meta = _normalize_json_payload(dict(meta))
+            except McpClientError:
+                raise McpClientError("invalid_arguments", "MCP 工具参数无效") from None
+            meta_kwargs["meta"] = normalized_meta
 
         async def operation(session: McpSession, call_timeout_seconds: float) -> dict[str, Any]:
             async with asyncio.timeout(call_timeout_seconds):
@@ -458,6 +469,7 @@ class McpClientManager:
                     tool_name,
                     normalized_arguments,
                     read_timeout_seconds=timedelta(seconds=call_timeout_seconds),
+                    **meta_kwargs,
                 )
             payload = _normalize_json_payload(result.model_dump(by_alias=True, mode="json", exclude_none=True))
             if not isinstance(payload, dict) or len(_json_bytes(payload)) > self.policy.max_response_bytes:
