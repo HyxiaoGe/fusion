@@ -345,6 +345,22 @@ describe('StructuredToolResults', () => {
     expect(screen.queryByText(/undefined|null/)).toBeNull();
   });
 
+  it('出行服务返回的 router.feizhu.com 预订短链也显示查看详情', () => {
+    const train = trainBlock().trains?.[0];
+    render(<StructuredToolResults blocks={[trainBlock({
+      trains: [{
+        ...train!,
+        actions: [{ kind: 'open_external', label: '安全预订', url: 'https://router.feizhu.com/train/1' }],
+      }],
+    })]} />);
+
+    const region = screen.getByRole('region', { name: '高铁查询结果' });
+    expect(within(region).getByRole('link', { name: '查看详情' })).toHaveAttribute(
+      'href',
+      'https://router.feizhu.com/train/1',
+    );
+  });
+
   it('合并后的高铁结果完整展示所有唯一车次，不再按单次查询上限截断', () => {
     const trains = Array.from({ length: 6 }, (_, index) => ({
       option_id: `train-${index + 1}`,

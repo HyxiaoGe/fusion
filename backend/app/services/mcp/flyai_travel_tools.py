@@ -52,7 +52,8 @@ FLYAI_TRAVEL_TOOL_NAMES = frozenset({FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS})
 # 服务排队最多 6 秒、查询最多 20 秒，网关给 flyai 30 秒。
 _CALL_TIMEOUT_SECONDS = 30.0
 _MAX_CONTEXT_BYTES = 12_000
-_BOOKING_HOST = "a.feizhu.com"
+# 与出行服务放行的预订主机一致；服务实际返回的多是 router.feizhu.com 短链。
+_BOOKING_HOSTS = frozenset({"a.feizhu.com", "router.feizhu.com"})
 _ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _TOOL_LABELS = {FLYAI_SEARCH_FLIGHTS: "航班查询", FLYAI_SEARCH_TRAINS: "高铁查询"}
 _CARD_LIMITATIONS_MAX = 8
@@ -356,7 +357,7 @@ def _trusted_booking_url(value: Any) -> bool:
     parsed = urlsplit(value)
     return bool(
         parsed.scheme == "https"
-        and (parsed.hostname or "").lower() == _BOOKING_HOST
+        and (parsed.hostname or "").lower() in _BOOKING_HOSTS
         and parsed.username is None
         and parsed.password is None
         and parsed.port in {None, 443}

@@ -247,6 +247,17 @@ class FlyAiExecuteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "success")
         self.assertEqual(result.data["result_count"], 1)
 
+    async def test_flight_card_keeps_service_booking_links_on_both_feizhu_hosts(self):
+        # 服务实际返回的是 router.feizhu.com 短链，原先只认 a.feizhu.com 时按钮全被丢掉。
+        for url in (BOOKING_URL, "https://router.feizhu.com/flight/detail?id=public"):
+            with self.subTest(url=url):
+                handler = flyai_handler(
+                    FLYAI_SEARCH_FLIGHTS, travel_outcome([flight_service(booking_url=url)], query=FLIGHT_ARGS)
+                )
+                result = await handler.execute(dict(FLIGHT_ARGS))
+                block = handler.build_content_block(result, "blk-flight", "log-flight")
+                self.assertEqual([action.url for action in block.flights[0].actions], [url])
+
     async def test_flight_card_maps_service_fields_and_trusted_booking_action(self):
         handler = flyai_handler(FLYAI_SEARCH_FLIGHTS, travel_outcome([flight_service()], query=FLIGHT_ARGS))
         result = await handler.execute(dict(FLIGHT_ARGS))
