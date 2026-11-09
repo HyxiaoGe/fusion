@@ -209,6 +209,22 @@ class ItineraryObservabilityTests(unittest.TestCase):
         self.assertNotIn("secret-value", repr((timeout, argument_error, legacy_repair, budget)))
         self.assertNotIn("private-city", repr((timeout, argument_error, legacy_repair, budget)))
 
+    def test_travel_service_error_codes_map_to_timeout_and_upstream(self):
+        # agent-tools 出行服务自己的失败码，以及网关 429 的 rate_limited
+        expected = {
+            "timeout": ("timeout", "timeout"),
+            "busy": ("failed", "upstream_error"),
+            "unavailable": ("failed", "upstream_error"),
+            "rate_limited": ("failed", "upstream_error"),
+            "destination_not_recognized": ("failed", "other"),
+        }
+        for error_code, (outcome, category) in expected.items():
+            with self.subTest(error_code=error_code):
+                observation = build_itinerary_tool_observation(
+                    _record("search_trains", status="failed", data={"error_code": error_code})
+                )
+                self.assertEqual((observation.outcome, observation.error_category), (outcome, category))
+
     def test_log_serialization_never_contains_unapproved_fields(self):
         payload = build_itinerary_run_payload(
             run_id="run-safe",

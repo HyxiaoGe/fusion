@@ -26,12 +26,16 @@ ITINERARY_PRODUCT_TOOL_NAMES = frozenset(
     }
 )
 _OUTCOME_NAMES = ("success", "degraded", "failed", "timeout")
-_TIMEOUT_ERROR_CODES = frozenset({"call_timeout", "connect_timeout", "tool_timeout", "upstream_timeout"})
+# 出行服务（agent-tools/flyai）自己的超时、繁忙、不可用和网关 429 也归到这两类。
+_TIMEOUT_ERROR_CODES = frozenset({"call_timeout", "connect_timeout", "timeout", "tool_timeout", "upstream_timeout"})
 _UPSTREAM_ERROR_CODES = frozenset(
     {
+        "busy",
         "network_error",
         "rate_limit",
+        "rate_limited",
         "search_unavailable",
+        "unavailable",
         "upstream_error",
         "upstream_unavailable",
     }

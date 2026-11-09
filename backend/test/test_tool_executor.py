@@ -607,17 +607,10 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("argument_errors", records[0].result.data)
 
     async def test_identical_successful_travel_query_is_reused_without_second_execution(self):
-        from app.services.mcp.flyai_travel_tools import (
-            FLYAI_SEARCH_TRAINS,
-            FlyAiTravelToolHandler,
-            build_flyai_travel_binding,
-        )
+        from app.services.mcp.flyai_travel_tools import FLYAI_SEARCH_TRAINS
+        from test.test_flyai_travel_tools import flyai_handler
 
-        handler = FlyAiTravelToolHandler(
-            binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
-            client=MagicMock(),
-            controls=MagicMock(),
-        )
+        handler = flyai_handler(FLYAI_SEARCH_TRAINS)
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result_count": 1}))
         handler.log = AsyncMock()
         emitter = AsyncMock()
@@ -630,6 +623,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                     "origin": " 深圳 ",
                     "destination": "广州",
                     "departure_date": "2026-07-25",
+                    "train_category": "all",
                 }
             ),
         }
@@ -640,8 +634,8 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                 "departure_date": "2026-07-25",
                 "destination": "广州",
                 "origin": "深圳",
-                "sort_by": "recommended",
-                "limit": 5,
+                "train_category": "all",
+                "sort_by": None,
             },
         }
 
@@ -668,17 +662,10 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(emitter.tool_result_digest.await_count, 1)
 
     async def test_different_travel_time_ranges_are_not_reused(self):
-        from app.services.mcp.flyai_travel_tools import (
-            FLYAI_SEARCH_TRAINS,
-            FlyAiTravelToolHandler,
-            build_flyai_travel_binding,
-        )
+        from app.services.mcp.flyai_travel_tools import FLYAI_SEARCH_TRAINS
+        from test.test_flyai_travel_tools import flyai_handler
 
-        handler = FlyAiTravelToolHandler(
-            binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
-            client=MagicMock(),
-            controls=MagicMock(),
-        )
+        handler = flyai_handler(FLYAI_SEARCH_TRAINS)
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result_count": 1}))
         handler.log = AsyncMock()
         successful_signatures: set[str] = set()
@@ -690,7 +677,8 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
                     "origin": "深圳",
                     "destination": "广州",
                     "departure_date": "2026-07-25",
-                    "departure_hour_start": hour,
+                    "train_category": "all",
+                    "departure_after_hour": hour,
                 },
             }
             for hour in (8, 9)
@@ -710,17 +698,10 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(not record.reused for record in records))
 
     async def test_failed_identical_travel_query_can_retry_until_one_succeeds(self):
-        from app.services.mcp.flyai_travel_tools import (
-            FLYAI_SEARCH_TRAINS,
-            FlyAiTravelToolHandler,
-            build_flyai_travel_binding,
-        )
+        from app.services.mcp.flyai_travel_tools import FLYAI_SEARCH_TRAINS
+        from test.test_flyai_travel_tools import flyai_handler
 
-        handler = FlyAiTravelToolHandler(
-            binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
-            client=MagicMock(),
-            controls=MagicMock(),
-        )
+        handler = flyai_handler(FLYAI_SEARCH_TRAINS)
         handler.execute = AsyncMock(
             side_effect=[
                 ToolResult(status="failed", error_message="临时失败"),
@@ -733,6 +714,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             "origin": "深圳",
             "destination": "广州",
             "departure_date": "2026-07-25",
+            "train_category": "all",
         }
         calls = [{"id": f"call-train-{index}", "name": FLYAI_SEARCH_TRAINS, "arguments": arguments} for index in (1, 2)]
 

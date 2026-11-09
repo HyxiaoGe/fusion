@@ -12,6 +12,7 @@ from app.ai.prompts import agent_loop
 from app.ai.prompts.local_templates import CODE_DEFAULT_PROMPT_TEMPLATES
 from app.ai.prompts.runtime_prompt_store import RUNTIME_PROMPT_FILE, render_runtime_prompt
 from app.processor import file_processor
+from app.services.external.agent_tools_mcp import GatewayToolSpec
 from app.services.knowledge.agent_tool import KnowledgeBaseScope, build_knowledge_search_tool
 from app.services.mcp import amap_product_tools, flyai_travel_tools
 from app.services.mcp.tool_contract import build_agent_tool_definition
@@ -70,7 +71,15 @@ def test_tool_definitions_are_english():
         build_url_read_tool(),
         agent_loop_request_prep.build_update_plan_tool(),
         amap_product_tools.AMAP_PRODUCT_DEFINITIONS,
-        flyai_travel_tools.FLYAI_TRAVEL_DEFINITIONS,
+        # 出行工具的说明和参数来自 agent-tools，这里只校验 Fusion 接在后面的约定。
+        flyai_travel_tools.build_flyai_travel_definition(
+            GatewayToolSpec(
+                service="flyai",
+                name=flyai_travel_tools.FLYAI_SEARCH_FLIGHTS,
+                description="Search flights.",
+                input_schema={"type": "object", "properties": {}},
+            )
+        ),
         build_knowledge_search_tool((KnowledgeBaseScope(id="kb-1", name="Manual"),)),
     )
     for index, value in enumerate(values):

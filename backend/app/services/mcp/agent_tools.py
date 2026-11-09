@@ -37,11 +37,11 @@ from app.services.mcp.context7_guard import (
 from app.services.mcp.flyai_travel_tools import (
     FLYAI_SEARCH_FLIGHTS,
     FLYAI_SEARCH_TRAINS,
-    FLYAI_TRAVEL_DEFINITIONS,
-    FlyAiTravelAdapterClient,
+    FLYAI_SERVICE,
     FlyAiTravelRunControls,
     FlyAiTravelToolHandler,
     build_flyai_travel_binding,
+    build_flyai_travel_definition,
 )
 from app.services.mcp.image_service_tools import (
     IMAGE_SERVICE_REMOTE_TOOL_NAME,
@@ -946,7 +946,6 @@ def load_mcp_agent_tools(
     repository_factory: Callable[[Any], McpServerRepository] = McpServerRepository,
     concurrency_limiter: McpAgentToolConcurrencyLimiter = _DEFAULT_CONCURRENCY_LIMITER,
     circuit_breaker: McpAgentServerCircuitBreaker | None = None,
-    flyai_client: FlyAiTravelAdapterClient | None = None,
     store_generated_image: Callable[..., Any] | None = None,
     load_generated_image: Callable[..., Any] | None = None,
     gateway_catalog: GatewayToolCatalog | None = None,
@@ -974,24 +973,20 @@ def load_mcp_agent_tools(
     handlers: dict[str, BaseToolHandler] = {}
     audit_bindings: list[dict[str, Any]] = []
     context7_registries: dict[str, Context7RunLibraryRegistry] = {}
-    # FlyAI 适配器在 agent-tools 侧，经网关调用；只对登录用户注册，网关按用户做并发隔离。
-    if settings.ENABLE_FLYAI_TRAVEL_TOOLS and user_id and settings.AGENT_TOOLS_API_KEY.strip():
-        try:
-            resolved_flyai_client = flyai_client or FlyAiTravelAdapterClient(
-                timeout_seconds=min(25.0, max(0.1, settings.FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS)),
-            )
-            _append_flyai_travel_tools(
-                definitions=definitions,
-                handlers=handlers,
-                audit_bindings=audit_bindings,
-                client=resolved_flyai_client,
-                limits=resolved_limits,
-            )
-        except ValueError:
-            logger.warning("FlyAI 出行工具配置无效，本次 Agent run 不注册相关工具")
+    resolved_catalog = gateway_catalog or gateway_tool_catalog()
+    # 航班 / 高铁由 agent-tools 出行服务（flyai）的同名工具提供，说明和参数来自服务目录，目录里没有就不公告；
+    # 只对登录用户注册，服务按网关转来的用户做并发隔离。
+    if settings.ENABLE_FLYAI_TRAVEL_TOOLS and user_id:
+        _append_flyai_travel_tools(
+            definitions=definitions,
+            handlers=handlers,
+            audit_bindings=audit_bindings,
+            catalog=resolved_catalog,
+            limits=resolved_limits,
+        )
     # weather_forecast 由 agent-tools 天气服务的 get_weather 提供，说明和参数来自服务目录；
     # 目录里还没有它（网关不可达、未配置产品密钥）就不公告天气工具。
-    weather_spec = (gateway_catalog or gateway_tool_catalog()).spec(WEATHER_SERVICE, WEATHER_REMOTE_TOOL)
+    weather_spec = resolved_catalog.spec(WEATHER_SERVICE, WEATHER_REMOTE_TOOL)
     if weather_spec is not None:
         _append_weather_forecast_tool(
             definitions=definitions,
@@ -1091,29 +1086,30 @@ def _append_flyai_travel_tools(
     definitions: list[dict[str, Any]],
     handlers: dict[str, BaseToolHandler],
     audit_bindings: list[dict[str, Any]],
-    client: FlyAiTravelAdapterClient,
+    catalog: GatewayToolCatalog,
     limits: McpAgentToolLimits,
 ) -> None:
     controls = FlyAiTravelRunControls(
         max_calls=min(4, max(1, settings.FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN)),
-        # adapter 对同一用户只允许 1 个 CLI 进程；模型同轮并行调用时在 API 内排队，
-        # 避免第二个航班/高铁请求撞 429 并被错误展示为“未使用”。
+        # 服务对同一用户同时只跑一个查询；模型同轮并行调用时在 Run 内排队，免得在服务那边排队超时。
         concurrency=1,
     )
-    for product_definition in FLYAI_TRAVEL_DEFINITIONS:
-        product_name = product_definition["function"]["name"]
+    for tool_name in (FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS):
+        spec = catalog.spec(FLYAI_SERVICE, tool_name)
+        if spec is None:
+            continue
         if len(definitions) >= limits.max_tools:
             return
-        definition = json.loads(json.dumps(product_definition, ensure_ascii=False))
+        definition = build_flyai_travel_definition(spec)
         if len(canonical_json_bytes([*definitions, definition])) > limits.max_definition_bytes:
             continue
-        if product_name in handlers:
+        if tool_name in handlers:
             raise RuntimeError("MCP 工具别名冲突")
-        binding = build_flyai_travel_binding(product_name)
+        binding = build_flyai_travel_binding(definition)
         definitions.append(definition)
-        handlers[product_name] = FlyAiTravelToolHandler(
+        handlers[tool_name] = FlyAiTravelToolHandler(
             binding=binding,
-            client=client,
+            parameters=definition["function"]["parameters"],
             controls=controls,
             max_llm_context_bytes=limits.max_llm_context_bytes,
         )

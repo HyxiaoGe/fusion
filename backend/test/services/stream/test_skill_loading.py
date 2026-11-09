@@ -11,7 +11,7 @@ from app.ai.skills import discover_skills
 from app.schemas.chat import Usage
 from app.services.agent.plan_coordinator import PlanCoordinator
 from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
-from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_DEFINITIONS
+from app.services.mcp.flyai_travel_tools import FLYAI_SEARCH_FLIGHTS, FLYAI_SEARCH_TRAINS
 from app.services.stream.agent_loop_driver import _run_round
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
 from app.services.stream.agent_loop_state import AgentLoopState
@@ -143,7 +143,11 @@ class SkillCallConfigTests(_SkillRootTestCase):
         )
 
     def test_product_tools_and_skills_are_announced_together(self):
-        tools = [*AMAP_PRODUCT_DEFINITIONS, *FLYAI_TRAVEL_DEFINITIONS]
+        tools = [
+            *AMAP_PRODUCT_DEFINITIONS,
+            _tool_definition(FLYAI_SEARCH_FLIGHTS),
+            _tool_definition(FLYAI_SEARCH_TRAINS),
+        ]
         handlers = {tool["function"]["name"]: object() for tool in tools}
 
         config = build_agent_loop_call_config(
