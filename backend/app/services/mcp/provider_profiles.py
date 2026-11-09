@@ -5,32 +5,13 @@ from typing import Any
 
 from app.ai.prompts.runtime_prompt_store import render_runtime_prompt
 from app.services.external.agent_tools import agent_tools_url
-from app.services.mcp.amap_coordinate_converter import COORDINATE_CONVERT_TOOL
 
-# 高德、Context7 与腾讯地图不再直连：经 agent-tools 网关上的代理访问，第三方密钥由代理持有，Fusion 只带产品服务密钥。
-AMAP_GATEWAY_SERVICE = "amap"
+# Context7 不再直连：经 agent-tools 网关上的代理访问，第三方密钥由代理持有，Fusion 只带产品服务密钥。
 CONTEXT7_GATEWAY_SERVICE = "context7"
-TENCENT_MAP_GATEWAY_SERVICE = "tmap"
 AGENT_TOOLS_CREDENTIAL_REF = "AGENT_TOOLS_API_KEY"
-TENCENT_MAP_DATA_SOURCE = ("map", "tencent_map", "腾讯地图")
 CONTEXT7_CONNECT_TIMEOUT_FLOOR_SECONDS = 20.0
 CONTEXT7_CALL_TIMEOUT_FLOOR_SECONDS = 30.0
 CONTEXT7_IDEMPOTENT_TOTAL_TIMEOUT_FLOOR_SECONDS = 45.0
-AMAP_READ_ONLY_TOOL_ALLOWLIST = frozenset(
-    {
-        "maps_geo",
-        "maps_regeocode",
-        "maps_direction_bicycling",
-        "maps_direction_walking",
-        "maps_direction_driving",
-        "maps_direction_transit_integrated",
-        "maps_distance",
-        "maps_text_search",
-        "maps_around_search",
-        "maps_search_detail",
-        COORDINATE_CONVERT_TOOL,
-    }
-)
 CONTEXT7_READ_ONLY_TOOL_ALLOWLIST = frozenset(
     {
         "resolve-library-id",
@@ -38,18 +19,6 @@ CONTEXT7_READ_ONLY_TOOL_ALLOWLIST = frozenset(
     }
 )
 
-_AMAP_TOOL_GUIDANCE = {
-    "maps_geo": render_runtime_prompt("mcp.amap_geo"),
-    "maps_regeocode": render_runtime_prompt("mcp.amap_regeocode"),
-    "maps_text_search": render_runtime_prompt("mcp.amap_text_search"),
-    "maps_around_search": render_runtime_prompt("mcp.amap_around_search"),
-    "maps_search_detail": render_runtime_prompt("mcp.amap_search_detail"),
-    "maps_distance": render_runtime_prompt("mcp.amap_coordinates"),
-    "maps_direction_bicycling": render_runtime_prompt("mcp.amap_coordinates"),
-    "maps_direction_walking": render_runtime_prompt("mcp.amap_coordinates"),
-    "maps_direction_driving": render_runtime_prompt("mcp.amap_coordinates"),
-    "maps_direction_transit_integrated": render_runtime_prompt("mcp.amap_coordinates"),
-}
 _CONTEXT7_TOOL_GUIDANCE = {
     "resolve-library-id": render_runtime_prompt("mcp.context7_resolve"),
     "query-docs": render_runtime_prompt("mcp.context7_query"),
@@ -92,16 +61,8 @@ _CONTEXT7_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
 }
 
 
-def amap_gateway_endpoint() -> str:
-    return agent_tools_url(AMAP_GATEWAY_SERVICE, "/mcp")
-
-
 def context7_gateway_endpoint() -> str:
     return agent_tools_url(CONTEXT7_GATEWAY_SERVICE, "/mcp")
-
-
-def tencent_map_gateway_endpoint() -> str:
-    return agent_tools_url(TENCENT_MAP_GATEWAY_SERVICE, "/mcp")
 
 
 def _is_agent_tools_endpoint(endpoint_url: str) -> bool:
@@ -113,25 +74,9 @@ def _is_agent_tools_endpoint(endpoint_url: str) -> bool:
 def endpoint_tool_allowlist(endpoint_url: str) -> frozenset[str] | None:
     """返回指定官方端点的硬白名单；其他 MCP 服务继续使用管理员授权。"""
 
-    if is_official_amap_endpoint(endpoint_url):
-        return AMAP_READ_ONLY_TOOL_ALLOWLIST
     if is_official_context7_endpoint(endpoint_url):
         return CONTEXT7_READ_ONLY_TOOL_ALLOWLIST
     return None
-
-
-def endpoint_data_source(endpoint_url: str) -> tuple[str, str, str] | None:
-    """按端点认定数据服务商署名 (category, provider, label)；不采信管理员填写的 provider 文本。"""
-
-    if endpoint_url.strip().rstrip("/") == tencent_map_gateway_endpoint():
-        return TENCENT_MAP_DATA_SOURCE
-    return None
-
-
-def is_official_amap_endpoint(endpoint_url: str) -> bool:
-    """高德只认网关上的 amap 代理端点；直连 mcp.amap.com 的行不再享有产品化处理。"""
-
-    return endpoint_url.strip().rstrip("/") == amap_gateway_endpoint()
 
 
 def is_official_context7_endpoint(endpoint_url: str) -> bool:
@@ -161,7 +106,7 @@ def endpoint_auth_binding_is_allowed(
 ) -> bool:
     """将官方凭证绑定到固定主机和传输位置，阻止跨提供商误投。"""
 
-    # 产品服务密钥只能以 Bearer 发给 agent-tools 网关；网关上的任何服务（amap / context7 / tmap / image 等）也只接受这一种鉴权。
+    # 产品服务密钥只能以 Bearer 发给 agent-tools 网关；网关上的任何服务（context7 / image 等）也只接受这一种鉴权。
     if credential_ref == AGENT_TOOLS_CREDENTIAL_REF or _is_agent_tools_endpoint(endpoint_url):
         return (
             _is_agent_tools_endpoint(endpoint_url)
@@ -180,8 +125,6 @@ def tool_is_allowed_for_endpoint(endpoint_url: str, tool_name: str) -> bool:
 def endpoint_tool_guidance(endpoint_url: str, tool_name: str) -> str:
     """返回可信的产品级工具使用约束，不采信远端描述作为策略。"""
 
-    if is_official_amap_endpoint(endpoint_url):
-        return _AMAP_TOOL_GUIDANCE.get(tool_name, "")
     if is_official_context7_endpoint(endpoint_url):
         return _CONTEXT7_TOOL_GUIDANCE.get(tool_name, "")
     return ""

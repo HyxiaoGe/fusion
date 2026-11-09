@@ -59,11 +59,6 @@ _RETRYABLE_TOOL_ERROR_CODES = frozenset(
     }
 )
 _INTERNAL_TOOL_ARG_KEYS = {"budget_decision"}
-_AMAP_PRODUCT_EXECUTION_PRIORITY = {
-    "route_compare": 0,
-    "local_place_search": 1,
-    "weather_forecast": 2,
-}
 
 
 @dataclass(frozen=True)
@@ -964,20 +959,9 @@ async def execute_tool_batch(
     request: ToolExecutionBatchRequest,
     tool_calls: list[dict],
 ) -> list[ToolExecutionRecord]:
-    indexed_calls = list(enumerate(tool_calls))
-    amap_product_calls = [
-        (index, tool_call)
-        for index, tool_call in indexed_calls
-        if tool_call.get("name") in _AMAP_PRODUCT_EXECUTION_PRIORITY
-    ]
-    parallel_calls = [
-        (index, tool_call)
-        for index, tool_call in indexed_calls
-        if tool_call.get("name") not in _AMAP_PRODUCT_EXECUTION_PRIORITY
-    ]
     reusable_groups: dict[str, list[tuple[int, dict]]] = {}
     ungrouped_parallel_calls: list[tuple[int, dict]] = []
-    for index, tool_call in parallel_calls:
+    for index, tool_call in enumerate(tool_calls):
         signature = (
             build_successful_call_signature(tool_call, request.tool_handlers)
             if request.successful_tool_call_signatures is not None
@@ -999,15 +983,6 @@ async def execute_tool_batch(
         )
         return index, record
 
-    async def execute_amap_products() -> list[tuple[int, ToolExecutionRecord]]:
-        records = []
-        for index, tool_call in sorted(
-            amap_product_calls,
-            key=lambda item: (_AMAP_PRODUCT_EXECUTION_PRIORITY[item[1]["name"]], item[0]),
-        ):
-            records.append(await execute_indexed(index, tool_call))
-        return records
-
     async def execute_reusable_group(
         grouped_calls: list[tuple[int, dict]],
     ) -> list[tuple[int, ToolExecutionRecord]]:
@@ -1018,8 +993,6 @@ async def execute_tool_batch(
 
     pending = [execute_indexed(index, tool_call) for index, tool_call in ungrouped_parallel_calls]
     pending.extend(execute_reusable_group(grouped_calls) for grouped_calls in reusable_groups.values())
-    if amap_product_calls:
-        pending.append(execute_amap_products())
     tasks = [asyncio.create_task(operation) for operation in pending]
     batch = asyncio.gather(*tasks)
     try:

@@ -378,7 +378,10 @@ function collectGeneratedImageBlocks(contentBlocks: ContentBlock[]): GeneratedIm
   return contentBlocks.filter((block): block is GeneratedImageBlock => block.type === 'generated_image');
 }
 
-/** 地图来源：腾讯等通用 MCP 只留 data_source 署名，高德产品工具的地点/路线卡片自带 attribution。 */
+/**
+ * 地图来源：地点/路线卡片自带 attribution，旧会话里通用地图 MCP 留下的 data_source 也算。
+ * 一张卡可能同时来自两家（署名为「高德地图、腾讯地图」），拆开后去重，避免同一家重复出现。
+ */
 function collectMapDataSources(contentBlocks: ContentBlock[]): string[] {
   const labels: string[] = [];
   for (const block of contentBlocks) {
@@ -388,8 +391,10 @@ function collectMapDataSources(contentBlocks: ContentBlock[]): string[] {
     } else if (block.type === 'place_results' || block.type === 'route_results') {
       label = block.attribution?.label;
     }
-    const trimmed = label?.trim();
-    if (trimmed && !labels.includes(trimmed)) labels.push(trimmed);
+    for (const part of label?.split('、') ?? []) {
+      const trimmed = part.trim();
+      if (trimmed && !labels.includes(trimmed)) labels.push(trimmed);
+    }
   }
   return labels;
 }

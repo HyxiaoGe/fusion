@@ -4,7 +4,7 @@ import { SettingsBadge as Badge, type SettingsStatusTone } from "@/components/se
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { McpServer, McpServerModelView } from "@/types/mcp";
 
-type PreviewStatus = "direct" | "hidden" | "component" | "authorized_unused" | "unauthorized";
+type PreviewStatus = "direct" | "component" | "authorized_unused" | "unauthorized";
 
 interface PreviewRow {
   key: string;
@@ -17,18 +17,10 @@ interface PreviewRow {
 
 const statusPresentation: Record<PreviewStatus, { label: string; tone: SettingsStatusTone }> = {
   direct: { label: "直接提供", tone: "success" },
-  hidden: { label: "暂不提供", tone: "warning" },
   component: { label: "供产品工具调用", tone: "info" },
   authorized_unused: { label: "已授权，本次未提供", tone: "neutral" },
   unauthorized: { label: "未授权", tone: "neutral" },
 };
-
-// 高德个人配额按月计，恢复时间可能是几分钟到几十天。
-export function formatResetIn(seconds: number): string {
-  if (seconds >= 86400) return `约 ${Math.round(seconds / 86400)} 天后恢复`;
-  if (seconds >= 3600) return `约 ${Math.round(seconds / 3600)} 小时后恢复`;
-  return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟后恢复`;
-}
 
 function buildToolPreview(server: McpServer, view: McpServerModelView | undefined): {
   modelTools: PreviewRow[];
@@ -58,17 +50,6 @@ function buildToolPreview(server: McpServer, view: McpServerModelView | undefine
         status: "direct",
       });
     }
-  }
-  for (const tool of view?.hidden_tools ?? []) {
-    tool.source_tools?.forEach((name) => productSources.add(name));
-    modelTools.push({
-      key: tool.name,
-      title: tool.label,
-      subtitle: tool.name,
-      description: tool.description ?? "",
-      status: "hidden",
-      note: `本月额度已用完，${formatResetIn(tool.resets_in_seconds)}`,
-    });
   }
   const allowed = new Set(server.allowed_tools);
   const remoteTools = server.discovered_tools
@@ -129,7 +110,7 @@ export default function McpToolPreviewDialog({
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{server ? `${server.name} · 工具说明` : "工具说明"}</DialogTitle>
-          <DialogDescription>说明来自服务方；高德、生图等产品工具为中文简介。</DialogDescription>
+          <DialogDescription>说明来自服务方；生图等产品工具为中文简介。</DialogDescription>
         </DialogHeader>
         {server && !server.is_enabled && (
           <p className="text-sm text-muted-foreground">服务已停用，下面的工具都不会提供给模型。</p>

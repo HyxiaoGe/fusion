@@ -14,7 +14,7 @@ from app.ai.prompts.runtime_prompt_store import RUNTIME_PROMPT_FILE, render_runt
 from app.processor import file_processor
 from app.services.external.agent_tools_mcp import GatewayToolSpec
 from app.services.knowledge.agent_tool import KnowledgeBaseScope, build_knowledge_search_tool
-from app.services.mcp import amap_product_tools, flyai_travel_tools
+from app.services.mcp import flyai_travel_tools, maps_tools
 from app.services.mcp.tool_contract import build_agent_tool_definition
 from app.services.stream import (
     agent_loop_request_prep,
@@ -70,7 +70,19 @@ def test_tool_definitions_are_english():
         build_web_search_tool(),
         build_url_read_tool(),
         agent_loop_request_prep.build_update_plan_tool(),
-        amap_product_tools.AMAP_PRODUCT_DEFINITIONS,
+        # 地图工具的说明和参数来自 agent-tools，这里只校验 Fusion 接在后面的约定。
+        *(
+            maps_tools.build_maps_definition(
+                GatewayToolSpec(
+                    service="maps",
+                    name=remote,
+                    description="Search places.",
+                    input_schema={"type": "object", "properties": {}},
+                ),
+                name=name,
+            )
+            for name, remote in maps_tools.MAPS_REMOTE_TOOLS.items()
+        ),
         # 出行工具的说明和参数来自 agent-tools，这里只校验 Fusion 接在后面的约定。
         flyai_travel_tools.build_flyai_travel_definition(
             GatewayToolSpec(

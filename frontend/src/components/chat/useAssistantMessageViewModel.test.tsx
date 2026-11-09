@@ -164,6 +164,32 @@ describe('useAssistantMessageViewModel', () => {
     expect(renderViewModel(message).result.current.mapDataSources).toEqual(['高德地图', '腾讯地图']);
   });
 
+  it('两家合署的地图卡片拆开去重，同一家不重复出现', () => {
+    const card = (id: string, provider: string, label: string) => ({
+      type: 'route_results' as const,
+      id,
+      schema_version: 1 as const,
+      provider,
+      attribution: { label },
+      status: 'success' as const,
+      origin: { label: '西湖' },
+      destination: { label: '灵隐寺' },
+      routes: [],
+      limitations: [],
+    });
+    const message = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: [
+        card('route-1', 'amap', '高德地图'),
+        card('route-2', 'amap,tmap', '高德地图、腾讯地图'),
+        { type: 'text', id: 'text-1', text: '回答' },
+      ],
+    } as unknown as Message;
+
+    expect(renderViewModel(message).result.current.mapDataSources).toEqual(['高德地图', '腾讯地图']);
+  });
+
   it('没有地图工具结果时不派生地图来源', () => {
     const message: Message = {
       id: 'assistant-1',

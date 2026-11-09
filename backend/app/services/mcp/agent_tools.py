@@ -19,14 +19,6 @@ from app.db.database import SessionLocal
 from app.db.mcp_server_repository import McpServerRepository
 from app.schemas.chat import DataSourceBlock, ToolSourceReference
 from app.services.external.agent_tools_mcp import GatewayToolCatalog, GatewayToolSpec, gateway_tool_catalog
-from app.services.mcp.amap_product_tools import (
-    AMAP_PRODUCT_DEFINITIONS,
-    AMAP_PRODUCT_REMOTE_DEPENDENCIES,
-    AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS,
-    AmapProductToolHandler,
-    AmapRunCoordinateConversion,
-    build_amap_product_binding,
-)
 from app.services.mcp.client import McpClientError, McpClientManager
 from app.services.mcp.context7_guard import (
     CONTEXT7_QUERY_TOOL,
@@ -50,13 +42,19 @@ from app.services.mcp.image_service_tools import (
     build_image_service_binding,
     is_image_service_row,
 )
+from app.services.mcp.maps_quota import maps_tools_hidden
+from app.services.mcp.maps_tools import (
+    MAPS_REMOTE_TOOLS,
+    MAPS_SERVICE,
+    MapsRunControls,
+    MapsToolHandler,
+    build_maps_binding,
+    build_maps_definition,
+)
 from app.services.mcp.provider_profiles import (
-    endpoint_data_source,
-    is_official_amap_endpoint,
     is_official_context7_endpoint,
     tool_is_allowed_for_endpoint,
 )
-from app.services.mcp.provider_quota import read_exhausted_quota_groups
 from app.services.mcp.runtime import get_mcp_client_manager
 from app.services.mcp.server_service import MCP_TOOL_UNAVAILABLE_MESSAGE, McpServerService
 from app.services.mcp.tool_contract import (
@@ -124,14 +122,8 @@ _TRUNCATED = "[TRUNCATED]"
 _MAX_STRUCTURED_TEXT_CHARS = 20_000
 _MAX_STRUCTURED_TEXT_DEPTH = 64
 _DEFAULT_EXTERNAL_PAYLOAD_MAX_DEPTH = 10
-_AMAP_TRANSIT_EXTERNAL_PAYLOAD_MAX_DEPTH = 14
-_AMAP_TRANSIT_REMOTE_TOOL_NAME = "maps_direction_transit_integrated"
 _STRUCTURED_DATA_UNAVAILABLE = "[STRUCTURED_DATA_UNAVAILABLE]"
 _STRUCTURED_TEXT_REJECTED = object()
-_COORDINATE_TOKEN_PATTERN = r"[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*,\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+)"
-_AMAP_COORDINATE_SEQUENCE_PATTERN = re.compile(
-    rf"^\s*{_COORDINATE_TOKEN_PATTERN}(?:\s*;\s*{_COORDINATE_TOKEN_PATTERN})*\s*$"
-)
 _TEXT_KEY_PATTERN = r"(?P<key_quote>[\"']?)(?P<key>[a-z](?:[a-z0-9 _-]|\\u[0-9a-f]{4}){0,127})(?P=key_quote)"
 _AUTHORIZATION_SCHEME_PATTERN = re.compile(
     rf"(?P<prefix>(?<![a-z0-9]){_TEXT_KEY_PATTERN}\s*[:=]\s*)"
@@ -217,8 +209,6 @@ class McpAgentToolBinding:
     config_version: int
     tool_label: str
     definition_sha256: str
-    # (category, provider, label)：仅按端点域名认定的数据服务商才有，用于回答里的来源署名
-    data_source: tuple[str, str, str] | None = None
 
     def to_audit_dict(self) -> dict[str, Any]:
         """只输出允许持久化的绑定元数据。"""
@@ -433,7 +423,6 @@ class McpAgentRemoteExecutor:
         concurrency_limiter: McpAgentToolConcurrencyLimiter,
         circuit_breaker: McpAgentServerCircuitBreaker,
         run_budget: McpAgentToolRunBudget,
-        is_official_amap: bool = False,
     ) -> None:
         self.server_id = server_id
         self.client_manager = client_manager
@@ -442,7 +431,6 @@ class McpAgentRemoteExecutor:
         self.concurrency_limiter = concurrency_limiter
         self.circuit_breaker = circuit_breaker
         self.run_budget = run_budget
-        self.is_official_amap = is_official_amap
 
     async def is_run_budget_exhausted(self) -> bool:
         return await self.run_budget.is_exhausted(self.server_id)
@@ -513,12 +501,7 @@ class McpAgentRemoteExecutor:
                     raise
                 await self.circuit_breaker.record_success(permit)
                 permit = None
-            return _sanitize_external_payload(
-                _normalize_mcp_payload(payload),
-                preserve_amap_transit_fields=(
-                    self.is_official_amap and remote_tool_name == _AMAP_TRANSIT_REMOTE_TOOL_NAME
-                ),
-            )
+            return _sanitize_external_payload(_normalize_mcp_payload(payload))
         finally:
             if permit is not None:
                 await self.circuit_breaker.release_without_result(permit)
@@ -631,12 +614,9 @@ class McpAgentToolHandler(BaseToolHandler):
 
         if result.status != "success" or "payload" not in result.data:
             return None
-        if self.binding.data_source is not None:
-            category, provider, label = self.binding.data_source
-        else:
-            category = "tool"
-            provider = self.binding.provider[:40] or "mcp"
-            label = self.binding.server_name.strip()[:40] or provider
+        category = "tool"
+        provider = self.binding.provider[:40] or "mcp"
+        label = self.binding.server_name.strip()[:40] or provider
         return DataSourceBlock(
             type="data_source",
             id=block_id,
@@ -949,7 +929,7 @@ def load_mcp_agent_tools(
     store_generated_image: Callable[..., Any] | None = None,
     load_generated_image: Callable[..., Any] | None = None,
     gateway_catalog: GatewayToolCatalog | None = None,
-    quota_state_reader: Callable[[str, frozenset[str]], frozenset[str]] = read_exhausted_quota_groups,
+    maps_hidden: Callable[[], bool] = maps_tools_hidden,
 ) -> McpAgentToolSet:
     """从持久化发现快照构建一次 Agent run 专属的 MCP 工具集合。"""
 
@@ -961,13 +941,10 @@ def load_mcp_agent_tools(
     run_budget = McpAgentToolRunBudget(
         max_calls_per_server=resolved_limits.max_tool_calls_per_server_per_run,
     )
-    # 产品化工具（高德、生图）先占位，通用 MCP 工具再多也不能把它们挤出本次 run。
+    # 生图先占位，通用 MCP 工具再多也不能把它挤出本次 run。
     rows = sorted(
         repository_factory(db).list_enabled(),
-        key=lambda row: (
-            not (is_image_service_row(row) or is_official_amap_endpoint(str(row.endpoint_url))),
-            str(row.id),
-        ),
+        key=lambda row: (not is_image_service_row(row), str(row.id)),
     )
     definitions: list[dict[str, Any]] = []
     handlers: dict[str, BaseToolHandler] = {}
@@ -995,10 +972,18 @@ def load_mcp_agent_tools(
             spec=weather_spec,
             limits=resolved_limits,
         )
-    official_amap_rows = [row for row in rows if is_official_amap_endpoint(str(row.endpoint_url))]
+    # 地点搜索 / 路线对比由 agent-tools 地图服务提供，说明和参数来自服务目录，目录里没有就不公告；
+    # 服务回过额度用尽（高德、腾讯都用完）时，到服务给的恢复时间前不公告。
+    if not maps_hidden():
+        _append_maps_tools(
+            definitions=definitions,
+            handlers=handlers,
+            audit_bindings=audit_bindings,
+            catalog=resolved_catalog,
+            limits=resolved_limits,
+        )
 
     for row in rows:
-        official_amap = is_official_amap_endpoint(str(row.endpoint_url))
         remote_executor = McpAgentRemoteExecutor(
             server_id=str(row.id),
             client_manager=resolved_client,
@@ -1007,7 +992,6 @@ def load_mcp_agent_tools(
             concurrency_limiter=concurrency_limiter,
             circuit_breaker=resolved_circuit_breaker,
             run_budget=run_budget,
-            is_official_amap=official_amap,
         )
         if is_image_service_row(row):
             # 生图要把图片写进本会话归属：缺用户或会话时不注册，也不退化为通用 MCP 工具。
@@ -1023,22 +1007,6 @@ def load_mcp_agent_tools(
                     conversation_id=conversation_id,
                     store_generated_image=store_generated_image or _store_generated_image,
                     load_generated_image=load_generated_image or _load_generated_image,
-                )
-            continue
-        if official_amap:
-            if len(official_amap_rows) == 1:
-                exhausted_quota_groups = quota_state_reader(
-                    str(row.id),
-                    frozenset().union(*AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS.values()),
-                )
-                _append_amap_product_tools(
-                    row=row,
-                    definitions=definitions,
-                    handlers=handlers,
-                    audit_bindings=audit_bindings,
-                    remote_executor=remote_executor,
-                    limits=resolved_limits,
-                    exhausted_quota_groups=exhausted_quota_groups,
                 )
             continue
         for snapshot in _iter_authorized_snapshots(row):
@@ -1136,48 +1104,32 @@ def _append_present_itinerary_tool(
     handlers[PRESENT_ITINERARY_TOOL_NAME] = PresentItineraryHandler()
 
 
-def _append_amap_product_tools(
+def _append_maps_tools(
     *,
-    row: Any,
     definitions: list[dict[str, Any]],
     handlers: dict[str, BaseToolHandler],
     audit_bindings: list[dict[str, Any]],
-    remote_executor: McpAgentRemoteExecutor,
+    catalog: GatewayToolCatalog,
     limits: McpAgentToolLimits,
-    exhausted_quota_groups: frozenset[str] = frozenset(),
 ) -> None:
-    """注册高德产品工具；额度用尽的产品工具本次不公告。"""
-
-    snapshots = {snapshot["name"]: snapshot for snapshot in _iter_authorized_snapshots(row)}
-    orchestration_lock = asyncio.Lock()
-    coordinate_conversion = AmapRunCoordinateConversion()
-    for product_definition in AMAP_PRODUCT_DEFINITIONS:
-        product_name = product_definition["function"]["name"]
-        dependency_names = AMAP_PRODUCT_REMOTE_DEPENDENCIES[product_name]
-        if not dependency_names.issubset(snapshots):
-            continue
-        if AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS[product_name] & exhausted_quota_groups:
+    controls = MapsRunControls()
+    for tool_name, remote_tool_name in MAPS_REMOTE_TOOLS.items():
+        spec = catalog.spec(MAPS_SERVICE, remote_tool_name)
+        if spec is None:
             continue
         if len(definitions) >= limits.max_tools:
             return
-        definition = json.loads(json.dumps(product_definition, ensure_ascii=False))
+        definition = build_maps_definition(spec, name=tool_name)
         if len(canonical_json_bytes([*definitions, definition])) > limits.max_definition_bytes:
             continue
-        dependency_hashes = {
-            name: agent_tool_definition_sha256(row, snapshots[name]) for name in sorted(dependency_names)
-        }
-        binding = build_amap_product_binding(
-            row=row,
-            product_name=product_name,
-            dependency_hashes=dependency_hashes,
-        )
+        if tool_name in handlers:
+            raise RuntimeError("MCP 工具别名冲突")
+        binding = build_maps_binding(definition)
         definitions.append(definition)
-        handlers[product_name] = AmapProductToolHandler(
+        handlers[tool_name] = MapsToolHandler(
             binding=binding,
-            remote_executor=remote_executor,
-            dependency_hashes=dependency_hashes,
-            orchestration_lock=orchestration_lock,
-            coordinate_conversion=coordinate_conversion,
+            parameters=definition["function"]["parameters"],
+            controls=controls,
             max_llm_context_bytes=limits.max_llm_context_bytes,
         )
         audit_bindings.append(binding.to_audit_dict())
@@ -1301,7 +1253,6 @@ def _build_binding(row, remote_tool_name: str, alias: str, definition_sha256: st
         config_version=int(row.config_version),
         tool_label=build_tool_label(row.name, remote_tool_name),
         definition_sha256=definition_sha256,
-        data_source=endpoint_data_source(str(row.endpoint_url)),
     )
 
 
@@ -1319,13 +1270,9 @@ def _is_sensitive_key(value: Any) -> bool:
     )
 
 
-def _sanitize_external_payload(value: Any, *, preserve_amap_transit_fields: bool = False) -> Any:
+def _sanitize_external_payload(value: Any) -> Any:
     remaining_nodes = 1_000
-    max_depth = (
-        _AMAP_TRANSIT_EXTERNAL_PAYLOAD_MAX_DEPTH
-        if preserve_amap_transit_fields
-        else _DEFAULT_EXTERNAL_PAYLOAD_MAX_DEPTH
-    )
+    max_depth = _DEFAULT_EXTERNAL_PAYLOAD_MAX_DEPTH
 
     def visit(node: Any, depth: int) -> Any:
         nonlocal remaining_nodes
@@ -1337,11 +1284,7 @@ def _sanitize_external_payload(value: Any, *, preserve_amap_transit_fields: bool
             items = list(node.items())
             for raw_key, child in items[:100]:
                 key = str(raw_key)[:256]
-                normalized_key = _normalize_key(key)
-                is_private_amap_geometry = preserve_amap_transit_fields and "polyline" in normalized_key
-                output[key] = (
-                    _REDACTED if _is_sensitive_key(key) or is_private_amap_geometry else visit(child, depth + 1)
-                )
+                output[key] = _REDACTED if _is_sensitive_key(key) else visit(child, depth + 1)
             if len(items) > 100:
                 output[_TRUNCATED] = len(items) - 100
             return output
@@ -1351,8 +1294,6 @@ def _sanitize_external_payload(value: Any, *, preserve_amap_transit_fields: bool
                 output.append(_TRUNCATED)
             return output
         if isinstance(node, str):
-            if preserve_amap_transit_fields and _AMAP_COORDINATE_SEQUENCE_PATTERN.fullmatch(node):
-                return _REDACTED
             return node if len(node) <= 20_000 else node[:20_000] + "…"
         if node is None or isinstance(node, (bool, int, float)):
             return node

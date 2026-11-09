@@ -1,61 +1,26 @@
 import unittest
 
 from app.services.mcp.provider_profiles import (
-    AMAP_READ_ONLY_TOOL_ALLOWLIST,
     CONTEXT7_READ_ONLY_TOOL_ALLOWLIST,
-    TENCENT_MAP_DATA_SOURCE,
-    amap_gateway_endpoint,
     context7_gateway_endpoint,
     endpoint_auth_binding_is_allowed,
-    endpoint_data_source,
     endpoint_timeout_floors,
     endpoint_tool_allowlist,
     endpoint_tool_guidance,
     endpoint_tool_schema_override,
-    is_official_amap_endpoint,
     is_official_context7_endpoint,
-    tencent_map_gateway_endpoint,
     tool_is_allowed_for_endpoint,
 )
 
-AMAP_GATEWAY = "http://agent-tools-gateway:8100/amap/mcp"
+IMAGE_GATEWAY = "http://agent-tools-gateway:8100/image/mcp"
 CONTEXT7_GATEWAY = "http://agent-tools-gateway:8100/context7/mcp"
-TENCENT_MAP_GATEWAY = "http://agent-tools-gateway:8100/tmap/mcp"
 
 
 class McpProviderProfileTests(unittest.TestCase):
-    def test_amap_is_recognized_only_at_the_agent_tools_gateway_endpoint(self):
-        self.assertEqual(amap_gateway_endpoint(), AMAP_GATEWAY)
-        self.assertTrue(is_official_amap_endpoint(AMAP_GATEWAY))
-        self.assertTrue(is_official_amap_endpoint(AMAP_GATEWAY + "/"))
-        self.assertFalse(is_official_amap_endpoint("https://mcp.amap.com/mcp"))
-        self.assertFalse(is_official_amap_endpoint("http://agent-tools-gateway:8100/trends/mcp"))
-        self.assertFalse(is_official_amap_endpoint("http://agent-tools-gateway:8100/amap/mcp/extra"))
-
-        self.assertEqual(endpoint_tool_allowlist(AMAP_GATEWAY), AMAP_READ_ONLY_TOOL_ALLOWLIST)
-        self.assertIn("maps_coordinate_convert", AMAP_READ_ONLY_TOOL_ALLOWLIST)
-        self.assertTrue(tool_is_allowed_for_endpoint(AMAP_GATEWAY, "maps_geo"))
-        self.assertFalse(tool_is_allowed_for_endpoint(AMAP_GATEWAY, "maps_schema_navi"))
-        self.assertNotEqual(endpoint_tool_guidance(AMAP_GATEWAY, "maps_geo"), "")
-        # 直连高德的行不再享有产品化处理，也不再带可信约束。
-        self.assertIsNone(endpoint_tool_allowlist("https://mcp.amap.com/mcp"))
-        self.assertEqual(endpoint_tool_guidance("https://mcp.amap.com/mcp", "maps_geo"), "")
-
-    def test_tencent_map_attribution_is_recognized_only_at_the_agent_tools_gateway_endpoint(self):
-        self.assertEqual(tencent_map_gateway_endpoint(), TENCENT_MAP_GATEWAY)
-        self.assertEqual(endpoint_data_source(TENCENT_MAP_GATEWAY), TENCENT_MAP_DATA_SOURCE)
-        self.assertEqual(endpoint_data_source(TENCENT_MAP_GATEWAY + "/"), TENCENT_MAP_DATA_SOURCE)
-        # 直连腾讯的行与网关上的其他服务都不带腾讯地图署名。
-        self.assertIsNone(endpoint_data_source("https://mcp.map.qq.com/mcp"))
-        self.assertIsNone(endpoint_data_source(AMAP_GATEWAY))
-        self.assertIsNone(endpoint_data_source(TENCENT_MAP_GATEWAY + "/extra"))
-        # 腾讯地图是通用接入：不加硬白名单，按管理员授权放行。
-        self.assertIsNone(endpoint_tool_allowlist(TENCENT_MAP_GATEWAY))
-
     def test_agent_tools_credential_only_goes_to_the_gateway_as_bearer(self):
         self.assertTrue(
             endpoint_auth_binding_is_allowed(
-                AMAP_GATEWAY, auth_type="bearer", auth_name=None, credential_ref="AGENT_TOOLS_API_KEY"
+                IMAGE_GATEWAY, auth_type="bearer", auth_name=None, credential_ref="AGENT_TOOLS_API_KEY"
             )
         )
         self.assertTrue(
@@ -67,9 +32,9 @@ class McpProviderProfileTests(unittest.TestCase):
             )
         )
         for endpoint, auth_type, auth_name, credential_ref in (
-            (AMAP_GATEWAY, "query", "key", "AGENT_TOOLS_API_KEY"),
-            (AMAP_GATEWAY, "bearer", None, "AMAP_MCP_API_KEY"),
-            (AMAP_GATEWAY, "none", None, None),
+            (IMAGE_GATEWAY, "query", "key", "AGENT_TOOLS_API_KEY"),
+            (IMAGE_GATEWAY, "bearer", None, "OTHER_API_KEY"),
+            (IMAGE_GATEWAY, "none", None, None),
             ("https://mcp.amap.com/mcp", "bearer", None, "AGENT_TOOLS_API_KEY"),
             ("http://agent-tools-gateway.evil.example/amap/mcp", "bearer", None, "AGENT_TOOLS_API_KEY"),
         ):
@@ -85,7 +50,7 @@ class McpProviderProfileTests(unittest.TestCase):
         self.assertTrue(is_official_context7_endpoint(CONTEXT7_GATEWAY))
         self.assertTrue(is_official_context7_endpoint(CONTEXT7_GATEWAY + "/"))
         self.assertFalse(is_official_context7_endpoint("https://mcp.context7.com/mcp"))
-        self.assertFalse(is_official_context7_endpoint(AMAP_GATEWAY))
+        self.assertFalse(is_official_context7_endpoint(IMAGE_GATEWAY))
 
         self.assertEqual(endpoint_tool_allowlist(CONTEXT7_GATEWAY + "/"), CONTEXT7_READ_ONLY_TOOL_ALLOWLIST)
         self.assertTrue(tool_is_allowed_for_endpoint(CONTEXT7_GATEWAY, "resolve-library-id"))

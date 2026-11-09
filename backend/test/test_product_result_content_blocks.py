@@ -1,7 +1,6 @@
 import json
 import unittest
 from datetime import date, datetime, timezone
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from pydantic import ValidationError
@@ -25,32 +24,7 @@ from app.schemas.chat import (
 from app.services.admin_audit_service import AdminAuditService
 from app.services.agent.continuation import deserialize_content_blocks
 from app.services.agent.emitter import AgentEventEmitter
-from app.services.mcp.amap_product_tools import AmapProductToolHandler, build_amap_product_binding
 from app.services.stream.persistence import merge_partial_content_blocks
-from app.services.tool_handlers.base import ToolResult
-
-
-def build_handler(product_name: str) -> AmapProductToolHandler:
-    dependency_hashes = {
-        "maps_geo": "hash-geo",
-        "maps_text_search": "hash-text",
-        "maps_around_search": "hash-around",
-        "maps_search_detail": "hash-detail",
-        "maps_direction_driving": "hash-driving",
-        "maps_direction_transit_integrated": "hash-transit",
-        "maps_direction_walking": "hash-walking",
-        "maps_direction_bicycling": "hash-bicycling",
-    }
-    binding = build_amap_product_binding(
-        row=SimpleNamespace(id="amap-1", provider="amap", config_version=3),
-        product_name=product_name,
-        dependency_hashes=dependency_hashes,
-    )
-    return AmapProductToolHandler(
-        binding=binding,
-        remote_executor=AsyncMock(),
-        dependency_hashes=dependency_hashes,
-    )
 
 
 def place_block(*, block_id: str = "blk-place", result_count: int = 1) -> PlaceResultsBlock:
@@ -332,142 +306,6 @@ class ProductResultSchemaTests(unittest.TestCase):
                     "limitations": ["x" * 100_000],
                 }
             )
-
-
-class AmapProductContentBlockTests(unittest.TestCase):
-    def test_place_projector_rejects_non_amap_photo_even_when_generic_schema_accepts_https(self):
-        handler = build_handler("local_place_search")
-        result = ToolResult(
-            status="success",
-            data={
-                "result": {
-                    "query": "咖啡",
-                    "places": [
-                        {
-                            "poi_id": "B0FFEvilPhoto",
-                            "name": "测试咖啡店",
-                            "photos": [{"url": "https://tracking.example.com/private.jpg"}],
-                        }
-                    ],
-                }
-            },
-        )
-
-        block = handler.build_content_block(result, "blk-place", "log-place")
-
-        self.assertIsInstance(block, PlaceResultsBlock)
-        self.assertEqual(block.places[0].photos, [])
-        self.assertNotIn("tracking.example.com", json.dumps(block.model_dump(mode="json")))
-
-    def test_place_success_builds_bounded_redacted_block_and_ignores_upstream_url(self):
-        handler = build_handler("local_place_search")
-        result = ToolResult(
-            status="success",
-            data={
-                "result": {
-                    "query": "烤肉",
-                    "near": "民治地铁站",
-                    "result_count": 1,
-                    "places": [
-                        {
-                            "poi_id": "B0FFTEST",
-                            "name": "民治 api_key=NAME_SENTINEL 烤肉店",
-                            "address": "authorization=Bearer ADDRESS_SENTINEL",
-                            "district": "龙华区",
-                            "type": "餐饮服务",
-                            "distance_m": 320,
-                            "rating": 4.6,
-                            "reference_cost_yuan": 98,
-                            "business_area": "民治",
-                            "open_hours": "周一至周日 11:00-23:00",
-                            "detail_status": "enriched",
-                            "platform_url": "https://evil.example/redirect",
-                            "photos": [
-                                {"url": "https://store.is.autonavi.com/photo.jpg", "title": "门店"},
-                                {"url": "http://evil.example/photo.jpg", "title": "不安全"},
-                            ],
-                        }
-                    ],
-                    "limitations": ["不包含实时排队或空位信息", "参考消费不代表人均或实时价格"],
-                }
-            },
-        )
-
-        block = handler.build_content_block(result, "blk-place", "log-place")
-
-        self.assertIsInstance(block, PlaceResultsBlock)
-        self.assertEqual(block.status, "success")
-        self.assertEqual(block.result_count, 1)
-        self.assertEqual(block.places[0].provider_place_id, "B0FFTEST")
-        self.assertEqual(block.places[0].category, "餐饮服务")
-        self.assertEqual(len(block.places[0].photos), 1)
-        self.assertEqual(
-            block.places[0].platform_url,
-            "https://uri.amap.com/marker?poiid=B0FFTEST&src=fusion&callnative=0",
-        )
-        self.assertEqual(block.places[0].reference_cost_yuan, 98)
-        self.assertEqual(block.attribution.label, "高德地图")
-        self.assertEqual(block.places[0].actions[0].label, "查看详情")
-        self.assertEqual(
-            block.places[0].actions[0].url,
-            "https://uri.amap.com/marker?poiid=B0FFTEST&src=fusion&callnative=0",
-        )
-        self.assertEqual(block.places[0].business_area, "民治")
-        serialized = json.dumps(block.model_dump(mode="json"), ensure_ascii=False)
-        self.assertNotIn("NAME_SENTINEL", serialized)
-        self.assertNotIn("ADDRESS_SENTINEL", serialized)
-        self.assertNotIn("evil.example", serialized)
-        self.assertNotIn("telephone", serialized)
-        self.assertEqual(
-            handler._build_result_summary(result),
-            {
-                "kind": "external_tool",
-                "title": "高德地点搜索",
-                "provider": "amap",
-                "truncated": False,
-                "result_count": 1,
-            },
-        )
-
-    def test_route_degraded_builds_route_block_but_failed_result_builds_none(self):
-        handler = build_handler("route_compare")
-        degraded = ToolResult(
-            status="degraded",
-            data={
-                "result": {
-                    "origin": {"label": "民治地铁站", "city": "深圳市", "location": "114.0,22.5"},
-                    "destination": {"label": "深圳市民中心", "city": "深圳市", "location": "114.1,22.6"},
-                    "routes": [
-                        {
-                            "mode": "driving",
-                            "distance_m": 16_000,
-                            "duration_s": 1_500,
-                            "summary": "推荐路线",
-                            "toll_yuan": 0,
-                        }
-                    ],
-                    "unavailable_modes": ["transit"],
-                    "limitations": ["路线时间和距离仅代表高德本次返回结果"],
-                }
-            },
-        )
-
-        block = handler.build_content_block(degraded, "blk-route", "log-route")
-
-        self.assertIsInstance(block, RouteResultsBlock)
-        self.assertEqual(block.status, "degraded")
-        self.assertEqual(block.origin.label, "民治地铁站")
-        self.assertEqual(block.routes[0].duration_s, 1_500)
-        self.assertEqual(block.attribution.label, "高德地图")
-        self.assertNotIn("location", block.model_dump(mode="json")["origin"])
-        self.assertEqual(handler._build_result_summary(degraded)["mode_count"], 1)
-        self.assertIsNone(
-            handler.build_content_block(
-                ToolResult(status="failed", data={"error_code": "server_run_budget_exhausted"}),
-                "blk-failed",
-                "log-failed",
-            )
-        )
 
 
 class ProductResultRecoveryTests(unittest.TestCase):

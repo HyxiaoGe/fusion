@@ -82,7 +82,7 @@ class SanitizeArgumentsTests(unittest.TestCase):
         self.assertLessEqual(len(serialized.encode("utf-8")), 4096)
         self.assertEqual(args["api_key"], "secret-key")
 
-    def test_amap_product_tool_uses_external_argument_sanitizer(self):
+    def test_map_product_tool_uses_external_argument_sanitizer(self):
         args = {
             "query": "咖啡",
             "near": "民治地铁站",
@@ -105,7 +105,7 @@ class SanitizeArgumentsTests(unittest.TestCase):
         self.assertEqual(sanitized, {"argument_count": 3})
         self.assertNotIn("深圳", json.dumps(sanitized, ensure_ascii=False))
 
-    def test_amap_product_tool_redacts_inline_credentials_but_preserves_normal_question(self):
+    def test_map_product_tool_redacts_inline_credentials_but_preserves_normal_question(self):
         args = {
             "query": "api key: 如何申请地图服务",
             "near": "民治 api_key=LEAK_SENTINEL",

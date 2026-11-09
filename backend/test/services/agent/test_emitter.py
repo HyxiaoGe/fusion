@@ -167,7 +167,7 @@ class EmitterEnvelopeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("secret", str(payload["arguments"]))
 
-    async def test_tool_call_started_amap_product_redacts_inline_credentials_before_redis(self):
+    async def test_tool_call_started_map_product_redacts_inline_credentials_before_redis(self):
         writer = AsyncMock()
         em = AgentEventEmitter(run_id="r1", trace_id="r1", conversation_id="c1", task_id="task-1", redis_writer=writer)
 

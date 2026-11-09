@@ -41,19 +41,8 @@ export interface McpModelTool {
   description?: string;
 }
 
-export interface McpHiddenModelTool {
-  name: string;
-  label: string;
-  description?: string;
-  source_tools?: string[];
-  reason: 'quota_exhausted';
-  resets_in_seconds: number;
-}
-
 export interface McpServerModelView {
   tools: McpModelTool[];
-  hidden_tools: McpHiddenModelTool[];
-  quota_exhausted?: { group: string; resets_in_seconds: number }[];
 }
 
 export interface McpModelView {

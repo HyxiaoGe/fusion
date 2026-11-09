@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import controlStyles from "@/components/settings/SettingsControls.module.css";
-import McpToolPreviewDialog, { formatResetIn } from "./McpToolPreviewDialog";
+import McpToolPreviewDialog from "./McpToolPreviewDialog";
 import {
   createMcpServerAPI,
   fetchMcpModelViewAPI,
@@ -64,17 +64,6 @@ const emptyForm: ServerFormState = {
   allowedTools: "",
 };
 
-const amapSafePreset: ServerFormState = {
-  name: "高德地图",
-  provider: "amap",
-  // 高德经 agent-tools 网关的 amap 代理访问，高德密钥在代理侧，这里只带产品服务密钥。
-  endpointUrl: "http://agent-tools-gateway:8100/amap/mcp",
-  authType: "bearer",
-  authName: "",
-  credentialRef: "AGENT_TOOLS_API_KEY",
-  allowedTools: "",
-};
-
 const context7SafePreset: ServerFormState = {
   name: "Context7 技术文档",
   provider: "context7",
@@ -86,28 +75,10 @@ const context7SafePreset: ServerFormState = {
   allowedTools: "",
 };
 
-const recommendedAmapReadOnlyTools = [
-  "maps_geo",
-  "maps_regeocode",
-  "maps_direction_bicycling",
-  "maps_direction_walking",
-  "maps_direction_driving",
-  "maps_direction_transit_integrated",
-  "maps_distance",
-  "maps_text_search",
-  "maps_around_search",
-  "maps_search_detail",
-  "maps_coordinate_convert",
-] as const;
-
 const recommendedToolProfiles: Record<
   string,
   { buttonLabel: string; tools: readonly string[] }
 > = {
-  amap: {
-    buttonLabel: "一键选择推荐只读工具",
-    tools: recommendedAmapReadOnlyTools,
-  },
   context7: {
     buttonLabel: "一键选择推荐文档工具",
     tools: ["resolve-library-id", "query-docs"],
@@ -141,12 +112,6 @@ const getRecommendedToolProfile = (
 };
 
 const safePresets = [
-  {
-    title: "高德地图",
-    description: "agent-tools 网关代理 · Bearer 凭证引用",
-    actionLabel: "使用高德安全预设",
-    form: amapSafePreset,
-  },
   {
     title: "Context7 技术文档",
     description: "agent-tools 网关代理 · Bearer 凭证引用",
@@ -213,12 +178,6 @@ function formatCheckedAt(value: string | null): string {
   }).format(date);
 }
 
-
-const quotaGroupLabels: Record<string, string> = {
-  search: "搜索类（关键字/周边/详情）",
-  maps_geo: "地理编码",
-};
-
 function ModelToolsSection({
   server,
   view,
@@ -236,15 +195,6 @@ function ModelToolsSection({
   }
   return (
     <div className="space-y-2">
-      {view.quota_exhausted && view.quota_exhausted.length > 0 && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-700 dark:text-amber-400" role="status">
-          {view.quota_exhausted.map((quota) => (
-            <p key={quota.group}>
-              本月{quotaGroupLabels[quota.group] ?? quota.group}额度已用完，{formatResetIn(quota.resets_in_seconds)}
-            </p>
-          ))}
-        </div>
-      )}
       {view.tools.length > 0 ? (
         <ul className="space-y-1.5">
           {view.tools.map((tool) => (
@@ -258,18 +208,11 @@ function ModelToolsSection({
             </li>
           ))}
         </ul>
-      ) : view.hidden_tools.length === 0 ? (
+      ) : (
         <p className="text-sm text-muted-foreground">
           {server.allowed_tools.length > 0 ? "本次没有工具提供给模型" : "尚未授权工具，不会提供给模型"}
         </p>
-      ) : null}
-      {view.hidden_tools.map((tool) => (
-        <p key={tool.name} className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-          <span className="line-through">{tool.label}</span>
-          <Badge tone="warning">暂不提供</Badge>
-          <span className="text-xs">额度用完，{formatResetIn(tool.resets_in_seconds)}</span>
-        </p>
-      ))}
+      )}
     </div>
   );
 }
@@ -766,7 +709,7 @@ export default function McpServerManager() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="mcp-provider">提供商</Label>
-                <Input id="mcp-provider" placeholder="例如 amap" value={form.provider} onChange={(event) => changeForm("provider", event.target.value)} aria-invalid={Boolean(formErrors.provider)} aria-describedby={formErrors.provider ? "mcp-provider-error" : undefined} />
+                <Input id="mcp-provider" placeholder="例如 context7" value={form.provider} onChange={(event) => changeForm("provider", event.target.value)} aria-invalid={Boolean(formErrors.provider)} aria-describedby={formErrors.provider ? "mcp-provider-error" : undefined} />
                 {formErrors.provider && <SettingsFieldError id="mcp-provider-error">{formErrors.provider}</SettingsFieldError>}
               </div>
             </div>

@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     CREDITS_USER_WEEKLY: int = int(os.getenv("CREDITS_USER_WEEKLY", "10000"))
     # 免限额的账号（评测、探针），逗号分隔用户名；照样记消耗流水
     CREDITS_EXEMPT_USERNAMES: str = os.getenv("CREDITS_EXEMPT_USERNAMES", "")
-    # 覆盖工具单价的 JSON，如 {"web_search": 10, "mcp:amap": 3}
+    # 覆盖工具单价的 JSON，如 {"web_search": 10, "mcp:context7": 3}
     CREDITS_TOOL_PRICES: str = os.getenv("CREDITS_TOOL_PRICES", "")
 
     # 知识库 v1：API、独立 Worker、Embedding 与 Milvus 均通过配置显式启用。

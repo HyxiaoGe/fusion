@@ -10,21 +10,11 @@ from collections.abc import Callable
 from typing import Any
 
 from app.services.mcp.agent_tools import load_mcp_agent_tools
-from app.services.mcp.amap_product_tools import (
-    AMAP_PRODUCT_REMOTE_DEPENDENCIES,
-    AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS,
-)
 from app.services.mcp.image_service_tools import IMAGE_SERVICE_REMOTE_TOOL_NAME
-from app.services.mcp.provider_profiles import is_official_amap_endpoint
-from app.services.mcp.provider_quota import read_quota_reset_seconds
 
 _PREVIEW_SCOPE = "admin-model-view"
-_ALL_AMAP_QUOTA_GROUPS = frozenset().union(*AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS.values())
-_PRODUCT_LABELS = {"local_place_search": "高德地点搜索", "route_compare": "高德路线比较"}
 # 产品工具给模型的定义是英文，管理页预览用这份中文简介。
 _PRODUCT_DESCRIPTIONS = {
-    "local_place_search": "按关键词在城市内或某个地点周边搜索，返回候选地点的名称、地址、距离和地点编号；地名有歧义时交给模型确认或问用户。",
-    "route_compare": "比较两地之间驾车、公交地铁、步行、骑行的耗时和距离；起终点可以是地名，也可以是地点搜索结果里的地点编号。",
     "generate_image": "根据文字描述生成图片，可指定画面比例和风格，生成的图片直接显示在回答里。",
 }
 
@@ -34,23 +24,11 @@ def build_mcp_model_view(
     *,
     rows: list[Any],
     load_tools: Callable[..., Any] = load_mcp_agent_tools,
-    read_quota: Callable[[str, frozenset[str]], dict[str, int]] = read_quota_reset_seconds,
 ) -> dict[str, Any]:
-    quota_by_server = {
-        str(row.id): read_quota(str(row.id), _ALL_AMAP_QUOTA_GROUPS)
-        for row in rows
-        if row.is_enabled and is_official_amap_endpoint(str(row.endpoint_url))
-    }
-    # 额度只读一次，装配和展示用同一份结论。
-    tool_set = load_tools(
-        db,
-        user_id=_PREVIEW_SCOPE,
-        conversation_id=_PREVIEW_SCOPE,
-        quota_state_reader=lambda server_id, groups: frozenset(quota_by_server.get(server_id, {})) & groups,
-    )
+    tool_set = load_tools(db, user_id=_PREVIEW_SCOPE, conversation_id=_PREVIEW_SCOPE)
     definitions = {definition["function"]["name"]: definition for definition in tool_set.definitions}
 
-    servers: dict[str, dict[str, Any]] = {str(row.id): {"tools": [], "hidden_tools": []} for row in rows}
+    servers: dict[str, dict[str, Any]] = {str(row.id): {"tools": []} for row in rows}
     remote_descriptions = {
         str(row.id): {
             tool["name"]: str(tool.get("description") or "")
@@ -66,39 +44,16 @@ def build_mcp_model_view(
             continue
         remote = str(binding.get("remote_tool_name") or "")
         is_product = remote.startswith("product:")
-        if is_product:
-            source_tools = sorted(AMAP_PRODUCT_REMOTE_DEPENDENCIES.get(alias, {IMAGE_SERVICE_REMOTE_TOOL_NAME}))
-        else:
-            source_tools = [remote]
         server["tools"].append(
             {
                 "name": alias if is_product else remote,
                 "label": binding.get("tool_label") or alias,
                 "kind": "product" if is_product else "generic",
-                "source_tools": source_tools,
+                "source_tools": [IMAGE_SERVICE_REMOTE_TOOL_NAME] if is_product else [remote],
                 "description": _PRODUCT_DESCRIPTIONS.get(alias, "")
                 if is_product
                 else remote_descriptions.get(str(binding.get("server_id")), {}).get(remote, ""),
             }
         )
-
-    for server_id, quota in quota_by_server.items():
-        server = servers[server_id]
-        server["quota_exhausted"] = [
-            {"group": group, "resets_in_seconds": seconds} for group, seconds in sorted(quota.items())
-        ]
-        for product, groups in AMAP_PRODUCT_REQUIRED_QUOTA_GROUPS.items():
-            exhausted = sorted(groups & set(quota))
-            if exhausted:
-                server["hidden_tools"].append(
-                    {
-                        "name": product,
-                        "label": _PRODUCT_LABELS.get(product, product),
-                        "description": _PRODUCT_DESCRIPTIONS.get(product, ""),
-                        "source_tools": sorted(AMAP_PRODUCT_REMOTE_DEPENDENCIES.get(product, ())),
-                        "reason": "quota_exhausted",
-                        "resets_in_seconds": max(quota[group] for group in exhausted),
-                    }
-                )
 
     return {"servers": servers}

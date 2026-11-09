@@ -13,18 +13,6 @@ from app.services.mcp.server_service import McpServerService  # noqa: E402
 
 NOW = datetime(2026, 7, 16, 8, 0, tzinfo=UTC)
 
-AMAP_READ_ONLY_TOOLS = [
-    "maps_geo",
-    "maps_regeocode",
-    "maps_direction_bicycling",
-    "maps_direction_walking",
-    "maps_direction_driving",
-    "maps_direction_transit_integrated",
-    "maps_distance",
-    "maps_text_search",
-    "maps_around_search",
-    "maps_search_detail",
-]
 CONTEXT7_READ_ONLY_TOOLS = ["resolve-library-id", "query-docs"]
 
 
@@ -191,44 +179,7 @@ class McpServerServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 400)
         self.assertIn("已发现工具", raised.exception.message)
 
-    def test_amap_endpoint_only_allows_planned_read_only_tools(self):
-        blocked_tools = [
-            "maps_ip_location",
-            "maps_schema_personal_map",
-            "maps_schema_navi",
-            "maps_schema_take_taxi",
-            "maps_future_unknown",
-        ]
-        discovered_tools = [
-            {"name": name, "description": name, "input_schema": {"type": "object"}}
-            for name in [*AMAP_READ_ONLY_TOOLS, *blocked_tools]
-        ]
-        row = build_row(
-            provider="amap",
-            endpoint_url="http://agent-tools-gateway:8100/amap/mcp/",
-            auth_type="bearer",
-            auth_name=None,
-            credential_ref="AGENT_TOOLS_API_KEY",
-            allowed_tools=[],
-            discovered_tools=discovered_tools,
-        )
-        service = McpServerService(FakeRepository([row]), FakeClientManager(), clock=lambda: NOW)
-
-        updated = service.update_server(row.id, McpServerUpdate(allowed_tools=AMAP_READ_ONLY_TOOLS))
-        self.assertEqual(updated.allowed_tools, AMAP_READ_ONLY_TOOLS)
-
-        for blocked_tool in blocked_tools:
-            with self.subTest(blocked_tool=blocked_tool):
-                with self.assertRaises(ApiException) as raised:
-                    service.update_server(
-                        row.id,
-                        McpServerUpdate(allowed_tools=[*AMAP_READ_ONLY_TOOLS, blocked_tool]),
-                    )
-                self.assertEqual(raised.exception.status_code, 400)
-                self.assertIn("官方 MCP 端点", raised.exception.message)
-                self.assertNotIn("高德", raised.exception.message)
-
-    def test_non_amap_endpoint_keeps_discovered_subset_behavior(self):
+    def test_non_profiled_endpoint_keeps_discovered_subset_behavior(self):
         future_tool = {"name": "provider_future_tool", "description": None, "input_schema": {"type": "object"}}
         row = build_row(discovered_tools=[future_tool], allowed_tools=[])
         service = McpServerService(FakeRepository([row]), FakeClientManager(), clock=lambda: NOW)
@@ -301,72 +252,29 @@ class McpServerServiceTests(unittest.TestCase):
 
         self.assertEqual(refreshed.allowed_tools, CONTEXT7_READ_ONLY_TOOLS)
 
-    def test_amap_refresh_drops_stale_disallowed_authorization(self):
+    def test_context7_runtime_authorization_rejects_unapproved_tools_and_allows_approved(self):
+        blocked_tool = "future-write-tool"
         tools = [
-            {"name": "maps_text_search", "description": "搜索", "input_schema": {"type": "object"}},
-            {"name": "maps_ip_location", "description": "IP 定位", "input_schema": {"type": "object"}},
+            {"name": name, "description": name, "input_schema": {"type": "object"}}
+            for name in [*CONTEXT7_READ_ONLY_TOOLS, blocked_tool]
         ]
         row = build_row(
-            provider="amap",
-            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
+            provider="context7",
+            endpoint_url="http://agent-tools-gateway:8100/context7/mcp",
             auth_type="bearer",
             auth_name=None,
             credential_ref="AGENT_TOOLS_API_KEY",
-            allowed_tools=["maps_text_search", "maps_ip_location"],
+            is_enabled=True,
+            allowed_tools=[*CONTEXT7_READ_ONLY_TOOLS, blocked_tool],
             discovered_tools=tools,
         )
-        service = McpServerService(FakeRepository([row]), FakeClientManager(tools=tools), clock=lambda: NOW)
-
-        refreshed = asyncio.run(service.refresh_tools(row.id))
-
-        self.assertEqual(refreshed.allowed_tools, ["maps_text_search"])
-
-    def test_amap_runtime_authorization_rejects_disallowed_and_future_tools(self):
-        blocked_tools = [
-            "maps_ip_location",
-            "maps_schema_personal_map",
-            "maps_schema_navi",
-            "maps_schema_take_taxi",
-            "maps_future_unknown",
-        ]
-        discovered_tools = [
-            {"name": name, "description": name, "input_schema": {"type": "object"}} for name in blocked_tools
-        ]
-        row = build_row(
-            provider="amap",
-            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
-            auth_type="bearer",
-            auth_name=None,
-            credential_ref="AGENT_TOOLS_API_KEY",
-            is_enabled=True,
-            allowed_tools=blocked_tools,
-            discovered_tools=discovered_tools,
-        )
         service = McpServerService(FakeRepository([row]), FakeClientManager(), clock=lambda: NOW)
 
-        for blocked_tool in blocked_tools:
-            with self.subTest(blocked_tool=blocked_tool):
-                with self.assertRaises(McpClientError) as raised:
-                    service.resolve_authorized_tool_call(row.id, blocked_tool)
-                self.assertEqual(raised.exception.code, "tool_not_allowed")
-
-    def test_amap_runtime_authorization_allows_planned_read_only_tool(self):
-        tool = {"name": "maps_text_search", "description": "搜索", "input_schema": {"type": "object"}}
-        row = build_row(
-            provider="amap",
-            endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
-            auth_type="bearer",
-            auth_name=None,
-            credential_ref="AGENT_TOOLS_API_KEY",
-            is_enabled=True,
-            allowed_tools=["maps_text_search"],
-            discovered_tools=[tool],
-        )
-        service = McpServerService(FakeRepository([row]), FakeClientManager(), clock=lambda: NOW)
-
-        config = service.resolve_authorized_tool_call(row.id, "maps_text_search")
-
-        self.assertEqual(config.allowed_tools, ["maps_text_search"])
+        with self.assertRaises(McpClientError) as raised:
+            service.resolve_authorized_tool_call(row.id, blocked_tool)
+        self.assertEqual(raised.exception.code, "tool_not_allowed")
+        config = service.resolve_authorized_tool_call(row.id, "query-docs")
+        self.assertIn("query-docs", config.allowed_tools)
 
     def test_refresh_saves_normalized_snapshot_and_intersects_existing_allowlist(self):
         row = build_row(allowed_tools=["search", "removed"])
