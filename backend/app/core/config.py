@@ -435,9 +435,8 @@ class Settings(BaseSettings):
     # 主动探测的结论，放久了不能再当作当前状态（issue #32）。
     MCP_PROBE_FRESHNESS_TTL_SECONDS: int = int(os.getenv("MCP_PROBE_FRESHNESS_TTL_SECONDS", "3600"))
 
-    # FlyAI 出行产品工具通过私有 HTTP 适配器访问，不在 API 容器执行第三方 CLI。
+    # FlyAI 航班/高铁经 agent-tools 网关的 /flyai/mcp 调用，不在 API 容器执行第三方 CLI。
     ENABLE_FLYAI_TRAVEL_TOOLS: bool = os.getenv("ENABLE_FLYAI_TRAVEL_TOOLS", "false").lower() == "true"
-    FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS: float = float(os.getenv("FLYAI_TRAVEL_TOOL_TIMEOUT_SECONDS", "20"))
     FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN: int = int(os.getenv("FLYAI_TRAVEL_MAX_TOOL_CALLS_PER_RUN", "4"))
 
     # 文档站点开关（生产关掉减少攻击面）

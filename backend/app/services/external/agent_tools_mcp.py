@@ -30,8 +30,8 @@ from app.services.mcp.client import McpClientError, McpClientManager, McpClientP
 from app.services.mcp.provider_profiles import AGENT_TOOLS_CREDENTIAL_REF
 from app.services.mcp.tool_contract import sanitize_tool_schema_for_model
 
-# 已经改走网关 MCP 的服务；出行、地图迁过来时加在这里。
-GATEWAY_MCP_SERVICES: tuple[str, ...] = ("weather", "search", "reader")
+# 已经改走网关 MCP 的服务；地图迁过来时加在这里。
+GATEWAY_MCP_SERVICES: tuple[str, ...] = ("weather", "search", "reader", "flyai")
 # 和 agent-tools 约定的设备位置键：{longitude, latitude, accuracy_m?}，WGS84。
 GEOLOCATION_META_KEY = "agent-tools/geolocation"
 _CATALOG_TTL_SECONDS = 10 * 60

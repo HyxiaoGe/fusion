@@ -100,18 +100,11 @@ def _request(
 
 class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
     async def test_second_identical_successful_travel_round_reuses_result_without_consuming_quota(self):
-        from app.services.mcp.flyai_travel_tools import (
-            FLYAI_SEARCH_TRAINS,
-            FlyAiTravelToolHandler,
-            build_flyai_travel_binding,
-        )
+        from app.services.mcp.flyai_travel_tools import FLYAI_SEARCH_TRAINS
         from app.services.stream.tool_executor import execute_tools_parallel
+        from test.test_flyai_travel_tools import flyai_handler
 
-        handler = FlyAiTravelToolHandler(
-            binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
-            client=Mock(),
-            controls=Mock(),
-        )
+        handler = flyai_handler(FLYAI_SEARCH_TRAINS)
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result_count": 1}))
         handler.log = AsyncMock()
         state = AgentLoopState()
@@ -123,15 +116,17 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
                 "origin": "深圳",
                 "destination": "广州",
                 "departure_date": "2026-07-25",
+                "train_category": "all",
             },
         }
+        # 参数顺序不同、地名带空白、可选参数传 null，服务都按同一个查询处理
         repeated_call = {
             "id": "tc-train-2",
             "name": FLYAI_SEARCH_TRAINS,
             "arguments": json.dumps(
                 {
-                    "limit": 5,
-                    "sort_by": "recommended",
+                    "train_category": "all",
+                    "sort_by": None,
                     "departure_date": "2026-07-25",
                     "destination": "广州",
                     "origin": " 深圳 ",
@@ -185,18 +180,11 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
         self.assertEqual(second_request.content_blocks, [])
 
     async def test_qwen_four_train_calls_with_identical_last_two_count_three_actual_executions(self):
-        from app.services.mcp.flyai_travel_tools import (
-            FLYAI_SEARCH_TRAINS,
-            FlyAiTravelToolHandler,
-            build_flyai_travel_binding,
-        )
+        from app.services.mcp.flyai_travel_tools import FLYAI_SEARCH_TRAINS
         from app.services.stream.tool_executor import execute_tools_parallel
+        from test.test_flyai_travel_tools import flyai_handler
 
-        handler = FlyAiTravelToolHandler(
-            binding=build_flyai_travel_binding(FLYAI_SEARCH_TRAINS),
-            client=Mock(),
-            controls=Mock(),
-        )
+        handler = flyai_handler(FLYAI_SEARCH_TRAINS)
         handler.execute = AsyncMock(return_value=ToolResult(status="success", data={"result_count": 1}))
         handler.log = AsyncMock()
         state = AgentLoopState()
@@ -208,7 +196,8 @@ class ToolRoundBudgetTests(IsolatedAsyncioTestCase):
                     "origin": "深圳",
                     "destination": "广州",
                     "departure_date": "2026-07-25",
-                    "departure_hour_start": hour,
+                    "train_category": "all",
+                    "arrival_before_hour": hour,
                 },
             }
             for index, hour in enumerate((6, 8, 10, 10), 1)
