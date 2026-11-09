@@ -44,8 +44,6 @@ DEFAULT_TOOL_PRICES: dict[str, float] = {
     "weather_forecast": 1,
     "search_trains": 2,
     "search_flights": 2,
-    "mcp:amap": 2,
-    "mcp:tencent_map": 2,
     "mcp:context7": 1,
     "mcp:trendradar": 1,
 }

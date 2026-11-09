@@ -44,4 +44,23 @@ describe('DocumentSources', () => {
     expect(exported.body.textContent).toContain('正文中的 Firecrawl 和高德地图品牌原文');
     expect(exported.body.textContent).toMatch(/2026[\/]10[\/]02|10[\/]02[\/]2026/);
   });
+
+  it.each([
+    ['zh-CN', '腾讯地图', '高德地图、腾讯地图'],
+    ['en-US', 'Tencent Maps', 'AMap, Tencent Maps'],
+  ])('labels Tencent and combined map sources in %s', async (locale, tencent, combined) => {
+    await i18n.changeLanguage(locale);
+    render(
+      <DocumentSources
+        sources={[
+          { kind: 'place', label: '断桥', provider: 'tmap' },
+          { kind: 'route', label: '西湖 → 灵隐寺', provider: 'amap,tmap' },
+        ]}
+      />,
+    );
+    const section = screen.getByTestId('document-sources');
+    expect(section).toHaveTextContent(`断桥 · ${tencent}`);
+    expect(section).toHaveTextContent(`西湖 → 灵隐寺 · ${combined}`);
+    expect(section).not.toHaveTextContent('tmap');
+  });
 });

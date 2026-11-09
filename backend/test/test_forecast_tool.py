@@ -20,7 +20,7 @@ from app.services.weather.forecast_tool import (  # noqa: E402
     build_weather_binding,
     build_weather_forecast_definition,
 )
-from test.test_mcp_agent_tools import FakeClientManager, FakeDb, FakeRepository, build_row  # noqa: E402
+from test.test_mcp_agent_tools import FakeClientManager, FakeDb, FakeRepository  # noqa: E402
 
 # 与 dev 上 get_weather 的 tools/list 同形（说明取开头一句）。
 WEATHER_TOOL = {
@@ -332,23 +332,6 @@ class WeatherExecutionTests(unittest.TestCase):
         self.assertEqual(block.hourly[1].time.hour, 19)
 
 
-def build_amap_row():
-    tools = ["maps_text_search", "maps_search_detail", "maps_geo", "maps_regeocode"]
-    tools += ["maps_direction_walking", "maps_direction_driving", "maps_direction_transit_integrated"]
-    tools += ["maps_direction_bicycling", "maps_around_search", "maps_distance", "maps_coordinate_convert"]
-    return build_row(
-        id="amap",
-        name="高德地图",
-        provider="amap",
-        endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
-        auth_type="bearer",
-        auth_name=None,
-        credential_ref="AGENT_TOOLS_API_KEY",
-        allowed_tools=tools,
-        discovered_tools=[{"name": name, "description": name, "input_schema": {"type": "object"}} for name in tools],
-    )
-
-
 def loaded_catalog(tools: list[dict]) -> GatewayToolCatalog:
     async def list_tools(_service):
         return tools
@@ -360,20 +343,20 @@ def loaded_catalog(tools: list[dict]) -> GatewayToolCatalog:
 
 class WeatherRegistrationTests(unittest.TestCase):
     def load(self, catalog):
-        repository = FakeRepository([build_amap_row()])
+        repository = FakeRepository([])
         return load_mcp_agent_tools(
             object(),
             client_manager=FakeClientManager(),
             session_factory=FakeDb,
             repository_factory=lambda _db: repository,
             gateway_catalog=catalog,
+            maps_hidden=lambda: True,
         )
 
     def test_weather_tool_comes_from_the_service_catalog(self):
         tools = self.load(loaded_catalog([WEATHER_TOOL]))
 
         self.assertIsInstance(tools.handlers["weather_forecast"], WeatherForecastToolHandler)
-        self.assertIn("local_place_search", tools.handlers)
         names = [definition["function"]["name"] for definition in tools.definitions]
         self.assertEqual(names.count("weather_forecast"), 1)
         weather = next(d for d in tools.definitions if d["function"]["name"] == "weather_forecast")
@@ -387,7 +370,6 @@ class WeatherRegistrationTests(unittest.TestCase):
             with self.subTest(catalog=catalog):
                 tools = self.load(catalog)
                 self.assertNotIn("weather_forecast", tools.handlers)
-                self.assertIn("local_place_search", tools.handlers)
 
 
 if __name__ == "__main__":

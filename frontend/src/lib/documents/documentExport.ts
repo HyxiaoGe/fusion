@@ -6,15 +6,26 @@ export function sourceKindLabel(kind: DocumentSource['kind'], t: Translate): str
   return t(`documents.sources.kinds.${kind}`);
 }
 
-/** 只映射结构化来源标识；未知或内部服务商不对用户展示，来源原文保持不变。 */
+const SOURCE_PROVIDER_KEYS: Record<string, string> = {
+  amap: 'amap',
+  高德地图: 'amap',
+  tmap: 'tmap',
+};
+
+/**
+ * 只映射结构化来源标识；未知或内部服务商不对用户展示，来源原文保持不变。
+ * 地图结果可能同时来自两家（如 `amap,tmap`），按出现顺序逐个映射。
+ */
 export function sourceProviderLabel(provider: DocumentSource['provider'], t: Translate): string | null {
-  switch (provider?.trim().toLowerCase()) {
-    case 'amap':
-    case '高德地图':
-      return t('documents.sources.providers.amap');
-    default:
-      return null;
-  }
+  const keys = (provider ?? '')
+    .split(',')
+    .map(part => SOURCE_PROVIDER_KEYS[part.trim().toLowerCase()])
+    .filter((key): key is string => Boolean(key));
+  const unique = [...new Set(keys)];
+  if (unique.length === 0) return null;
+  return unique
+    .map(key => t(`documents.sources.providers.${key}`))
+    .join(t('documents.sources.providerSeparator'));
 }
 
 export function formatSourceTime(value: string | null | undefined, locale = 'zh-CN'): string | null {

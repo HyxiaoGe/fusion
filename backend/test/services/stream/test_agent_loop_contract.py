@@ -383,7 +383,7 @@ class AgentLoopContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_events[-1]["result_summary"]["title"], "Microsoft Learn 文档搜索")
         self.assertEqual(result.session_status_calls[-1]["total_tool_calls"], 1)
 
-    async def test_stable_amap_product_contract_is_announced_audited_and_emitted_once(self):
+    async def test_stable_map_product_contract_is_announced_audited_and_emitted_once(self):
         alias = "local_place_search"
         definition = {
             "type": "function",

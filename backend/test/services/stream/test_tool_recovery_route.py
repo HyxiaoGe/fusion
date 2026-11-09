@@ -2,10 +2,10 @@
 
 import unittest
 
-from app.services.mcp.amap_product_tools import AMAP_PRODUCT_DEFINITIONS
 from app.services.stream.agent_loop_request_prep import build_agent_loop_call_config
 from app.services.weather.forecast_tool import build_weather_forecast_definition
 from test.test_forecast_tool import WEATHER_SPEC
+from test.test_maps_tools import MAPS_DEFINITIONS
 
 WEATHER_FORECAST_DEFINITION = build_weather_forecast_definition(WEATHER_SPEC)
 
@@ -44,7 +44,7 @@ class RecoveryPromptTests(unittest.IsolatedAsyncioTestCase):
         async def messages(*args, **kwargs):
             return [{"role": "user", "content": "查询"}]
 
-        product_tools = [*AMAP_PRODUCT_DEFINITIONS, WEATHER_FORECAST_DEFINITION]
+        product_tools = [*MAPS_DEFINITIONS, WEATHER_FORECAST_DEFINITION]
         for message in ("香港三天天气", "核验 OpenAI 最新公告，给出官方原文和交叉来源"):
             config = build_agent_loop_call_config(
                 provider="openai",

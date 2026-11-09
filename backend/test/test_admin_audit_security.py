@@ -222,7 +222,7 @@ class AdminAuditSanitizerTests(unittest.TestCase):
         self.assertNotIn("raw_response", serialized)
         self.assertNotIn("secret-key", serialized)
 
-    def test_amap_product_projection_keeps_only_safe_remote_call_metadata(self):
+    def test_map_product_projection_keeps_only_safe_remote_call_metadata(self):
         tool = ToolCallLog(
             id="tool-amap-product",
             tool_name="route_compare",

@@ -218,11 +218,11 @@ def test_settle_prices_each_round_by_its_model_and_start_time_and_counts_success
     # 午休空闲时段的 deepseek，按空闲价
     _round(db, "run-1", 5, round_id="r3", at=MONDAY_LUNCH, model="deepseek-chat", input_tokens=2000, output_tokens=500)
     server = McpServer(
-        id="srv-amap",
-        name="高德地图",
-        provider="amap",
-        endpoint_url="https://amap.example",
-        discovered_tools=[{"name": "maps_direction"}],
+        id="srv-docs",
+        name="Context7",
+        provider="context7",
+        endpoint_url="https://context7.example",
+        discovered_tools=[{"name": "query-docs"}],
     )
     db.add(server)
     db.commit()
@@ -231,7 +231,7 @@ def test_settle_prices_each_round_by_its_model_and_start_time_and_counts_success
         ("web_search", "success"),
         ("web_search", "failed"),
         ("url_read", "degraded"),
-        (build_agent_tool_alias("srv-amap", "maps_direction"), "success"),
+        (build_agent_tool_alias("srv-docs", "query-docs"), "success"),
         ("load_skill", "success"),
     ]:
         _tool(db, "run-1", name, status)
@@ -260,10 +260,10 @@ def test_settle_prices_each_round_by_its_model_and_start_time_and_counts_success
     tools = {item["tool"]: item for item in entry.breakdown["tools"]}
     assert tools["web_search"]["count"] == 2 and tools["web_search"]["credits"] == 16
     assert tools["url_read"]["credits"] == 5
-    assert tools["mcp:amap"]["label"] == "高德地图 / maps_direction" and tools["mcp:amap"]["credits"] == 2
+    assert tools["mcp:context7"]["label"] == "Context7 / query-docs" and tools["mcp:context7"]["credits"] == 1
     assert tools["load_skill"]["credits"] == 0
     assert entry.charged is True
-    assert entry.credits == pytest.approx(sum(item["credits"] for item in rounds) + 23)
+    assert entry.credits == pytest.approx(sum(item["credits"] for item in rounds) + 22)
     assert entry.message_id == "msg-1" and entry.occurred_at.replace(tzinfo=timezone.utc) == MONDAY_PEAK
 
 
@@ -402,9 +402,9 @@ def test_sweep_settles_finished_runs_and_waits_for_recording_trajectories(engine
 
 def test_tool_price_override_and_cost_tiers():
     credit_pricing._tool_prices.cache_clear()
-    with patch.object(settings, "CREDITS_TOOL_PRICES", '{"web_search": 12, "mcp:amap": "bad", "new_tool": 3}'):
+    with patch.object(settings, "CREDITS_TOOL_PRICES", '{"web_search": 12, "mcp:context7": "bad", "new_tool": 3}'):
         prices = credit_pricing.tool_prices()
-    assert (prices["web_search"], prices["mcp:amap"], prices["new_tool"]) == (12, 2, 3)
+    assert (prices["web_search"], prices["mcp:context7"], prices["new_tool"]) == (12, 1, 3)
 
     assert credit_pricing.cost_tier(MIMO_COSTS) == "low"
     assert credit_pricing.cost_tier(DEEPSEEK_COSTS) == "mid"

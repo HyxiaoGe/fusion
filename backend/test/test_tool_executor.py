@@ -804,7 +804,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(records[0].result.status, "failed")
         handler.execute.assert_awaited_once()
 
-    async def test_stable_amap_product_tool_reuses_single_product_lifecycle(self):
+    async def test_stable_map_product_tool_reuses_single_product_lifecycle(self):
         handler = MagicMock()
         handler.tool_name = "local_place_search"
         handler.supports_automatic_retry = False
@@ -834,7 +834,7 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         emitter.tool_call_completed.assert_awaited_once()
         self.assertEqual(emitter.tool_call_completed.await_args.kwargs["tool_name"], "local_place_search")
 
-    async def test_amap_route_runs_before_place_calls_and_results_keep_model_order(self):
+    async def test_map_calls_no_longer_reorder_and_results_keep_model_order(self):
         request = tool_executor_module.ToolExecutionBatchRequest(
             conversation_id="conv-1",
             user_id="user-1",
@@ -869,7 +869,8 @@ class DynamicToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.stream.tool_executor.execute_one_tool_call", side_effect=execute_one_tool_call):
             records = await tool_executor_module.execute_tool_batch(request, [place_first, route, place_second])
 
-        self.assertEqual(started, ["call-route", "call-place-1", "call-place-2"])
+        # 地图调用按次计预算，不再需要路线先行；同批并发启动，结果按模型顺序。
+        self.assertEqual(started, ["call-place-1", "call-route", "call-place-2"])
         self.assertEqual(
             [record.tool_call["id"] for record in records],
             ["call-place-1", "call-route", "call-place-2"],

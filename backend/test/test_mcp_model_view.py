@@ -1,22 +1,20 @@
 import unittest
 
 from app.services.mcp.agent_tools import load_mcp_agent_tools
-from app.services.mcp.amap_product_tools import AMAP_PRODUCT_REMOTE_DEPENDENCIES
+from app.services.mcp.image_service_tools import IMAGE_SERVICE_REMOTE_TOOL_NAME
 from app.services.mcp.model_view import build_mcp_model_view
 from test.test_mcp_agent_tools import FakeRepository, build_row
 
-AMAP_NAMES = sorted(set().union(*AMAP_PRODUCT_REMOTE_DEPENDENCIES.values()))
 
-
-def amap_row():
+def image_row():
     return build_row(
-        id="z-amap",
-        name="高德地图",
-        provider="amap",
-        endpoint_url="http://agent-tools-gateway:8100/amap/mcp",
-        allowed_tools=AMAP_NAMES,
+        id="z-image",
+        name="生图",
+        provider="image-service",
+        endpoint_url="http://agent-tools-gateway:8100/image/mcp",
+        allowed_tools=[IMAGE_SERVICE_REMOTE_TOOL_NAME],
         discovered_tools=[
-            {"name": name, "description": name, "input_schema": {"type": "object"}} for name in AMAP_NAMES
+            {"name": IMAGE_SERVICE_REMOTE_TOOL_NAME, "description": "draw", "input_schema": {"type": "object"}}
         ],
     )
 
@@ -31,68 +29,36 @@ def generic_row(server_id, endpoint, count):
     )
 
 
-def view(rows, quota=None):
-    quota = quota or {}
+def view(rows):
     return build_mcp_model_view(
         object(),
         rows=rows,
         load_tools=lambda db, **kwargs: load_mcp_agent_tools(
-            db, repository_factory=lambda _db: FakeRepository(rows), **kwargs
+            db, repository_factory=lambda _db: FakeRepository(rows), maps_hidden=lambda: True, **kwargs
         ),
-        read_quota=lambda server_id, groups: {g: s for g, s in quota.get(server_id, {}).items() if g in groups},
     )
 
 
 class McpModelViewTests(unittest.TestCase):
     def test_products_and_generic_tools_listed_per_server(self):
         rows = [
-            amap_row(),
+            image_row(),
             generic_row("a-tencent", "https://mcp.map.qq.com/mcp", 12),
             generic_row("b-docs", "https://learn.microsoft.com/api/mcp", 1),
         ]
 
         result = view(rows)
 
-        amap = result["servers"]["z-amap"]
-        self.assertEqual([tool["name"] for tool in amap["tools"]], ["local_place_search", "route_compare"])
-        self.assertEqual(
-            amap["tools"][0]["source_tools"], sorted(AMAP_PRODUCT_REMOTE_DEPENDENCIES["local_place_search"])
-        )
-        self.assertEqual(amap["hidden_tools"], [])
-        self.assertIn("关键词", amap["tools"][0]["description"])
+        image = result["servers"]["z-image"]
+        self.assertEqual([tool["name"] for tool in image["tools"]], ["generate_image"])
+        self.assertEqual(image["tools"][0]["kind"], "product")
+        self.assertEqual(image["tools"][0]["source_tools"], [IMAGE_SERVICE_REMOTE_TOOL_NAME])
+        self.assertIn("生成图片", image["tools"][0]["description"])
         tencent = result["servers"]["a-tencent"]["tools"]
         self.assertEqual(tencent[0]["name"], "tool_0")
         self.assertEqual(tencent[0]["description"], "tool_0")
         self.assertEqual(len(tencent), 12)
         self.assertEqual(set(result), {"servers"})
-
-    def test_quota_exhausted_hides_search_product_only(self):
-        rows = [
-            amap_row(),
-            generic_row("a-tencent", "https://mcp.map.qq.com/mcp", 12),
-            generic_row("b-docs", "https://learn.microsoft.com/api/mcp", 1),
-        ]
-
-        result = view(rows, quota={"z-amap": {"search": 3600}})
-
-        amap = result["servers"]["z-amap"]
-        self.assertEqual([tool["name"] for tool in amap["tools"]], ["route_compare"])
-        self.assertEqual(
-            amap["hidden_tools"],
-            [
-                {
-                    "name": "local_place_search",
-                    "label": "高德地点搜索",
-                    "description": amap["hidden_tools"][0]["description"],
-                    "source_tools": sorted(AMAP_PRODUCT_REMOTE_DEPENDENCIES["local_place_search"]),
-                    "reason": "quota_exhausted",
-                    "resets_in_seconds": 3600,
-                }
-            ],
-        )
-        self.assertIn("关键词", amap["hidden_tools"][0]["description"])
-        self.assertEqual(amap["quota_exhausted"], [{"group": "search", "resets_in_seconds": 3600}])
-        self.assertEqual(len(result["servers"]["a-tencent"]["tools"]), 12)
 
     def test_disabled_server_has_no_model_tools(self):
         rows = [generic_row("b-docs", "https://learn.microsoft.com/api/mcp", 1)]
@@ -100,7 +66,7 @@ class McpModelViewTests(unittest.TestCase):
 
         result = view(rows)
 
-        self.assertEqual(result["servers"]["b-docs"], {"tools": [], "hidden_tools": []})
+        self.assertEqual(result["servers"]["b-docs"], {"tools": []})
 
 
 if __name__ == "__main__":

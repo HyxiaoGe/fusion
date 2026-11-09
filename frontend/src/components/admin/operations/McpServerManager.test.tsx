@@ -54,24 +54,9 @@ const modelView = {
   servers: {
     'mcp-1': {
       tools: [{ name: 'local_place_search', label: '高德地点搜索', kind: 'product', source_tools: ['maps_text_search'] }],
-      hidden_tools: [],
-      quota_exhausted: [],
     },
   },
 };
-
-const recommendedAmapReadOnlyTools = [
-  'maps_geo',
-  'maps_regeocode',
-  'maps_direction_bicycling',
-  'maps_direction_walking',
-  'maps_direction_driving',
-  'maps_direction_transit_integrated',
-  'maps_distance',
-  'maps_text_search',
-  'maps_around_search',
-  'maps_search_detail',
-];
 
 async function selectAuthType(label: string) {
   fireEvent.keyDown(screen.getByRole('combobox', { name: '鉴权方式' }), { key: 'ArrowDown' });
@@ -85,7 +70,7 @@ describe('McpServerManager', () => {
     apiMocks.fetchModelView.mockResolvedValue(modelView);
   });
 
-  it('按服务展示模型实际可用的工具、加载方式和额度用尽暂不提供的工具', async () => {
+  it('按服务展示模型实际可用的工具和加载方式', async () => {
     const tencent = {
       ...server,
       id: 'mcp-2',
@@ -99,12 +84,9 @@ describe('McpServerManager', () => {
       servers: {
         'mcp-1': {
           tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', source_tools: ['maps_geo', 'maps_direction_driving'] }],
-          hidden_tools: [{ name: 'local_place_search', label: '高德地点搜索', reason: 'quota_exhausted', resets_in_seconds: 7200 }],
-          quota_exhausted: [{ group: 'search', resets_in_seconds: 7200 }],
         },
         'mcp-2': {
           tools: [{ name: 'placeSuggestion', label: '腾讯地图 · placeSuggestion', kind: 'generic', source_tools: ['placeSuggestion'] }],
-          hidden_tools: [],
         },
       },
     });
@@ -114,9 +96,6 @@ describe('McpServerManager', () => {
     const amap = await screen.findByTestId('mcp-server-mcp-1');
     expect(within(amap).getByText('高德路线比较')).toBeInTheDocument();
     expect(within(amap).getByText('组合 maps_geo、maps_direction_driving')).toBeInTheDocument();
-    expect(within(amap).getByText('高德地点搜索')).toBeInTheDocument();
-    expect(within(amap).getByText('暂不提供')).toBeInTheDocument();
-    expect(within(amap).getByText('本月搜索类（关键字/周边/详情）额度已用完，约 2 小时后恢复')).toBeInTheDocument();
     const tencentCard = screen.getByTestId('mcp-server-mcp-2');
     const tencentModelTools = within(tencentCard).getByRole('region', { name: '腾讯地图提供给模型的工具' });
     expect(within(tencentModelTools).getByText('placeSuggestion')).toBeInTheDocument();
@@ -130,7 +109,6 @@ describe('McpServerManager', () => {
       servers: {
         'mcp-1': {
           tools: [{ name: 'route_compare', label: '高德路线比较', kind: 'product', source_tools: ['maps_text_search'], description: '比较两地之间的耗时和距离' }],
-          hidden_tools: [{ name: 'local_place_search', label: '高德地点搜索', description: '按关键词搜索地点', source_tools: ['maps_around_search'], reason: 'quota_exhausted', resets_in_seconds: 600 }],
         },
       },
     });
@@ -141,12 +119,10 @@ describe('McpServerManager', () => {
     const dialog = await screen.findByRole('dialog', { name: '高德地图 · 工具说明' });
     expect(within(dialog).getByText('比较两地之间的耗时和距离')).toBeInTheDocument();
     expect(within(dialog).getByText('调用远端工具：maps_text_search')).toBeInTheDocument();
-    expect(within(dialog).getByText('暂不提供')).toBeInTheDocument();
-    expect(within(dialog).getByText('本月额度已用完，约 10 分钟后恢复')).toBeInTheDocument();
     expect(within(dialog).getByText('关键词搜索')).toBeInTheDocument();
-    expect(within(dialog).getAllByText('供产品工具调用')).toHaveLength(2);
+    expect(within(dialog).getAllByText('供产品工具调用')).toHaveLength(1);
     expect(within(dialog).getByText('周边搜索')).toBeInTheDocument();
-    expect(within(dialog).queryByText('未授权')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('未授权')).toBeInTheDocument();
   });
 
   it('模型可用工具取不到时服务列表照常显示', async () => {
@@ -233,7 +209,7 @@ describe('McpServerManager', () => {
     apiMocks.fetch.mockResolvedValue([{ ...server, allowed_tools: [] }]);
     apiMocks.fetchModelView.mockResolvedValue({
       ...modelView,
-      servers: { 'mcp-1': { tools: [], hidden_tools: [] } },
+      servers: { 'mcp-1': { tools: [] } },
     });
 
     render(<McpServerManager />);
@@ -332,43 +308,6 @@ describe('McpServerManager', () => {
     expect(apiMocks.create).not.toHaveBeenCalled();
   });
 
-  it('高德安全预设指向 agent-tools 网关代理，只带产品服务密钥的凭证引用', async () => {
-    apiMocks.create.mockResolvedValue({
-      ...server,
-      endpoint_url: 'http://agent-tools-gateway:8100/amap/mcp',
-      auth_type: 'bearer',
-      auth_name: null,
-      credential_ref: 'AGENT_TOOLS_API_KEY',
-      allowed_tools: [],
-    });
-
-    render(<McpServerManager />);
-    await screen.findByText('高德地图');
-    fireEvent.click(screen.getByRole('button', { name: '新增 MCP 服务' }));
-    fireEvent.click(screen.getByRole('button', { name: '使用高德安全预设' }));
-
-    expect(screen.getByLabelText('服务名称')).toHaveValue('高德地图');
-    expect(screen.getByLabelText('提供商')).toHaveValue('amap');
-    expect(screen.getByLabelText('Endpoint URL')).toHaveValue('http://agent-tools-gateway:8100/amap/mcp');
-    expect(screen.getByLabelText('Endpoint URL')).not.toHaveValue(expect.stringContaining('?'));
-    expect(screen.getByRole('combobox', { name: '鉴权方式' })).toHaveTextContent('Bearer');
-    expect(screen.getByLabelText('凭证引用')).toHaveValue('AGENT_TOOLS_API_KEY');
-    expect(screen.queryByLabelText(/API Key|明文密钥|secret|token/i)).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: '保存服务' }));
-
-    await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith({
-      name: '高德地图',
-      provider: 'amap',
-      endpoint_url: 'http://agent-tools-gateway:8100/amap/mcp',
-      transport: 'streamable_http',
-      auth_type: 'bearer',
-      auth_name: null,
-      credential_ref: 'AGENT_TOOLS_API_KEY',
-      allowed_tools: [],
-    }));
-  });
-
   it('Context7 技术文档预设指向 agent-tools 网关代理并提交空工具白名单', async () => {
     apiMocks.create.mockResolvedValue({
       ...server,
@@ -458,41 +397,6 @@ describe('McpServerManager', () => {
     fireEvent.click(within(card).getByRole('button', { name: '编辑Context7 技术文档' }));
 
     expect(screen.getByRole('button', { name: '一键选择推荐文档工具' })).toBeInTheDocument();
-  });
-
-  it('编辑已发现高德服务时一键只选择发现快照中的推荐只读工具', async () => {
-    const discoveredRecommendedTools = recommendedAmapReadOnlyTools.filter(
-      (name) => name !== 'maps_distance',
-    );
-    const discoveredTools = [
-      ...discoveredRecommendedTools.map((name) => ({ name, description: `只读工具 ${name}` })),
-      { name: 'maps_ip_location', description: 'IP 定位未列入推荐集合' },
-      { name: 'maps_schema_personal_map', description: '生成专属地图' },
-    ];
-    apiMocks.fetch.mockResolvedValue([{
-      ...server,
-      allowed_tools: ['maps_schema_personal_map'],
-      discovered_tools: discoveredTools,
-    }]);
-    apiMocks.update.mockResolvedValue(server);
-
-    render(<McpServerManager />);
-    const card = await screen.findByTestId('mcp-server-mcp-1');
-    fireEvent.click(within(card).getByRole('button', { name: '编辑高德地图' }));
-    fireEvent.click(screen.getByRole('button', { name: '一键选择推荐只读工具' }));
-
-    discoveredRecommendedTools.forEach((toolName) => {
-      expect(screen.getByRole('checkbox', { name: new RegExp(toolName) })).toBeChecked();
-    });
-    expect(screen.queryByRole('checkbox', { name: /maps_distance/ })).toBeNull();
-    expect(screen.getByRole('checkbox', { name: /maps_ip_location/ })).not.toBeChecked();
-    expect(screen.getByRole('checkbox', { name: /maps_schema_personal_map/ })).not.toBeChecked();
-
-    fireEvent.click(screen.getByRole('button', { name: '保存服务' }));
-    await waitFor(() => expect(apiMocks.update).toHaveBeenCalledWith(
-      'mcp-1',
-      expect.objectContaining({ allowed_tools: discoveredRecommendedTools }),
-    ));
   });
 
   it('编辑 Context7 服务时一键只选择已发现的两个推荐文档工具', async () => {

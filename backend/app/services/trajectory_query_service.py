@@ -36,8 +36,8 @@ from app.services.agent.trajectory_reconciliation import (
     resolve_ledger_watermark,
     resolve_user_trajectory_status_from_rows,
 )
-from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
+from app.services.mcp.maps_tools import MAPS_TOOL_NAMES
 from app.services.weather import WEATHER_TOOL_NAMES
 from app.utils.prompt_fingerprint import fingerprint_system_messages
 from app.utils.time import as_utc, utc_now
@@ -438,7 +438,7 @@ class TrajectoryQueryService:
         elif tool.tool_name == "url_read":
             payload_projection = {key: raw_payload[key] for key in _USER_URL_READ_ARGUMENT_FIELDS if key in raw_payload}
             result_projection = {key: raw_result[key] for key in _USER_URL_READ_RESULT_FIELDS if key in raw_result}
-        elif tool.tool_name.startswith("mcp_") or tool.tool_name in AMAP_PRODUCT_TOOL_NAMES | WEATHER_TOOL_NAMES:
+        elif tool.tool_name.startswith("mcp_") or tool.tool_name in MAPS_TOOL_NAMES | WEATHER_TOOL_NAMES:
             payload_projection = (
                 {"argument_count": raw_payload["argument_count"]} if "argument_count" in raw_payload else {}
             )

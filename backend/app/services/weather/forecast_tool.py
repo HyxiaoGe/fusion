@@ -30,7 +30,7 @@ from app.services.external.agent_tools_mcp import (
     build_gateway_tool_definition,
     call_gateway_tool,
 )
-from app.services.mcp.amap_product_tools import format_product_context, redact_product_text
+from app.services.mcp.product_context import format_product_context, redact_product_text
 from app.services.mcp.tool_contract import canonical_json_bytes, validate_tool_arguments
 from app.services.tool_handlers.base import BaseToolHandler, ToolResult, ToolRuntimeContext
 from app.services.weather import WEATHER_FORECAST_TOOL_NAME

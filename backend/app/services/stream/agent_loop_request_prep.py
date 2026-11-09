@@ -43,8 +43,8 @@ from app.services.chat.message_builder import (
 )
 from app.services.chat.tool_transcript_store import ToolTranscriptHistory, load_tool_transcripts
 from app.services.documents.agent_tools import DocumentToolSet, render_current_documents_context
-from app.services.mcp.amap_product_tools import AMAP_PRODUCT_TOOL_NAMES
 from app.services.mcp.flyai_travel_tools import FLYAI_TRAVEL_TOOL_NAMES
+from app.services.mcp.maps_tools import MAPS_TOOL_NAMES
 from app.services.prompt_snapshot_service import freeze_runtime_prompt_bundle, with_call_config_prompt_snapshot
 from app.services.stream.persistence import preprocess_url_in_message
 from app.services.stream.reasoning_policy import configure_reasoning_call_kwargs
@@ -539,7 +539,7 @@ def inject_no_tool_network_boundary(
     network_tool_names = {"web_search", "url_read"}
     if (
         network_tool_names.intersection(announced_tools)
-        or AMAP_PRODUCT_TOOL_NAMES.intersection(announced_tools)
+        or MAPS_TOOL_NAMES.intersection(announced_tools)
         or WEATHER_TOOL_NAMES.intersection(announced_tools)
         or FLYAI_TRAVEL_TOOL_NAMES.intersection(announced_tools)
         or any(name.startswith("mcp_") for name in announced_tools)

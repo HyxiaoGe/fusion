@@ -547,7 +547,7 @@ class AgentLoopRequestPrepTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(config.dynamic_tool_handlers["mcp_microsoft_docs_a1b2c3d4"], handler)
         self.assertEqual(config.tool_bindings, [binding])
 
-    def test_build_call_config_injects_stable_amap_product_tool_without_false_network_boundary(self):
+    def test_build_call_config_injects_stable_map_product_tool_without_false_network_boundary(self):
         product_tool = {
             "type": "function",
             "function": {

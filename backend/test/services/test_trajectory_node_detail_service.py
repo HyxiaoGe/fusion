@@ -555,40 +555,28 @@ class TrajectoryNodeDetailServiceTests(unittest.TestCase):
 
         asyncio.run(record())
 
-    def test_new_weather_detail_retains_business_io_after_database_reload(self):
-        """若仍读取审计参数个数与结果元数据，刷新后城市和天气正文会消失。"""
+    def test_new_place_detail_retains_business_io_after_database_reload(self):
+        """若仍读取审计参数个数与结果元数据，刷新后地名和地点结果会消失。"""
         from app.services.admin_audit_service import AdminAuditService
-        from app.services.mcp.amap_product_tools import AmapProductToolBinding, AmapProductToolHandler
+        from app.services.mcp.maps_tools import LOCAL_PLACE_SEARCH
         from app.services.tool_handlers.base import ToolResult
+        from test.test_maps_tools import maps_handler
 
-        handler = AmapProductToolHandler(
-            binding=AmapProductToolBinding(
-                alias="weather_forecast",
-                server_id="amap-1",
-                provider="amap",
-                remote_tool_name="adapter:weather_forecast",
-                config_version=1,
-                tool_label="查询天气",
-                definition_sha256="a" * 64,
-            ),
-            remote_executor=None,
-            dependency_hashes={},
-            max_llm_context_bytes=12000,
-        )
-        payload = {"city": "南京"}
-        data = {"result": {"city": "南京", "forecasts": [{"date": "2026-09-07", "weather": "晴"}]}}
+        handler = maps_handler(LOCAL_PLACE_SEARCH)
+        payload = {"query": "火锅", "anchor_source": "named", "near": "南京新街口"}
+        data = {"result": {"query": "火锅", "places": [{"place_id": "amap_B0", "name": "南京大牌档"}]}}
         self._record_live_tool(handler, payload, ToolResult(status="success", data=data, duration_ms=125))
 
         for _ in range(2):
             response = self._service().get_user_tool_node_detail("conv-1", "run-captured", "call-captured", "user-1")
-            self.assertEqual(response.detail.payload, {"city": "南京"})
+            self.assertEqual(response.detail.payload, payload)
             self.assertEqual(response.detail.result, data)
             self.assertEqual(response.redacted_fields, [])
             self.assertEqual(response.truncated_fields, [])
             self.assertIsNone(response.reason)
         with self.Session() as db:
             audit = AdminAuditService._tool_item(db.get(ToolCallLog, "log-captured"))
-            self.assertNotIn("forecasts", json.dumps(audit, ensure_ascii=False, default=str))
+            self.assertNotIn("places", json.dumps(audit, ensure_ascii=False, default=str))
             self.assertNotIn("南京", json.dumps(audit, ensure_ascii=False, default=str))
         self.assertIsNone(
             self._service().get_user_tool_node_detail("conv-1", "run-captured", "call-captured", "user-2")
